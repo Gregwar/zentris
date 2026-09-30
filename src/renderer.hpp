@@ -131,6 +131,10 @@ private:
     std::vector<Burst> bursts_;
     std::vector<Dying> dying_;
     float rayTime_ = 0;
+    // Equalizer state at the finest resolution: bar levels, peak caps and their hold timers.
+    static constexpr int EQ_MAX = 48;
+    float eqBar_[EQ_MAX] = {}, eqPeak_[EQ_MAX] = {}, eqHold_[EQ_MAX] = {};
+    void updateEqualizer(const MusicState& music, float dt);
     Rng rng_{12345};
     static constexpr int MAX_PARTICLES = 26000;
 };

@@ -9,7 +9,7 @@ Dependencies (Debian/Ubuntu): `sudo apt install cmake g++ libglfw3-dev libglew-d
 
 ```sh
 cmake -S . -B build && cmake --build build -j
-./build/zentetris                 # plays every .mp3/.wav/.flac in ./audio, shuffled
+./build/zentetris                 # plays every .mp3/.wav/.flac in ./audio, in order (--shuffle for random)
 ./build/zentetris song.mp3 ~/Music --fullscreen
 ```
 
@@ -23,7 +23,7 @@ Node.js, and Node.js is picked up automatically). Songs are downloaded when queu
 ./build/zenscope "https://www.youtube.com/watch?v=..."
 ```
 
-Other options: `--seed N` (repeat a scene), `--autoplay`, `--mute`, `--size WxH`,
+Other options: `--shuffle` (random song order; default is in order: folders alphabetically, playlists in their order), `--seed N` (repeat a scene), `--autoplay`, `--mute`, `--size WxH`,
 `--shots PREFIX N` (renders N screenshots of different scenes and exits), `--phase-shots PREFIX` (one screenshot per scene level of a song).
 
 ## zenscope: see what the game hears
@@ -42,6 +42,9 @@ The game and zenscope share the same analysis and song plan code (`src/songplan.
 
 Keyboard and gamepad both work at the same time. A gamepad is detected at startup and on hot-plug,
 and the on-screen hints follow whichever device you used last.
+Controllers are recognised through the bundled [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB)
+(`third_party/gamecontrollerdb.txt`; extra mappings can be given in `SDL_GAMECONTROLLERCONFIG`). A controller
+missing from it still works with a generic layout.
 
 | Action | Keyboard | Gamepad |
 |---|---|---|

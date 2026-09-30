@@ -26,28 +26,37 @@ void Library::scan(const std::vector<std::string>& paths) {
         }
         std::error_code ec;
         if (fs::is_directory(p, ec)) {
+            std::vector<std::string> dir; // a folder plays in alphabetical order
             for (auto& e : fs::recursive_directory_iterator(p, ec))
-                if (e.is_regular_file() && isAudioFile(e.path())) files_.push_back(e.path().string());
+                if (e.is_regular_file() && isAudioFile(e.path())) dir.push_back(e.path().string());
+            std::sort(dir.begin(), dir.end());
+            files_.insert(files_.end(), dir.begin(), dir.end());
         } else if (fs::is_regular_file(p, ec) && isAudioFile(p)) {
             files_.push_back(p);
         }
     }
-    std::sort(files_.begin(), files_.end());
-    files_.erase(std::unique(files_.begin(), files_.end()), files_.end());
+    // Drop duplicates, keeping the given order (a YouTube playlist keeps its own order).
+    std::vector<std::string> unique;
+    for (auto& f : files_)
+        if (std::find(unique.begin(), unique.end(), f) == unique.end()) unique.push_back(f);
+    files_.swap(unique);
 }
 
 std::string Library::pickNext(uint64_t seed) {
     if (files_.empty()) return {};
     if (queue_.empty()) {
-        for (size_t i = 0; i < files_.size(); i++) queue_.push_back(i);
-        Rng rng(seed);
-        for (size_t i = queue_.size(); i > 1; i--) std::swap(queue_[i - 1], queue_[rng.next() % i]);
-        // Never repeat the song that just played when reshuffling.
-        if (queue_.size() > 1 && queue_.back() == lastPlayed_) std::swap(queue_.back(), queue_.front());
+        // queue_ is consumed from the back: fill it reversed so the list plays in its order.
+        for (size_t i = files_.size(); i > 0; i--) queue_.push_back(i - 1);
+        if (shuffle_) {
+            Rng rng(seed);
+            for (size_t i = queue_.size(); i > 1; i--) std::swap(queue_[i - 1], queue_[rng.next() % i]);
+            // Never repeat the song that just played when reshuffling.
+            if (queue_.size() > 1 && queue_.back() == lastPlayed_) std::swap(queue_.back(), queue_.front());
+        }
     }
-    // Prefer a song that is ready to play now (local file or already downloaded) among the next few,
-    // so the next song is available quickly even while downloads are running.
-    for (int i = (int)queue_.size() - 1, n = 0; i >= 0 && n < 6; i--, n++) {
+    // Shuffle mode: prefer a song that is ready to play now (local file or already downloaded) among the
+    // next few, so the next song is available quickly even while downloads are running.
+    for (int i = (int)queue_.size() - 1, n = 0; shuffle_ && i >= 0 && n < 6; i--, n++) {
         const std::string& e = files_[queue_[i]];
         if (!isYoutubeEntry(e) || isYoutubeCached(e)) {
             std::swap(queue_[i], queue_.back());

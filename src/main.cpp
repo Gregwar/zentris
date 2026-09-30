@@ -23,7 +23,7 @@ namespace fs = std::filesystem;
 
 struct Options {
     std::vector<std::string> paths;
-    bool autoplay = false, mute = false, fullscreen = false, hidden = false;
+    bool autoplay = false, mute = false, fullscreen = false, hidden = false, shuffle = false;
     std::string shotPrefix;
     int shotCount = 0;
     bool phaseShots = false;
@@ -39,6 +39,7 @@ static void usage() {
         "  --fullscreen         start fullscreen\n"
         "  --size WxH           window size (default 1600x900)\n"
         "  --seed N             fixed scene seed (default: random each run)\n"
+        "  --shuffle            play songs in random order (default: in order)\n"
         "  --autoplay           let the computer play\n"
         "  --mute               no sound\n"
         "  --shots PREFIX N     render N screenshots of different scenes then exit (testing)\n"
@@ -370,6 +371,7 @@ int App::run() {
     const bool shotMode = !opt_.shotPrefix.empty();
 
     if (!glfwInit()) { std::fprintf(stderr, "glfwInit failed\n"); return 1; }
+    Input::loadMappings();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -395,6 +397,7 @@ int App::run() {
     if (!audio_.init()) std::fprintf(stderr, "[audio] continuing without sound\n");
     audio_.setMuted(opt_.mute || shotMode);
     lib_.setSampleRate(audio_.sampleRate());
+    lib_.setShuffle(opt_.shuffle);
     lib_.scan(opt_.paths);
     std::printf("[app] %zu songs found\n", lib_.size());
     lib_.prefetch(runSeed_);
@@ -659,6 +662,20 @@ int App::run() {
             }
         }
         glfwSwapBuffers(win_);
+        // Debug: ZEN_FPS=1 prints the average frame time every 2 s.
+        static const bool showFps = std::getenv("ZEN_FPS") != nullptr;
+        if (showFps) {
+            static double acc = 0, t0 = glfwGetTime();
+            static int frames = 0;
+            frames++;
+            double tn = glfwGetTime();
+            if (tn - t0 > 2.0) {
+                std::printf("[fps] %.1f fps (%.2f ms/frame)\n", frames / (tn - t0), 1000.0 * (tn - t0) / frames);
+                frames = 0;
+                t0 = tn;
+            }
+            (void)acc;
+        }
     }
     audio_.shutdown();
     glfwDestroyWindow(win_);
@@ -674,6 +691,7 @@ int main(int argc, char** argv) {
         if (a == "-h" || a == "--help") { usage(); return 0; }
         else if (a == "--autoplay") o.autoplay = true;
         else if (a == "--mute") o.mute = true;
+        else if (a == "--shuffle") o.shuffle = true;
         else if (a == "--fullscreen") o.fullscreen = true;
         else if (a == "--hidden") o.hidden = true;
         else if (a == "--seed" && i + 1 < argc) o.seed = std::stoull(argv[++i]);

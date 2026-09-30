@@ -33,6 +33,10 @@ add_executable(zentetris
   src/renderer.cpp
 )
 target_link_libraries(zentetris PRIVATE zencore glfw GLEW::GLEW OpenGL::GL)
+# Gamepad mappings (SDL_GameControllerDB): looked up next to the executable, then in the sources.
+target_compile_definitions(zentetris PRIVATE ZEN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+add_custom_command(TARGET zentetris POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                   ${CMAKE_SOURCE_DIR}/third_party/gamecontrollerdb.txt $<TARGET_FILE_DIR:zentetris>/gamecontrollerdb.txt)
 
 # zenscope: shows what the analysis hears in a song (structure, scene levels, pulses, spectrum, beats).
 add_executable(zenscope src/zenscope.cpp)

@@ -73,7 +73,13 @@ struct Theme {
     float ghostAlpha = 0.25f;
 
     int clearEffects[3] = {CE_SHRINK, CE_RISE, CE_SWEEP};
-    int eqStyle = 0;        // audio equalizer decoration: 0 none, 1 bars beside the board, 2 side bars, 3 ring
+    // Audio equalizer decoration.
+    int eqStyle = 0;        // layout: 0 none, 1 beside the board (bottom), 2 along both sides, 3 ring, 4 backdrop
+    int eqRender = 0;       // 0 bars, 1 bars + falling peak caps, 2 LED segments, 3 line plot, 4 mirrored, 5 needles
+    int eqBars = 16;        // 16, 24, 32 or 48 (interpolated between the analysed bands)
+    int eqColor = 0;        // 0 gradient along frequencies, 1 by height, 2 single accent
+    float eqDecay = 8.f;    // how fast bars fall back (per second)
+    float eqPeakFall = 0.5f;// how fast peak caps fall (height units per second)
     float eqAlpha = 0.5f;
     float rays = 0.f;       // light rays behind the board (0 = none)
     float rayCount = 8.f;

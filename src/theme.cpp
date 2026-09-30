@@ -249,8 +249,16 @@ Theme generateTheme(const Footprint& fp, uint64_t seed) {
 
     // ---- Energy decorations: an audio equalizer and/or light rays behind the board.
     {
-        float w[4] = {1.2f, 1.f, 1.f, 0.8f};
+        float w[5] = {1.0f, 1.f, 1.f, 0.8f, 0.8f};
         t.eqStyle = r.weighted(w);
+        float rw[6] = {1.f, 1.3f, 1.1f, 1.1f, 0.9f, 1.f};
+        t.eqRender = r.weighted(rw);
+        const int barsChoice[4] = {16, 24, 32, 48};
+        t.eqBars = barsChoice[r.irange(0, 3)];
+        float cw[3] = {1.4f, 1.f, 0.7f};
+        t.eqColor = r.weighted(cw);
+        t.eqDecay = r.chance(0.5f) ? r.range(3.f, 6.f) : r.range(9.f, 16.f);
+        t.eqPeakFall = r.range(0.25f, 0.9f);
         t.eqAlpha = r.range(0.35f, 0.6f);
         t.rays = r.chance(0.5f) ? r.range(0.12f, 0.3f) : 0.f;
         t.rayCount = (float)r.irange(5, 14);

@@ -438,43 +438,144 @@ void Renderer::onEvent(const GameEvent& ev, const Game&) {
     }
 }
 
-// Audio equalizer decoration, drawn with emissive bars behind the board.
+// Equalizer levels at 48 bars (interpolated from the 16 analysed bands): fast attack, theme-specific
+// decay, and peak caps that hold briefly then fall at a steady speed.
+void Renderer::updateEqualizer(const MusicState& music, float dt) {
+    const Theme& th = to_;
+    for (int i = 0; i < EQ_MAX; i++) {
+        float x = i * (NUM_BANDS - 1) / float(EQ_MAX - 1);
+        int b0 = (int)x, b1 = std::min(NUM_BANDS - 1, b0 + 1);
+        float v = lerpf(music.bandsFast[b0], music.bandsFast[b1], x - b0) * (0.6f + 0.6f * music.energy);
+        v = saturate(v);
+        eqBar_[i] = v > eqBar_[i] ? v : approach(eqBar_[i], v, th.eqDecay, dt);
+        if (eqBar_[i] >= eqPeak_[i]) {
+            eqPeak_[i] = eqBar_[i];
+            eqHold_[i] = 0.35f;
+        } else if ((eqHold_[i] -= dt) <= 0.f) {
+            eqPeak_[i] = std::max(eqBar_[i], eqPeak_[i] - th.eqPeakFall * dt);
+        }
+    }
+}
+
+// Audio equalizer decoration: a layout (where) x a rendering (how) x resolution x coloring.
 void Renderer::addEqualizer(const Theme& th, float weight, const MusicState& music, std::vector<BlockInst>& fx) {
     if (th.eqStyle == 0 || weight <= 0.01f) return;
     const float E = music.energy;
-    const float a = th.eqAlpha * (0.55f + 0.45f * E) * weight;
     const float halfW = BOARD_W * 0.5f + 0.15f, halfH = BOARD_H * 0.5f + 0.15f;
-    auto bar = [&](vec3 c, vec3 sc, int band) {
+    const int N = std::clamp(th.eqBars, 8, EQ_MAX);
+    float alpha = th.eqAlpha * (0.55f + 0.45f * E) * weight;
+    if (th.eqStyle == 4) alpha *= 0.45f; // backdrop sits behind the playfield: keep it dim
+    auto level = [&](float u, const float* src) { // u in [0,1] along the spectrum
+        float x = u * (EQ_MAX - 1);
+        int i0 = (int)x, i1 = std::min(EQ_MAX - 1, i0 + 1);
+        return lerpf(src[i0], src[i1], x - i0);
+    };
+    auto color = [&](float u, float h) {
+        vec3 c = th.eqColor == 0 ? lerp(cur_.partA, cur_.partB, u)
+               : th.eqColor == 1 ? lerp(cur_.partA, cur_.partB, h)
+                                 : cur_.accent;
+        return c * lerpf(1.15f, 1.f, paleW(cur_));
+    };
+    auto box = [&](vec3 c, vec3 sc, vec3 col, float a) {
+        if (sc.x <= 0.f || sc.y <= 0.f || a <= 0.002f) return;
         BlockInst b;
         b.pos = c;
         b.scale = sc;
-        b.color = vec4(lerp(cur_.partA, cur_.partB, band / 15.f) * lerpf(1.2f, 1.f, paleW(cur_)), a);
+        b.color = vec4(col, a);
         b.params = vec4(2, 0, 0, 0);
         fx.push_back(b);
     };
-    for (int i = 0; i < NUM_BANDS; i++) {
-        float v = music.bandsFast[i] * (0.6f + 0.6f * E);
-        for (int side = -1; side <= 1; side += 2) {
-            if (th.eqStyle == 1) { // bars rising beside the board
-                float h = 0.15f + 3.2f * v; // stays below the score column and previews
-                bar(vec3(side * (6.6f + i * 0.85f), -halfH + h * 0.5f, -1.5f), vec3(0.5f, h, 0.2f), i);
-            } else if (th.eqStyle == 2) { // bars growing outward along both sides
-                float len = 0.15f + 1.9f * v; // stays clear of the score column and previews
-                bar(vec3(side * (halfW + 0.45f + len * 0.5f), -halfH + 0.8f + i * 1.22f, -1.f), vec3(len, 0.42f, 0.2f), i);
+    struct Bar { vec3 origin, dir, across; float lmax, width; };
+    std::vector<Bar> bars;
+    std::vector<float> us; // spectrum position of each bar
+    // Layouts give, for each bar, where it starts, which way it grows, and its maximum length.
+    if (th.eqStyle == 1) { // beside the board, bottom, both sides (lows near the board)
+        float span = 12.5f, sp = span / N;
+        for (int side = -1; side <= 1; side += 2)
+            for (int i = 0; i < N; i++) {
+                bars.push_back({vec3(side * (6.4f + (i + 0.5f) * sp), -halfH, -1.5f), vec3(0, 1, 0), vec3(1, 0, 0), 3.2f, sp * 0.6f});
+                us.push_back(i / float(N - 1));
             }
+    } else if (th.eqStyle == 2) { // along both sides of the board, growing outward
+        float span = 2 * halfH - 1.f, sp = span / N;
+        for (int side = -1; side <= 1; side += 2)
+            for (int i = 0; i < N; i++) {
+                bars.push_back({vec3(side * (halfW + 0.45f), -halfH + 0.5f + (i + 0.5f) * sp, -1.f), vec3((float)side, 0, 0),
+                                vec3(0, 1, 0), 1.9f, sp * 0.65f});
+                us.push_back(i / float(N - 1));
+            }
+    } else if (th.eqStyle == 4) { // backdrop: rising behind the playfield
+        float sp = (2 * halfW) / N;
+        for (int i = 0; i < N; i++) {
+            bars.push_back({vec3(-halfW + (i + 0.5f) * sp, -halfH, -0.75f), vec3(0, 1, 0), vec3(1, 0, 0), 2 * halfH * 0.8f, sp * 0.7f});
+            us.push_back(std::fabs(i / float(N - 1) * 2.f - 1.f)); // lows in the middle
+        }
+    } else { // ring behind the board (mirrored halves)
+        int n = N * 2;
+        for (int i = 0; i < n; i++) {
+            float ang = TAU * i / n + 0.5f * PI;
+            vec3 d(std::cos(ang), std::sin(ang), 0);
+            bars.push_back({d * 12.5f + vec3(0, 0, -3.f), d, vec3(-d.y, d.x, 0), 4.f, 0.3f});
+            us.push_back(std::fabs(i / float(n) * 2.f - 1.f));
         }
     }
-    if (th.eqStyle == 3) { // radial ring of dots behind the board
-        const int bars = 48;
-        for (int i = 0; i < bars; i++) {
-            int band = (i < bars / 2 ? i : bars - 1 - i) * NUM_BANDS / (bars / 2);
-            band = std::min(band, NUM_BANDS - 1);
-            float ang = TAU * i / bars + 0.5f * PI;
-            int n = 1 + (int)(music.bandsFast[band] * (0.6f + 0.6f * E) * 8.f);
+    const bool axisAligned = th.eqStyle != 3; // ring bars are not axis-aligned: draw them with squares
+    int render = th.eqRender;
+    if (!axisAligned && (render == 0 || render == 4)) render = 2;
+    if (!axisAligned && render == 5) render = 3;
+    vec3 prevTip;
+    bool havePrev = false;
+    for (size_t k = 0; k < bars.size(); k++) {
+        const Bar& B = bars[k];
+        const float u = us[k];
+        const float v = level(u, eqBar_), pk = level(u, eqPeak_);
+        const float L = 0.12f + B.lmax * v;
+        const vec3 col = color(u, v);
+        auto axisBox = [&](vec3 from, float len, float width, vec3 c, float a) {
+            vec3 center = from + B.dir * (len * 0.5f);
+            vec3 sc = vec3(std::fabs(B.dir.x) * len + std::fabs(B.across.x) * width,
+                           std::fabs(B.dir.y) * len + std::fabs(B.across.y) * width, 0.15f);
+            box(center, sc, c, a);
+        };
+        switch (render) {
+        case 0: axisBox(B.origin, L, B.width, col, alpha); break;                              // bars
+        case 1:                                                                                // bars + peak caps
+            axisBox(B.origin, L, B.width, col, alpha * 0.8f);
+            axisBox(B.origin + B.dir * (0.12f + B.lmax * pk + 0.08f), 0.1f, B.width, color(u, pk) * 1.15f, alpha);
+            break;
+        case 2: {                                                                              // LED segments
+            const float seg = std::max(0.22f, B.lmax / 12.f);
+            int n = std::max(1, (int)(L / seg));
             for (int j = 0; j < n; j++) {
-                float rr = 12.5f + j * 0.55f;
-                bar(vec3(std::cos(ang) * rr, std::sin(ang) * rr, -3.f), vec3(0.3f, 0.3f, 0.1f), band);
+                float h = (j + 0.5f) / (B.lmax / seg);
+                vec3 c = B.origin + B.dir * ((j + 0.5f) * seg);
+                float w = axisAligned ? B.width : 0.26f;
+                box(c, vec3(axisAligned ? (std::fabs(B.dir.x) * seg * 0.7f + std::fabs(B.across.x) * w) : w,
+                            axisAligned ? (std::fabs(B.dir.y) * seg * 0.7f + std::fabs(B.across.y) * w) : w, 0.12f),
+                    th.eqColor == 1 ? color(u, h) : col, alpha);
             }
+            break;
+        }
+        case 3: {                                                                              // line plot
+            vec3 tip = B.origin + B.dir * L;
+            box(tip, vec3(0.16f), col * 1.1f, alpha);
+            // connect consecutive tips on the same side with small dots
+            bool sameRow = havePrev && length(tip - prevTip) < 2.5f;
+            if (sameRow)
+                for (int j = 1; j < 4; j++) box(lerp(prevTip, tip, j / 4.f), vec3(0.09f), col, alpha * 0.8f);
+            prevTip = tip;
+            havePrev = true;
+            break;
+        }
+        case 4: {                                                                              // mirrored around a center line
+            vec3 center = B.origin + B.dir * (B.lmax * 0.5f);
+            axisBox(center - B.dir * (L * 0.5f), L, B.width, col, alpha);
+            break;
+        }
+        default:                                                                               // needles + peak dots
+            axisBox(B.origin, L, B.width * 0.25f, col, alpha * 0.9f);
+            box(B.origin + B.dir * (0.12f + B.lmax * pk + 0.1f), vec3(std::max(0.12f, B.width * 0.5f)), color(u, pk) * 1.15f, alpha);
+            break;
         }
     }
 }
@@ -645,7 +746,9 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
         }
     };
     // Equalizer decoration (both themes' layouts during a transition).
-    if (from_.eqStyle == to_.eqStyle) addEqualizer(to_, 1.f, music, fx);
+    const bool sameEq = from_.eqStyle == to_.eqStyle && from_.eqRender == to_.eqRender && from_.eqBars == to_.eqBars &&
+                        from_.eqColor == to_.eqColor;
+    if (sameEq) addEqualizer(to_, 1.f, music, fx);
     else {
         addEqualizer(from_, 1.f - mix_, music, fx);
         addEqualizer(to_, mix_, music, fx);
@@ -927,6 +1030,7 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
     for (int i = 0; i < to_.layerCount; i++) drawParticleLayer(to_.layers[i], to_, m, true, music);
 
     std::vector<BlockInst> solid, ghost, fx;
+    updateEqualizer(music, paused ? 0.f : dt);
     collectBoard(game, music, time, solid, ghost, fx);
     glUseProgram(progBlock_);
     setMat(progBlock_, "uVP", vp_);

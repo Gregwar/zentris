@@ -18,6 +18,8 @@ public:
     enum Device { Keyboard, Gamepad };
 
     void init(GLFWwindow* w);
+    // Loads SDL_GameControllerDB mappings so many more controllers are recognised as gamepads.
+    static void loadMappings();
     void update(float dt);
 
     bool down(Action a) const { return down_[a]; }
@@ -38,6 +40,7 @@ private:
     int repeat_[A_COUNT] = {};
     float held_[A_COUNT] = {}, acc_[A_COUNT] = {};
     int jid_ = -1;
+    bool mapped_ = true; // false: raw joystick without a known mapping (generic layout)
     std::string padName_;
     Device active_ = Keyboard;
     float changedTimer_ = 0;

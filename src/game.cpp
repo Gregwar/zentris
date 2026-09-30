@@ -321,7 +321,7 @@ void Game::update(float dt) {
         }
         return;
     }
-    visX_ = approach(visX_, (float)cur_.x, 30.f, dt);
+    visX_ = (float)cur_.x; // sideways moves are instant (smoothing them reads as input lag)
     visY_ = approach(visY_, (float)cur_.y, 22.f, dt);
 
     Piece below = cur_;
