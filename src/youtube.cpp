@@ -39,7 +39,7 @@ std::string cacheDir() {
     const char* xdg = std::getenv("XDG_CACHE_HOME");
     const char* home = std::getenv("HOME");
     fs::path base = xdg && *xdg ? fs::path(xdg) : fs::path(home ? home : ".") / ".cache";
-    fs::path dir = base / "zentetris" / "youtube";
+    fs::path dir = base / "zentris" / "youtube";
     std::error_code ec;
     fs::create_directories(dir, ec);
     return dir.string();

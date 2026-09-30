@@ -1,4 +1,4 @@
-// Zen Tetris: a minimalist, music-driven Tetris.
+// Zentris: a minimalist, music-driven Tetris.
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
@@ -34,7 +34,7 @@ struct Options {
 
 static void usage() {
     std::printf(
-        "usage: zentetris [options] [songs or folders...]\n"
+        "usage: zentris [options] [songs or folders...]\n"
         "  (default: plays everything in ./audio; a YouTube playlist/video URL also works, via yt-dlp)\n"
         "  --fullscreen         start fullscreen\n"
         "  --size WxH           window size (default 1600x900)\n"
@@ -261,7 +261,7 @@ std::vector<HudText> App::buildHud(float dt) {
     if (track_) {
         float a = trackAge_ < 7.f ? smoothstepf(0, 1, trackAge_) : 0.35f;
         const Footprint& fp = track_->analysis.fp;
-        hud.push_back({track_->title, 28 * s, 24 * s, 2.2f * s, a});
+        hud.push_back({asciiFold(track_->title), 28 * s, 24 * s, 2.2f * s, a});
         char info[128];
         std::snprintf(info, sizeof(info), "%.0f BPM   %s", fp.bpm, keyName(fp.key, fp.minor).c_str());
         hud.push_back({info, 28 * s, 50 * s, 1.5f * s, a * 0.7f, true});
@@ -305,7 +305,7 @@ std::vector<HudText> App::buildHud(float dt) {
     }
     skipToast_ = std::max(0.f, skipToast_ - dt);
     if (wantSkip_ || skipToast_ > 0)
-        hud.push_back({wantSkip_ ? "NEXT SONG LOADING: " + lib_.loadingTitle() : "NOW: " + (track_ ? track_->title : std::string()), -28 * s, 44 * s, 1.4f * s,
+        hud.push_back({wantSkip_ ? "NEXT SONG LOADING: " + asciiFold(lib_.loadingTitle()) : "NOW: " + (track_ ? asciiFold(track_->title) : std::string()), -28 * s, 44 * s, 1.4f * s,
                        wantSkip_ ? 0.8f : std::min(0.8f, skipToast_), true});
 
     // Seek feedback: song time and the section the song is in.
@@ -321,7 +321,7 @@ std::vector<HudText> App::buildHud(float dt) {
 
     failedToast_ = std::max(0.f, failedToast_ - dt);
     if (failedToast_ > 0)
-        hud.push_back({"COULD NOT LOAD " + failedTitle_ + ", TRYING ANOTHER SONG", -28 * s, 64 * s, 1.3f * s,
+        hud.push_back({"COULD NOT LOAD " + asciiFold(failedTitle_) + ", TRYING ANOTHER SONG", -28 * s, 64 * s, 1.3f * s,
                        std::min(1.f, failedToast_), true});
 
     levelToast_ = std::max(0.f, levelToast_ - dt);
@@ -387,7 +387,7 @@ int App::run() {
     GLFWmonitor* mon = opt_.fullscreen ? glfwGetPrimaryMonitor() : nullptr;
     int ww = opt_.width, wh = opt_.height;
     if (mon) { const GLFWvidmode* vm = glfwGetVideoMode(mon); ww = vm->width; wh = vm->height; }
-    win_ = glfwCreateWindow(ww, wh, "Zen Tetris", mon, nullptr);
+    win_ = glfwCreateWindow(ww, wh, "Zentris", mon, nullptr);
     if (!win_) { std::fprintf(stderr, "could not create an OpenGL 3.3 window\n"); glfwTerminate(); return 1; }
     glfwMakeContextCurrent(win_);
     glfwSwapInterval(shotMode || opt_.hidden ? 0 : 1);

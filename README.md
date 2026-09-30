@@ -1,6 +1,14 @@
-# Zen Tetris
+# Zentris
 
-A minimalist, relaxing Tetris in C++ / OpenGL 3.3, rendered in 3D and driven by the music you load.
+A Tetris game inspired by **Tetris Effect**, but playing **any playlist you like**: your own music folder or
+a YouTube playlist. Each song is analysed ahead of time (tempo, key, structure: intro, verse, build,
+chorus, drop...) and the game stages it: pieces fall on the beat, the pace follows the song's energy, and
+a procedurally generated 3D scene evolves with every section. Built in C++ / OpenGL 3.3.
+
+![Ten scenes from the example playlist](docs/scenes.jpg)
+
+*Ten scenes generated for songs of the [example playlist](https://www.youtube.com/playlist?list=PLy_wKxVmWb4ZDMEH_u3oyDw-2GDfkZrP-).
+Every song, and every run, gets its own scene.*
 
 ## Build & run
 
@@ -9,17 +17,17 @@ Dependencies (Debian/Ubuntu): `sudo apt install cmake g++ libglfw3-dev libglew-d
 
 ```sh
 cmake -S . -B build && cmake --build build -j
-./build/zentetris                 # plays every .mp3/.wav/.flac in ./audio, in order (--shuffle for random)
-./build/zentetris song.mp3 ~/Music --fullscreen
+./build/zentris                 # plays every .mp3/.wav/.flac in ./audio, in order (--shuffle for random)
+./build/zentris song.mp3 ~/Music --fullscreen
 ```
 
 YouTube playlists (or single videos) work too, through [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 (install it with `pipx install "yt-dlp[default]"`; YouTube also needs a JavaScript runtime such as Deno or
 Node.js, and Node.js is picked up automatically). Songs are downloaded when queued and cached as MP3 in
-`~/.cache/zentetris/youtube/`. Downloading from YouTube is against its terms of service: personal use only.
+`~/.cache/zentris/youtube/`. Downloading from YouTube is against its terms of service: personal use only.
 
 ```sh
-./build/zentetris "https://www.youtube.com/playlist?list=..."   # quote it: & is special in the shell
+./build/zentris "https://www.youtube.com/playlist?list=PLy_wKxVmWb4ZDMEH_u3oyDw-2GDfkZrP-"   # quote it: & is special in the shell
 ./build/zenscope "https://www.youtube.com/watch?v=..."
 ```
 

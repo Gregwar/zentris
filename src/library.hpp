@@ -40,3 +40,7 @@ private:
 };
 
 std::shared_ptr<Track> loadTrack(const std::string& path, uint32_t sampleRate);
+
+// The HUD font is ASCII only: folds UTF-8 text to ASCII (accents removed, quotes/dashes simplified,
+// other symbols dropped).
+std::string asciiFold(const std::string& utf8);

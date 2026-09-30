@@ -1,4 +1,4 @@
-// zenscope: shows what Zen Tetris "hears" in a song — structure (segments, groups), scene levels and
+// zenscope: shows what Zentris "hears" in a song — structure (segments, groups), scene levels and
 // changes, pulse zones, spectrum, loudness / intensity / onsets and the beat grid — while playing it.
 //
 //   zenscope [songs or folders...]        (default: ./audio)
@@ -561,7 +561,7 @@ void Scope::drawFrame(int w, int h) {
         return;
     }
     const Footprint& fp = track_->analysis.fp;
-    d_.text(track_->title, 30, 20, 2.6f, TEXT);
+    d_.text(asciiFold(track_->title), 30, 20, 2.6f, TEXT);
     char buf[256];
     std::snprintf(buf, sizeof(buf),
                   "%.1f BPM   %s   BRIGHTNESS %.2f   BASS %.2f   AIR %.2f   DYNAMICS %.2f   DENSITY %.2f   "
@@ -571,7 +571,7 @@ void Scope::drawFrame(int w, int h) {
     d_.text(buf, 30, 52, 1.4f, LABEL);
     std::snprintf(buf, sizeof(buf), "SONG %d/%zu", index_ + 1, files_.size());
     d_.text(buf, R, 22, 1.4f, LABEL, 2);
-    if (loading_.valid()) d_.text("LOADING  " + loadingTitle_ + " ...", R, 52, 1.3f, rgb(1.f, 0.7f, 0.35f), 2);
+    if (loading_.valid()) d_.text("LOADING  " + asciiFold(loadingTitle_) + " ...", R, 52, 1.3f, rgb(1.f, 0.7f, 0.35f), 2);
 
     drawOverview(L, R, 90);
     float y = ovBottom_ + 22;
@@ -633,7 +633,7 @@ int Scope::run(int argc, char** argv) {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
     glfwWindowHint(GLFW_SAMPLES, 4);
     if (hidden || shot) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    win_ = glfwCreateWindow(1680, 960, "Zen Tetris - scope", nullptr, nullptr);
+    win_ = glfwCreateWindow(1680, 960, "Zentris - scope", nullptr, nullptr);
     if (!win_) return 1;
     glfwMakeContextCurrent(win_);
     glfwSwapInterval(shot ? 0 : 1);

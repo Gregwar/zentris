@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 
 #include "mathutil.hpp"
@@ -94,6 +95,44 @@ std::shared_ptr<Track> Library::takeReady() {
     if (!pending_.valid()) return nullptr;
     if (pending_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return nullptr;
     return pending_.get();
+}
+
+std::string asciiFold(const std::string& s) {
+    // Latin-1 supplement U+00C0..U+00FF -> base letters.
+    static const char* LATIN1 = "AAAAAAACEEEEIIIIDNOOOOOxOUUUUYTsaaaaaaaceeeeiiiidnooooo/ouuuuyty";
+    std::string out;
+    for (size_t i = 0; i < s.size();) {
+        unsigned char c = (unsigned char)s[i];
+        uint32_t cp;
+        int len;
+        if (c < 0x80) { cp = c; len = 1; }
+        else if ((c >> 5) == 0x6 && i + 1 < s.size()) { cp = ((c & 0x1F) << 6) | (s[i + 1] & 0x3F); len = 2; }
+        else if ((c >> 4) == 0xE && i + 2 < s.size()) { cp = ((c & 0x0F) << 12) | ((s[i + 1] & 0x3F) << 6) | (s[i + 2] & 0x3F); len = 3; }
+        else if ((c >> 3) == 0x1E && i + 3 < s.size()) { cp = 0x10000; len = 4; }
+        else { cp = '?'; len = 1; }
+        i += len;
+        if (cp < 0x80) out += (char)cp;
+        else if (cp >= 0xC0 && cp <= 0xFF) {
+            char ch = LATIN1[cp - 0xC0];
+            if (cp == 0xDF) out += "ss";
+            else if (cp == 0xC6) out += "AE";
+            else if (cp == 0xE6) out += "ae";
+            else if (ch != 'x' && ch != '/') out += ch;
+        } else if (cp >= 0x100 && cp <= 0x17F) { // Latin Extended-A: approximate by pairs
+            static const char* EXT_A = "AaAaAaCcCcCcCcDdDdEeEeEeEeEeGgGgGgGgHhHhIiIiIiIiIiJjJjKkkLlLlLlLlLlNnNnNnnNnOoOoOoOoRrRrRrSsSsSsSsTtTtTtUuUuUuUuUuUuWwYyYZzZzZzs";
+            size_t k = cp - 0x100;
+            if (k < std::strlen(EXT_A)) out += EXT_A[k];
+        } else if (cp == 0x2018 || cp == 0x2019) out += '\'';
+        else if (cp == 0x201C || cp == 0x201D) out += '"';
+        else if (cp == 0x2013 || cp == 0x2014) out += '-';
+        else if (cp == 0x2026) out += "...";
+        // other symbols (bullets, emoji...) are dropped
+    }
+    // collapse repeated spaces left by dropped symbols
+    std::string clean;
+    for (char ch : out)
+        if (!(ch == ' ' && !clean.empty() && clean.back() == ' ')) clean += ch;
+    return clean;
 }
 
 std::shared_ptr<Track> loadTrack(const std::string& entry, uint32_t sampleRate) {
