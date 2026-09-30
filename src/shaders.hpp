@@ -63,6 +63,9 @@ float wipeCoord(vec2 ndc, float aspect, float noise) {
     else if (uWipeShape == 19) d = length((ndc + 1.0) * vec2(aspect, 1.0)) / length(vec2(aspect, 1.0) * 2.0);
     else if (uWipeShape == 20) d = abs(ndc.y);
     else if (uWipeShape == 21) d = noise * 0.7 + 0.3 * fract(sin(dot(floor(ndc * 40.0), vec2(12.9898, 78.233))) * 43758.5453);
+    else if (uWipeShape == 22) d = noise * 0.55 + (ndc.y * 0.5 + 0.5) * 0.45;
+    else if (uWipeShape == 23) d = noise * 0.55 + radial * 0.45;
+    else if (uWipeShape == 24) d = noise;
     else d = radial;
     return clamp(d, 0.0, 1.0);
 }
@@ -71,6 +74,8 @@ uniform vec4 uP;
 uniform float uTime, uBass, uIntensity, uBeat, uAspect, uPale;
 uniform vec4 uRays; // strength A, count A, strength B, count B
 uniform float uRayTime;
+uniform vec4 uSurfA, uSurfB; // style, amount, scale, (unused) for each side of a transition
+uniform float uSurfTime;
 )";
 
 inline const char* BG_FS_BODY = R"(
@@ -83,15 +88,12 @@ vec3 bgStyle(int s, vec2 uv) {
     } else if (s == 1) { // radial halo
         float d = length(c - vec2(0.0, (uP.x - 0.5) * 0.3));
         return mix(grad, uGlow, exp(-d * d * (5.0 + 6.0 * uP.y)) * 0.55 * breathe);
-    } else if (s == 2) { // horizon + sun
+    } else if (s == 2) { // horizon: glowing horizon line and a soft diffuse glow above it (no sun disc)
         float hy = 0.35 + 0.2 * uP.x;
         vec3 col = mix(uBottom, uTop, smoothstep(hy - 0.05, 1.0, uv.y));
         col = mix(col, uGlow * 0.8, exp(-abs(uv.y - hy) * 18.0) * 0.5 * breathe);
-        vec2 sc = c - vec2((uP.y - 0.5) * 0.6, hy + 0.12 - 0.5);
-        float sun = 1.0 - smoothstep(0.125, 0.13, length(sc));
-        float stripes = step(0.5, fract((uv.y - hy) * 60.0)) + step(hy + 0.1, uv.y);
-        col = mix(col, uGlow * 1.2, sun * clamp(stripes, 0.0, 1.0) * 0.8);
-        col += uGlow * exp(-length(sc) * 5.0) * 0.25 * breathe;
+        vec2 gc = c - vec2((uP.y - 0.5) * 0.9, hy - 0.5);
+        col += uGlow * exp(-dot(gc, gc) * (3.0 + 4.0 * uP.z)) * 0.18 * breathe * smoothstep(hy - 0.02, hy + 0.05, uv.y);
         return col;
     } else if (s == 3) { // nebula
         vec2 p = c * (1.6 + uP.x * 2.0) + vec2(uTime * 0.01, uTime * 0.004);
@@ -225,16 +227,120 @@ vec3 bgStyle(int s, vec2 uv) {
         return col;
     }
 }
+// Continuous surface layers (not points). Returns color and coverage to mix over the background.
+float polyDist(vec2 q, float sides) {
+    float a = atan(q.y, q.x), seg = 6.2831853 / sides;
+    return cos(floor(0.5 + a / seg) * seg - a) * length(q);
+}
+vec4 surface(vec4 S, vec2 uv) {
+    int s = int(S.x + 0.5);
+    if (s == 0 || S.y <= 0.001) return vec4(0.0);
+    float amt = S.y * (0.7 + 0.5 * uIntensity) * (1.0 + 0.15 * uBeat) * mix(1.0, 0.7, uPale);
+    vec2 c = vec2((uv.x - 0.5) * uAspect, uv.y - 0.5) * S.z;
+    float T = uSurfTime;
+    vec3 colA = uGlow, colB = mix(uTop, uGlow, 0.5) * 1.4;
+    if (s == 1) { // drifting smoke (domain-warped noise)
+        vec2 q = c * 1.5;
+        vec2 w = vec2(fbm(q + T * 0.05), fbm(q + vec2(5.2, 1.3) - T * 0.04));
+        float n = fbm(q + 2.0 * w + T * 0.03);
+        return vec4(mix(colA, colB, w.x), smoothstep(0.35, 0.85, n) * amt);
+    } else if (s == 2) { // silk ribbons
+        float v = c.y * 3.0 + sin(c.x * 2.0 + T * 0.2) * 0.6 + fbm(c * 1.2 + T * 0.03) * 1.5;
+        float band = pow(0.5 + 0.5 * sin(v * 3.0), 4.0);
+        return vec4(mix(colA, colB, 0.5 + 0.5 * sin(v)), band * amt * 0.8);
+    } else if (s == 3) { // lava lamp blobs
+        float f = 0.0;
+        for (int i = 0; i < 6; i++) {
+            float fi = float(i);
+            vec2 p = vec2(sin(T * 0.07 * (1.0 + fi * 0.3) + fi * 2.1) * 0.7, sin(T * 0.05 * (1.0 + fi * 0.2) + fi * 1.3) * 0.45);
+            f += 0.018 / (dot(c - p, c - p) + 0.002);
+        }
+        return vec4(mix(colA, colB, smoothstep(1.0, 3.0, f)), smoothstep(0.9, 1.5, f) * amt);
+    } else if (s == 4) { // water caustics
+        vec2 p = c * 6.0;
+        for (int i = 0; i < 4; i++) {
+            float fi = float(i);
+            p += vec2(cos(p.y * 1.3 + T * 0.4 + fi), sin(p.x * 1.1 - T * 0.35 + fi * 1.7)) * 0.6;
+        }
+        float v = 0.5 + 0.5 * sin(p.x + p.y);
+        return vec4(colA * 1.1, pow(v, 12.0) * amt * 0.7); // thin, soft light lines
+    } else if (s == 5) { // ink swirls: contour lines of a warped field
+        float n = fbm(c * 2.0 + fbm(c * 3.0 + T * 0.03) * 2.0);
+        float l = smoothstep(0.44, 0.5, abs(fract(n * 5.0) - 0.5));
+        return vec4(mix(colA, colB, n), l * amt * 0.7);
+    } else if (s == 6) { // large slowly rotating geometric outlines
+        float a = 0.0;
+        for (int k = 0; k < 3; k++) {
+            float fk = float(k), dir = mod(fk, 2.0) * 2.0 - 1.0;
+            float ang = T * 0.04 * (fk + 1.0) * dir;
+            vec2 q = mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * c;
+            float d = polyDist(q, 3.0 + fk + floor(S.z * 2.0));
+            a += exp(-abs(d - (0.25 + 0.18 * fk)) * 90.0) * (1.0 - 0.2 * fk);
+        }
+        return vec4(mix(colA, colB, 0.4), min(a, 1.0) * amt);
+    } else if (s == 7) { // continuous aurora curtains
+        float a = 0.0;
+        for (int k = 0; k < 3; k++) {
+            float fk = float(k);
+            float x = c.x * (1.5 + fk * 0.5) + T * 0.05 * (fk + 1.0);
+            float y0 = 0.62 + 0.1 * fk + 0.07 * sin(x * 2.0) + 0.05 * fbm(vec2(x, fk));
+            float curtain = exp(-pow((uv.y - y0) * 7.0, 2.0)) * smoothstep(y0 - 0.25, y0, uv.y);
+            float rays = 0.6 + 0.4 * sin(x * 25.0 + fbm(vec2(x * 3.0, T * 0.1)) * 4.0);
+            a += curtain * rays * (0.7 - 0.15 * fk);
+        }
+        return vec4(mix(colA, colB, 0.3), min(a, 1.0) * amt);
+    } else if (s == 8) { // drifting fog banks
+        float a = 0.0;
+        for (int k = 0; k < 4; k++) {
+            float fk = float(k);
+            float y0 = 0.15 + 0.2 * fk + 0.05 * fbm(vec2(c.x * 2.0 + T * 0.02 * (fk + 1.0), fk));
+            a += exp(-pow((uv.y - y0) * 8.0, 2.0)) * fbm(vec2(c.x * 3.0 + T * 0.03 * (fk + 1.0), fk * 3.0));
+        }
+        return vec4(mix(uTop * 1.5, colA, 0.4), min(a, 1.0) * amt);
+    } else if (s == 9) { // sweeping light beams from below
+        float a = 0.0;
+        for (int k = 0; k < 3; k++) {
+            float fk = float(k);
+            vec2 o = vec2((fk - 1.0) * 0.6 * uAspect, -0.62);
+            float ang = 1.5708 + sin(T * 0.12 + fk * 2.1) * 0.45;
+            vec2 dir = vec2(cos(ang), sin(ang));
+            vec2 p = c / S.z - o;
+            float along = dot(p, dir), across = abs(dot(p, vec2(-dir.y, dir.x)));
+            a += (along > 0.0 ? 1.0 : 0.0) * exp(-across * across / (0.002 + 0.01 * along)) * exp(-along * 0.9);
+        }
+        return vec4(colA * 1.1, min(a, 1.0) * amt);
+    } else if (s == 10) { // glowing rings flowing inward
+        float r = length(c);
+        float v = fract(r * 4.0 + T * 0.12);
+        return vec4(mix(colA, colB, r), exp(-pow((v - 0.5) * 10.0, 2.0)) * exp(-r * 1.2) * amt);
+    } else if (s == 11) { // liquid gradient blobs
+        float v = sin(c.x * 2.0 + T * 0.1 + sin(c.y * 3.0 - T * 0.07));
+        float n = fbm(c * 0.8 + T * 0.02);
+        return vec4(mix(colA, colB, 0.5 + 0.5 * v), (0.4 + 0.6 * n) * amt * 0.55);
+    } else { // passing cloud shadows and light
+        float n = fbm(c * 1.0 + vec2(T * 0.04, T * 0.01));
+        vec3 col = n > 0.5 ? colA * 1.1 : uBottom * 0.35;
+        return vec4(col, abs(n - 0.5) * 2.0 * amt);
+    }
+}
+
 // Phase changes ripple outward from the board: k = how much of the new scene is shown here.
 float wipeMix(float d) { return uWipe.x > 0.5 ? 1.0 - smoothstep(uWipe.y - uWipe.z, uWipe.y, d) : uMix; }
 void main() {
-    float nz = clamp((fbm(vUV * vec2(uAspect, 1.0) * 2.5 + uWipeSeed) - 0.25) / 0.5, 0.0, 1.0);
+    vec2 wq = vUV * vec2(uAspect, 1.0);
+    float nz = uWipeShape == 24 ? fbm(wq * 1.8 + fbm(wq * 2.5 + uWipeSeed) * 1.6 + uWipeSeed)
+                                : fbm(wq * (uWipeShape >= 22 ? 1.6 : 2.5) + uWipeSeed);
+    nz = clamp((nz - 0.25) / 0.5, 0.0, 1.0);
     float d = wipeCoord(vUV * 2.0 - 1.0, uAspect, nz);
     float k = wipeMix(d);
     uTop = uTopA; uBottom = uBottomA; uGlow = uGlowA;
     vec3 a = bgStyle(uStyleA, vUV);
+    vec4 sa = surface(uSurfA, vUV);
+    a = mix(a, sa.rgb, clamp(sa.a, 0.0, 1.0));
     uTop = uTopB; uBottom = uBottomB; uGlow = uGlowB;
     vec3 b = bgStyle(uStyleB, vUV);
+    vec4 sb = surface(uSurfB, vUV);
+    b = mix(b, sb.rgb, clamp(sb.a, 0.0, 1.0));
     vec3 col = mix(a, b, k);
     vec3 glow = mix(uGlowA, uGlowB, k);
     // Energy glow rising from below the board: follows the song structure (calm = none, peak = strong).
@@ -294,6 +400,9 @@ float wipeCoord(vec2 ndc, float aspect, float noise) {
     else if (uWipeShape == 19) d = length((ndc + 1.0) * vec2(aspect, 1.0)) / length(vec2(aspect, 1.0) * 2.0);
     else if (uWipeShape == 20) d = abs(ndc.y);
     else if (uWipeShape == 21) d = noise * 0.7 + 0.3 * fract(sin(dot(floor(ndc * 40.0), vec2(12.9898, 78.233))) * 43758.5453);
+    else if (uWipeShape == 22) d = noise * 0.55 + (ndc.y * 0.5 + 0.5) * 0.45;
+    else if (uWipeShape == 23) d = noise * 0.55 + radial * 0.45;
+    else if (uWipeShape == 24) d = noise;
     else d = radial;
     return clamp(d, 0.0, 1.0);
 }

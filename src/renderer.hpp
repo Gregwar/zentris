@@ -45,6 +45,9 @@ enum WipeShape {
     WIPE_CORNER,   // from the bottom-left corner
     WIPE_SPLIT,    // from the horizontal middle line outward
     WIPE_GRAIN,    // fine noise
+    WIPE_CLOUD_RISE, // clouds, drifting upward
+    WIPE_CLOUD_OPEN, // clouds opening from the board
+    WIPE_SMOKE,    // warped smoke
     WIPE_COUNT
 };
 
@@ -140,7 +143,7 @@ private:
     float clearGlow_ = 0;
     std::vector<Burst> bursts_;
     std::vector<Dying> dying_;
-    float rayTime_ = 0;
+    float rayTime_ = 0, surfTime_ = 0;
     // Equalizer state at the finest resolution: bar levels, peak caps and their hold timers.
     static constexpr int EQ_MAX = 48;
     float eqBar_[EQ_MAX] = {}, eqPeak_[EQ_MAX] = {}, eqHold_[EQ_MAX] = {};

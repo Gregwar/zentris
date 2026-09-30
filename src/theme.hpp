@@ -95,6 +95,9 @@ struct Theme {
     float eqPeakFall = 0.5f;// how fast peak caps fall (height units per second)
     float eqAlpha = 0.5f;
     float rays = 0.f;       // light rays behind the board (0 = none)
+    // Continuous full-screen layer (not made of points): smoke, silk, lava, caustics, ink, geometry...
+    int surfStyle = 0;      // 0 none, see SURF_NAMES
+    float surfAmt = 0.4f, surfScale = 1.f;
     float rayCount = 8.f;
     int frameStyle = FR_OUTLINE;
     float frameAlpha = 0.6f;

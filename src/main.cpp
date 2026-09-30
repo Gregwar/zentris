@@ -156,10 +156,11 @@ int App::pickWipe(int kind) {
     switch (kind) {
     // radial rise fall left right inward curtains dissolve diagonal spiral diamond | risewave fallwave blinds
     // columns petals cross saltire checker corner split grain
-    case 0: { float v[WIPE_COUNT] = {3, 2.5f, 0.3f, 1, 1, 1.5f, 1, 0.7f, 1, 1.2f, 1.5f, 2, 0.3f, 0.8f, 0.8f, 1.5f, 1.2f, 1, 0.6f, 0.8f, 1.2f, 0.5f}; std::copy(v, v + WIPE_COUNT, w); break; }
-    case 1: { float v[WIPE_COUNT] = {0.5f, 0.3f, 2.5f, 1, 1, 0.7f, 1.5f, 3, 1, 0.8f, 0.5f, 0.3f, 2, 1.2f, 1, 0.5f, 0.6f, 0.6f, 0.8f, 0.8f, 0.8f, 2}; std::copy(v, v + WIPE_COUNT, w); break; }
-    case 2: { float v[WIPE_COUNT] = {1, 1.5f, 0.8f, 1.2f, 1.2f, 0.6f, 1.2f, 0, 1.2f, 0.8f, 0.8f, 1.2f, 1, 1, 1, 0.6f, 0.6f, 0.6f, 0.4f, 0.8f, 1, 0}; std::copy(v, v + WIPE_COUNT, w); break; }
-    default: { float v[WIPE_COUNT] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}; std::copy(v, v + WIPE_COUNT, w); break; }
+    // ... | cloudrise cloudopen smoke  (organic cloud-like shapes are favoured everywhere)
+    case 0: { float v[WIPE_COUNT] = {3, 2.5f, 0.3f, 1, 1, 1.5f, 1, 1.5f, 1, 1.2f, 1.5f, 2, 0.3f, 0.8f, 0.8f, 1.5f, 1.2f, 1, 0.6f, 0.8f, 1.2f, 1, 3, 3, 2.5f}; std::copy(v, v + WIPE_COUNT, w); break; }
+    case 1: { float v[WIPE_COUNT] = {0.5f, 0.3f, 2.5f, 1, 1, 0.7f, 1.5f, 3.5f, 1, 0.8f, 0.5f, 0.3f, 2, 1.2f, 1, 0.5f, 0.6f, 0.6f, 0.8f, 0.8f, 0.8f, 2.5f, 2, 2.5f, 3.5f}; std::copy(v, v + WIPE_COUNT, w); break; }
+    case 2: { float v[WIPE_COUNT] = {1, 1.5f, 0.8f, 1.2f, 1.2f, 0.6f, 1.2f, 0, 1.2f, 0.8f, 0.8f, 1.2f, 1, 1, 1, 0.6f, 0.6f, 0.6f, 0.4f, 0.8f, 1, 0, 2, 1.5f, 0}; std::copy(v, v + WIPE_COUNT, w); break; }
+    default: { float v[WIPE_COUNT] = {1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.5f, 2.5f, 2.5f, 2.5f}; std::copy(v, v + WIPE_COUNT, w); break; }
     }
     return wipeRng_.weighted(w);
 }

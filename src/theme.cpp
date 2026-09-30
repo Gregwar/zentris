@@ -19,6 +19,8 @@ const char* BS_NAMES[BS_COUNT] = {"GLASS", "SOLID", "WIRE", "LANTERN", "INSET", 
                                   "BEVEL", "PIXEL", "STRIPES", "CORE", "HATCH", "BREATH"};
 const char* MESH_NAMES[MESH_COUNT] = {"CUBE", "ROUNDED", "ORB", "GEM"};
 const char* MOOD_NAMES[3] = {"NIGHT", "DUSK", "PALE"};
+const char* SURF_NAMES[13] = {"", "SMOKE", "SILK", "LAVA", "CAUSTICS", "INK", "GEOMETRY", "AURORA", "FOG",
+                              "BEAMS", "FLOW RINGS", "LIQUID", "SHADES"};
 
 vec3 ok(float L, float C, float h) { return oklchToLinear(L, C, h); }
 
@@ -121,9 +123,11 @@ void makeLayer(Rng& r, const Footprint& fp, int, ParticleLayer& L, int style, bo
 
 std::string themeName(const Theme& t) {
     const int mood = (int)std::lround(t.pal.mood);
+    std::string parts = t.layerCount > 0 ? std::string(PS_NAMES[t.layers[0].style]) : std::string("NO PARTICLES");
+    if (t.layerCount > 1) parts += std::string(" + ") + PS_NAMES[t.layers[1].style];
+    if (t.surfStyle > 0) parts += std::string(" + ") + SURF_NAMES[t.surfStyle];
     return std::string(MOOD_NAMES[mood]) + " / " + BS_NAMES[t.blockStyle] + " " + MESH_NAMES[t.blockMesh] + " / " +
-           PS_NAMES[t.layers[0].style] + (t.layerCount > 1 ? std::string(" + ") + PS_NAMES[t.layers[1].style] : "") +
-           " / " + BG_NAMES[t.bgStyle];
+           parts + " / " + BG_NAMES[t.bgStyle];
 }
 
 } // namespace
@@ -249,6 +253,16 @@ Theme generateTheme(const Footprint& fp, uint64_t seed) {
         makeLayer(r, fp, mood, t.layers[1], pickParticleStyle(r, fp, mood, t.layers[0].style), true);
         t.layerCount = 2;
     }
+    // Continuous surface layer in about two thirds of the scenes; some of those drop particles entirely.
+    if (r.chance(0.65f)) {
+        float sw[13] = {0, 1.3f, 1.1f, 0.9f, mood == 2 ? 0.5f : 1.f, 1.f, 1.f, mood == 2 ? 0.3f : 1.f, 1.1f,
+                        mood == 2 ? 0.3f : 0.9f, 0.9f, 1.f, 1.1f};
+        t.surfStyle = r.weighted(sw);
+        t.surfAmt = mood == 2 ? r.range(0.25f, 0.45f) : r.range(0.3f, 0.6f);
+        t.surfScale = r.range(0.7f, 1.5f);
+        if (r.chance(0.3f)) t.layerCount = 0;
+        else if (t.layerCount == 2 && r.chance(0.5f)) t.layerCount = 1;
+    }
 
     // ---- Blocks.
     {
@@ -283,7 +297,7 @@ Theme generateTheme(const Footprint& fp, uint64_t seed) {
 
     // ---- Energy decorations: an audio equalizer and/or light rays behind the board.
     {
-        float w[4] = {1.0f, 1.f, 1.f, 0.8f};
+        float w[4] = {16.f, 1.f, 1.f, 0.8f}; // rare: about 1 scene in 7
         t.eqStyle = r.weighted(w);
         float rw[6] = {1.f, 1.3f, 1.1f, 1.1f, 0.9f, 1.f};
         t.eqRender = r.weighted(rw);
@@ -356,7 +370,8 @@ Theme evolveTheme(const Theme& base, const Footprint& fp, int level, float energ
         // Calm: sparse, muted, dim.
         t.pal.chroma = base.pal.chroma * 0.6f;
         t.pal.bgChroma = base.pal.bgChroma * 0.5f;
-        t.layerCount = 1;
+        t.layerCount = std::min(1, base.layerCount);
+        t.surfAmt = base.surfAmt * 0.75f;
         t.layers[0].bright *= 0.65f;
         t.layers[0].count *= 0.55f;
         t.bloom = base.bloom * 0.6f;
@@ -373,9 +388,11 @@ Theme evolveTheme(const Theme& base, const Footprint& fp, int level, float energ
         int avoid = base.layers[0].style;
         int st = pickParticleStyle(r, fp, mood, avoid);
         if (base.layerCount > 1 && st == base.layers[1].style) st = pickParticleStyle(r, fp, mood, avoid);
-        makeLayer(r, fp, mood, t.layers[1], st, true);
-        t.layers[1].count = std::min(1.f, t.layers[1].count * 1.6f);
-        t.layerCount = 2;
+        const int slot = base.layerCount == 0 ? 0 : 1;
+        makeLayer(r, fp, mood, t.layers[slot], st, true);
+        t.layers[slot].count = std::min(1.f, t.layers[slot].count * 1.6f);
+        t.layerCount = slot + 1;
+        t.surfAmt = std::min(0.8f, base.surfAmt * 1.25f);
         t.layers[0].count = std::min(1.f, t.layers[0].count * 1.3f);
         for (int i = 0; i < 2; i++) t.layers[i].bright *= 1.1f;
         t.bloom = base.bloom * 1.3f;
@@ -411,6 +428,7 @@ Theme blendThemes(const Theme& a, const Theme& b, float t) {
     for (int i = 0; i < 4; i++) r.bgP[i] = L(a.bgP[i], b.bgP[i]);
     r.edgeWidth = L(a.edgeWidth, b.edgeWidth);
     r.eqAlpha = L(a.eqAlpha, b.eqAlpha);
+    r.surfAmt = L(a.surfAmt, b.surfAmt);
     r.blockScale = L(a.blockScale, b.blockScale);
     r.blockDepth = L(a.blockDepth, b.blockDepth);
     r.meshExp = std::exp(L(std::log(a.meshExp), std::log(b.meshExp)));

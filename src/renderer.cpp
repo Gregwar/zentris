@@ -326,6 +326,9 @@ static float wipeCoord(int shape, float x, float y, float aspect, float noise) {
     }
     case WIPE_SPLIT: return std::fabs(y);
     case WIPE_GRAIN: return noise;
+    case WIPE_CLOUD_RISE: return noise * 0.55f + (y * 0.5f + 0.5f) * 0.45f;
+    case WIPE_CLOUD_OPEN: return noise * 0.55f + radial * 0.45f;
+    case WIPE_SMOKE: return noise;
     default: return radial;
     }
 }
@@ -884,6 +887,10 @@ void Renderer::drawBackground(const MusicState& music, double time) {
     const float rayGain = (0.4f + 0.8f * music.energy) * (0.6f + 0.6f * music.intensity) * govern_;
     set4f(progBg_, "uRays", from_.rays * (1.f - mix_) * rayGain, from_.rayCount, to_.rays * mix_ * rayGain, to_.rayCount);
     set1f(progBg_, "uRayTime", rayTime_);
+    const Theme& sA = wipe_ && transT_ < 1.f ? from_ : (transT_ < 1.f ? from_ : to_);
+    set4f(progBg_, "uSurfA", (float)sA.surfStyle, sA.surfAmt * (transT_ < 1.f && !wipe_ ? 1.f - mix_ : 1.f), sA.surfScale, 0.f);
+    set4f(progBg_, "uSurfB", (float)to_.surfStyle, to_.surfAmt * (transT_ < 1.f && !wipe_ ? mix_ : 1.f), to_.surfScale, 0.f);
+    set1f(progBg_, "uSurfTime", surfTime_);
     glBindVertexArray(emptyVao_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }
@@ -1086,6 +1093,7 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
     if (!paused) {
         ptimeFrom_ += dt * (0.5f + 0.9f * music.intensity) * music.speed * (0.75f + 0.7f * music.energy);
         rayTime_ += dt * (0.1f + 0.5f * music.energy);
+        surfTime_ += dt * (0.4f + 0.8f * music.energy) * (0.6f + 0.6f * music.intensity);
         for (size_t i = 0; i < dying_.size();) {
             dying_[i].t += dt;
             if (dying_[i].t > dying_[i].delay + dying_[i].dur + 0.05f) { dying_[i] = dying_.back(); dying_.pop_back(); continue; }
