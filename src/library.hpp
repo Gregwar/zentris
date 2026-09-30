@@ -21,6 +21,7 @@ public:
     // Returns the prefetched track if ready, else nullptr.
     std::shared_ptr<Track> takeReady();
     bool loading() const { return pending_.valid(); }
+    const std::string& loadingTitle() const { return loadingTitle_; } // song being prepared
 
 private:
     std::string pickNext(uint64_t seed);
@@ -29,6 +30,7 @@ private:
     size_t lastPlayed_ = (size_t)-1;
     uint32_t sampleRate_ = 48000;
     std::future<std::shared_ptr<Track>> pending_;
+    std::string loadingTitle_;
     // Remote songs: keep the next few downloaded ahead so skipping is instant.
     void downloadAhead();
     static constexpr int AHEAD = 3;

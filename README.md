@@ -19,7 +19,7 @@ Node.js, and Node.js is picked up automatically). Songs are downloaded when queu
 `~/.cache/zentetris/youtube/`. Downloading from YouTube is against its terms of service: personal use only.
 
 ```sh
-./build/zentetris "https://www.youtube.com/playlist?list=..."
+./build/zentetris "https://www.youtube.com/playlist?list=..."   # quote it: & is special in the shell
 ./build/zenscope "https://www.youtube.com/watch?v=..."
 ```
 

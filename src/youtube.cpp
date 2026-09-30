@@ -63,15 +63,26 @@ std::string youtubeEntryTitle(const std::string& entry) {
     return tab == std::string::npos ? entry.substr(5) : entry.substr(tab + 1);
 }
 
-std::vector<std::string> resolveYoutube(const std::string& url) {
+// A link with a list= parameter (e.g. watch?v=...&list=...) means the whole playlist.
+static std::string playlistUrl(const std::string& url) {
+    size_t p = url.find("list=");
+    if (p == std::string::npos || (p > 0 && url[p - 1] != '?' && url[p - 1] != '&')) return url;
+    std::string id;
+    for (size_t i = p + 5; i < url.size() && url[i] != '&' && url[i] != '#'; i++) id += url[i];
+    if (!safeId(id)) return url;
+    return "https://www.youtube.com/playlist?list=" + id;
+}
+
+std::vector<std::string> resolveYoutube(const std::string& rawUrl) {
     std::vector<std::string> out;
+    const std::string url = playlistUrl(rawUrl);
     std::string tool = ytdlp();
     if (tool.empty()) {
         std::fprintf(stderr, "[youtube] yt-dlp not found: install it (e.g. `pipx install yt-dlp`) to play %s\n",
                      url.c_str());
         return out;
     }
-    std::string cmd = tool + " --flat-playlist --no-warnings --print '%(id)s\t%(title)s' " + shellQuote(url) +
+    std::string cmd = tool + " --flat-playlist --yes-playlist --no-warnings --print '%(id)s\t%(title)s' " + shellQuote(url) +
                       " 2>/dev/null";
     std::printf("[youtube] listing %s ...\n", url.c_str());
     FILE* p = popen(cmd.c_str(), "r");
@@ -89,6 +100,9 @@ std::vector<std::string> resolveYoutube(const std::string& url) {
     }
     pclose(p);
     std::printf("[youtube] %zu songs\n", out.size());
+    if (out.size() == 1 && url.find("list=") == std::string::npos)
+        std::printf("[youtube] tip: this link is a single video. For a playlist, pass its list= link and put the URL\n"
+                    "          in quotes: an unquoted '&' cuts the URL in the shell.\n");
     return out;
 }
 

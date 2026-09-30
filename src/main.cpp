@@ -82,6 +82,8 @@ private:
     Rng wipeRng_{1};
     int pickWipe(int kind);    // 0 rising, 1 falling, 2 refresh, 3 song/scene change
     float seekToast_ = 0;
+    std::string failedTitle_;
+    float failedToast_ = 0;
     float overTime_ = 0; // seconds since game over
     bool paused_ = false, wantSkip_ = false, showHelp_ = true, quit_ = false;
     double songTime_ = 0, simSongTime_ = 0;
@@ -280,7 +282,7 @@ std::vector<HudText> App::buildHud(float dt) {
     }
     skipToast_ = std::max(0.f, skipToast_ - dt);
     if (wantSkip_ || skipToast_ > 0)
-        hud.push_back({wantSkip_ ? "DOWNLOADING / LOADING NEXT SONG..." : "NEXT: " + (track_ ? track_->title : std::string()), -28 * s, 44 * s, 1.4f * s,
+        hud.push_back({wantSkip_ ? "NEXT SONG LOADING: " + lib_.loadingTitle() : "NOW: " + (track_ ? track_->title : std::string()), -28 * s, 44 * s, 1.4f * s,
                        wantSkip_ ? 0.8f : std::min(0.8f, skipToast_), true});
 
     // Seek feedback: song time and the section the song is in.
@@ -293,6 +295,11 @@ std::vector<HudText> App::buildHud(float dt) {
                       an.segments.empty() ? "" : segmentName(an.segments[an.segmentAt(songTime_)].kind));
         hud.push_back({buf, w * 0.5f, 24 * s, 2.f * s, std::min(1.f, seekToast_ * 2.f), true, true});
     }
+
+    failedToast_ = std::max(0.f, failedToast_ - dt);
+    if (failedToast_ > 0)
+        hud.push_back({"COULD NOT LOAD " + failedTitle_ + ", TRYING ANOTHER SONG", -28 * s, 64 * s, 1.3f * s,
+                       std::min(1.f, failedToast_), true});
 
     // Input device toast.
     if (input_.deviceChangedTimer() > 0) {
@@ -388,9 +395,16 @@ int App::run() {
 
         // ---- Songs.
         if (!nextTrack_) {
+            bool wasLoading = lib_.loading();
+            std::string tried = lib_.loadingTitle();
             nextTrack_ = lib_.takeReady();
             if (nextTrack_) std::printf("[app] next song ready: %s\n", nextTrack_->title.c_str());
-            // A failed load (e.g. an unavailable video) just moves on to the next song.
+            // A failed load (e.g. an unavailable video) just moves on to another song.
+            if (!nextTrack_ && wasLoading && !lib_.loading()) {
+                std::printf("[app] could not load %s, trying another song\n", tried.c_str());
+                failedTitle_ = tried;
+                failedToast_ = 4.f;
+            }
             if (!nextTrack_ && !lib_.loading() && !lib_.empty()) lib_.prefetch(runSeed_ + (uint64_t)(runTime_ * 1000));
         }
         if (!track_ && nextTrack_) startTrack(std::move(nextTrack_));
@@ -423,6 +437,9 @@ int App::run() {
         static const double testSkip = std::getenv("ZEN_TEST_SKIP") ? std::atof(std::getenv("ZEN_TEST_SKIP")) : 0.0;
         const bool testSkipNow = testSkip > 0 && std::fmod(runTime_, testSkip) < dt && runTime_ > dt;
         if (testSkipNow) std::printf("[test] skip pressed (next ready: %s)\n", nextTrack_ ? "yes" : "no");
+        if (input_.pressed(A_NEXT_SONG) && !testSkipNow)
+            std::printf("[input] next song pressed (%zu songs, next %s)\n", lib_.size(),
+                        nextTrack_ ? ("ready: " + nextTrack_->title).c_str() : ("loading: " + lib_.loadingTitle()).c_str());
         if ((input_.pressed(A_NEXT_SONG) || testSkipNow) && lib_.size() > 1) {
             wantSkip_ = true;
             skipToast_ = 2.5f;

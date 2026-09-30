@@ -45,6 +45,15 @@ std::string Library::pickNext(uint64_t seed) {
         // Never repeat the song that just played when reshuffling.
         if (queue_.size() > 1 && queue_.back() == lastPlayed_) std::swap(queue_.back(), queue_.front());
     }
+    // Prefer a song that is ready to play now (local file or already downloaded) among the next few,
+    // so the next song is available quickly even while downloads are running.
+    for (int i = (int)queue_.size() - 1, n = 0; i >= 0 && n < 6; i--, n++) {
+        const std::string& e = files_[queue_[i]];
+        if (!isYoutubeEntry(e) || isYoutubeCached(e)) {
+            std::swap(queue_[i], queue_.back());
+            break;
+        }
+    }
     size_t idx = queue_.back();
     queue_.pop_back();
     lastPlayed_ = idx;
@@ -54,6 +63,10 @@ std::string Library::pickNext(uint64_t seed) {
 void Library::prefetch(uint64_t seed) {
     if (pending_.valid() || files_.empty()) return;
     std::string path = pickNext(seed);
+    loadingTitle_ = isYoutubeEntry(path) ? youtubeEntryTitle(path) : fs::path(path).stem().string();
+    std::printf("[library] preparing next song: %s%s\n", loadingTitle_.c_str(),
+                isYoutubeEntry(path) && !isYoutubeCached(path) ? " (downloading)" : "");
+    std::fflush(stdout);
     uint32_t sr = sampleRate_;
     pending_ = std::async(std::launch::async, [path, sr]() { return loadTrack(path, sr); });
     downloadAhead();
