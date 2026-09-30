@@ -64,7 +64,7 @@ missing from it still works with a generic layout.
 Each song is decoded and analyzed in the background (under 1 s):
 
 - **Tempo and beat grid**: gravity steps land on the beat, at 1 row every 2 beats, every beat, or every half beat, depending on the song's energy at that moment.
-- **Levels**: one level per 25 lines, up to a plateau at level 10. Each level speeds up the beat-locked gravity (at the plateau: 1.25, 2.5 or 4 rows per beat for calm, mid and peak parts, on musical subdivisions, capped at 7 rows/s) and shortens the lock delay (0.55 s → 0.35 s). Game over resets the level.
+- **Levels**: one level per 25 lines, up to a plateau at level 10. Each level speeds up the beat-locked gravity (at the plateau: 2.5, 5 or 8 rows per beat for calm, mid and peak parts, on musical subdivisions, capped at 14 rows/s) and shortens the lock delay (0.55 s → 0.35 s). Game over resets the level.
 - **Key**: the base hue follows the circle of fifths.
 - **Brightness, bass/air balance, dynamics, density**: choose the mood (night, dusk or pale), the particle layouts, bloom, how strongly things react, and the camera's motion.
 - **Song structure**: the song is split at bar lines into labelled segments (intro, verse, build, chorus, drop, break, outro), and segments that sound alike are grouped. Each segment eases the scene's density, speed, glow and saturation (builds ramp up, breaks thin out).
