@@ -209,13 +209,13 @@ void App::updateGravity(double songTime, float dt) {
     else if (pace_ == 1.f && in > 0.9f) pace_ = 2.f;
     else if (pace_ == 2.f && in < 0.75f) pace_ = 1.f;
     float pace = trackAge_ < 20.f ? std::min(pace_, 1.f) : pace_;
-    // Level scaling: x5 at the plateau (x4 for peaks), snapped to musical subdivisions (log-nearest),
-    // and capped at 14 rows per second.
-    const float MAX_ROWS_PER_SEC = 14.f;
+    // Level scaling: x10 at the plateau (x8 for peaks), snapped to musical subdivisions (log-nearest),
+    // and capped at 28 rows per second.
+    const float MAX_ROWS_PER_SEC = 28.f;
     const float beatsPerSec = bpm * tempoMul / 60.f;
-    float wanted = pace * (1.f + diff * (pace >= 2.f ? 3.f : 4.f));
+    float wanted = pace * (1.f + diff * (pace >= 2.f ? 7.f : 9.f));
     wanted = std::min(wanted, MAX_ROWS_PER_SEC / beatsPerSec);
-    static const float SUB[] = {0.5f, 0.75f, 1.f, 1.25f, 1.5f, 2.f, 2.5f, 3.f, 4.f, 5.f, 6.f, 8.f};
+    static const float SUB[] = {0.5f, 0.75f, 1.f, 1.25f, 1.5f, 2.f, 2.5f, 3.f, 4.f, 5.f, 6.f, 8.f, 10.f, 12.f, 16.f};
     float target = SUB[0];
     for (float v : SUB)
         if (v * beatsPerSec <= MAX_ROWS_PER_SEC + 0.01f && std::fabs(std::log(v / wanted)) < std::fabs(std::log(target / wanted)))
@@ -227,7 +227,7 @@ void App::updateGravity(double songTime, float dt) {
         return;
     }
     if (tick > lastGravTick_) {
-        int steps = (int)std::min(3.0, tick - lastGravTick_);
+        int steps = (int)std::min(4.0, tick - lastGravTick_);
         for (int i = 0; i < steps; i++) game_.gravityStep();
         lastGravTick_ = tick;
     }
