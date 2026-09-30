@@ -11,17 +11,31 @@ a procedurally generated 3D scene evolves with every section. Built in C++ / Ope
 
 ## Install
 
-Prebuilt packages for Linux, macOS and Windows are published on PyPI:
+[![PyPI](https://img.shields.io/pypi/v/zentris)](https://pypi.org/project/zentris/)
+
+Prebuilt packages for Linux, macOS (Intel and Apple Silicon) and Windows are on
+[PyPI](https://pypi.org/project/zentris/).
+
+Run it directly with [uv](https://docs.astral.sh/uv/), without installing:
 
 ```sh
-pipx install zentris        # then: zentris, zenscope
-uvx zentris                 # or run it without installing
-zentris "https://www.youtube.com/playlist?list=PLWHPu2N_Gb2lbZ8-7sYKSEbDlb3UiAVye"
-zentris ~/Music             # with no argument it plays ./audio or ~/Music
+uvx zentris "https://www.youtube.com/playlist?list=PLWHPu2N_Gb2lbZ8-7sYKSEbDlb3UiAVye"
+uvx zentris ~/Music
+uvx --from zentris zenscope ~/Music      # the analysis viewer
 ```
 
-The package brings [yt-dlp](https://github.com/yt-dlp/yt-dlp) and an ffmpeg build for YouTube playlists; YouTube
-also needs a JavaScript runtime ([Deno](https://deno.com) or Node.js) on your system.
+Or install it with [pipx](https://pipx.pypa.io/) (or `uv tool install zentris`):
+
+```sh
+pipx install zentris
+zentris "https://www.youtube.com/playlist?list=PLWHPu2N_Gb2lbZ8-7sYKSEbDlb3UiAVye"
+zentris ~/Music             # with no argument it plays ./audio, or ~/Music
+zenscope ~/Music            # the analysis viewer
+```
+
+Quote YouTube URLs: `&` is special in the shell. The package brings [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+and an ffmpeg build for YouTube playlists; YouTube also needs a JavaScript runtime
+([Deno](https://deno.com) or Node.js) on your system.
 
 ## Build from source
 
