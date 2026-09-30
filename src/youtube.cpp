@@ -1,5 +1,7 @@
 #include "youtube.hpp"
 
+#include "platform.hpp"
+
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -14,32 +16,25 @@ namespace fs = std::filesystem;
 
 namespace {
 
-std::string shellQuote(const std::string& s) {
-    std::string r = "'";
-    for (char c : s) r += c == '\'' ? std::string("'\\''") : std::string(1, c);
-    return r + "'";
-}
+std::string shellQuote(const std::string& s) { return platform::quoteArg(s); }
 
-// yt-dlp from PATH, else the usual pipx/pip user location. YouTube extraction needs a JavaScript
-// runtime: yt-dlp uses deno by default; if only node is installed, tell it to use node.
+// yt-dlp: the one installed alongside the pip/pipx/uvx package, else from PATH, else the usual
+// pipx/pip user location. YouTube extraction needs a JavaScript runtime: yt-dlp uses deno by
+// default; if only node is installed, tell it to use node.
 std::string ytdlp() {
     std::string tool;
-    if (std::system("command -v yt-dlp >/dev/null 2>&1") == 0) tool = "yt-dlp";
-    else if (const char* home = std::getenv("HOME")) {
-        std::string p = std::string(home) + "/.local/bin/yt-dlp";
-        if (fs::exists(p)) tool = shellQuote(p);
-    }
+    const char* bundled = std::getenv("ZENTRIS_YTDLP");
+    std::error_code ec;
+    if (bundled && *bundled && fs::exists(bundled, ec)) tool = shellQuote(bundled);
+    else if (std::string p = platform::findExecutable("yt-dlp"); !p.empty()) tool = shellQuote(p);
+    else if (fs::path p = platform::homeDir() / ".local" / "bin" / "yt-dlp"; fs::exists(p, ec)) tool = shellQuote(p.string());
     if (tool.empty()) return "";
-    if (std::system("command -v deno >/dev/null 2>&1") != 0 && std::system("command -v node >/dev/null 2>&1") == 0)
-        tool += " --js-runtimes node";
+    if (platform::findExecutable("deno").empty() && !platform::findExecutable("node").empty()) tool += " --js-runtimes node";
     return tool;
 }
 
 std::string cacheDir() {
-    const char* xdg = std::getenv("XDG_CACHE_HOME");
-    const char* home = std::getenv("HOME");
-    fs::path base = xdg && *xdg ? fs::path(xdg) : fs::path(home ? home : ".") / ".cache";
-    fs::path dir = base / "zentris" / "youtube";
+    fs::path dir = platform::cacheDir() / "zentris" / "youtube";
     std::error_code ec;
     fs::create_directories(dir, ec);
     return dir.string();
@@ -82,10 +77,10 @@ std::vector<std::string> resolveYoutube(const std::string& rawUrl) {
                      url.c_str());
         return out;
     }
-    std::string cmd = tool + " --flat-playlist --yes-playlist --no-warnings --print '%(id)s\t%(title)s' " + shellQuote(url) +
-                      " 2>/dev/null";
+    std::string cmd = tool + " --flat-playlist --yes-playlist --no-warnings --print " + shellQuote("%(id)s\t%(title)s") +
+                      " " + shellQuote(url);
     std::printf("[youtube] listing %s ...\n", url.c_str());
-    FILE* p = popen(cmd.c_str(), "r");
+    FILE* p = platform::openRead(cmd);
     if (!p) return out;
     char line[2048];
     while (std::fgets(line, sizeof(line), p)) {
@@ -98,7 +93,7 @@ std::vector<std::string> resolveYoutube(const std::string& rawUrl) {
         if (title == "[Private video]" || title == "[Deleted video]") continue;
         out.push_back("ytdl:" + id + "\t" + title);
     }
-    pclose(p);
+    platform::closeRead(p);
     std::printf("[youtube] %zu songs\n", out.size());
     if (out.size() == 1 && url.find("list=") == std::string::npos)
         std::printf("[youtube] tip: this link is a single video. For a playlist, pass its list= link and put the URL\n"
@@ -134,8 +129,11 @@ bool download(const std::string& id, const std::string& title) {
     std::fflush(stdout);
     std::string out = (fs::path(cacheDir()) / "%(id)s.%(ext)s").string();
     std::string cmd = tool + " -q --no-warnings --no-playlist -f bestaudio -x --audio-format mp3 --audio-quality 2 -o " +
-                      shellQuote(out) + " -- " + id + " >/dev/null 2>&1";
-    bool ok = std::system(cmd.c_str()) == 0 && fs::exists(fs::path(cacheDir()) / (id + ".mp3"));
+                      shellQuote(out);
+    // ffmpeg converts the audio: the launcher points to a bundled one when the system has none.
+    if (const char* ff = std::getenv("ZENTRIS_FFMPEG"); ff && *ff) cmd += " --ffmpeg-location " + shellQuote(ff);
+    cmd += " -- " + id;
+    bool ok = platform::run(cmd) == 0 && fs::exists(fs::path(cacheDir()) / (id + ".mp3"));
     if (!ok) std::fprintf(stderr, "[youtube] could not download %s (%s)\n", title.c_str(), id.c_str());
     return ok;
 }

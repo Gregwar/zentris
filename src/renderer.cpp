@@ -1,5 +1,6 @@
 #include "renderer.hpp"
 
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 

@@ -4,7 +4,7 @@
 //   zenscope [songs or folders...]        (default: ./audio)
 //   SPACE play/pause, LEFT/RIGHT seek 5 s, UP/DOWN zoom the detail view, N/P next/previous song,
 //   click the overview or the detail view to seek, ESC quits.
-#include <GL/glew.h>
+#include <glad/gl.h>
 #include <GLFW/glfw3.h>
 
 #include <chrono>
@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "library.hpp"
+#include "platform.hpp"
 #include "mathutil.hpp"
 #include "songplan.hpp"
 #include "youtube.hpp"
@@ -617,7 +618,7 @@ int Scope::run(int argc, char** argv) {
     }
     if (paths.empty()) {
         std::error_code ec;
-        fs::path exe = fs::canonical("/proc/self/exe", ec).parent_path();
+        fs::path exe = platform::executableDir();
         for (fs::path p : {fs::path("audio"), exe / "audio", exe.parent_path() / "audio"})
             if (fs::is_directory(p, ec)) { paths.push_back(p.string()); break; }
     }
@@ -637,8 +638,7 @@ int Scope::run(int argc, char** argv) {
     if (!win_) return 1;
     glfwMakeContextCurrent(win_);
     glfwSwapInterval(shot ? 0 : 1);
-    glewExperimental = GL_TRUE;
-    if (glewInit() != GLEW_OK) return 1;
+    if (!gladLoadGL(glfwGetProcAddress)) return 1;
     glGetError();
     d_.init();
 
@@ -732,7 +732,7 @@ int Scope::run(int argc, char** argv) {
 } // namespace
 
 int main(int argc, char** argv) {
-    std::setvbuf(stdout, nullptr, _IOLBF, 0);
+    platform::lineBufferStdout();
     Scope s;
     int rc = s.run(argc, argv);
     std::fflush(stdout);

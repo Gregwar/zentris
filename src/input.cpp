@@ -1,5 +1,7 @@
 #include "input.hpp"
 
+#include "platform.hpp"
+
 #include <GLFW/glfw3.h>
 
 #include <cmath>
@@ -22,8 +24,7 @@ constexpr float DAS = 0.13f, ARR = 0.033f, SOFT_RATE = 0.033f;
 
 void Input::loadMappings() {
     namespace fs = std::filesystem;
-    std::error_code ec;
-    fs::path exe = fs::canonical("/proc/self/exe", ec).parent_path();
+    fs::path exe = platform::executableDir();
     std::vector<fs::path> candidates = {exe / "gamecontrollerdb.txt"};
 #ifdef ZEN_SOURCE_DIR
     candidates.push_back(fs::path(ZEN_SOURCE_DIR) / "third_party" / "gamecontrollerdb.txt");

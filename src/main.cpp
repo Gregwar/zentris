@@ -1,5 +1,5 @@
 // Zentris: a minimalist, music-driven Tetris.
-#include <GL/glew.h>
+#include <glad/gl.h>
 #include <GLFW/glfw3.h>
 
 #include <chrono>
@@ -15,6 +15,7 @@
 #include "game.hpp"
 #include "input.hpp"
 #include "library.hpp"
+#include "platform.hpp"
 #include "renderer.hpp"
 #include "songplan.hpp"
 #include "theme.hpp"
@@ -35,7 +36,7 @@ struct Options {
 static void usage() {
     std::printf(
         "usage: zentris [options] [songs or folders...]\n"
-        "  (default: plays everything in ./audio; a YouTube playlist/video URL also works, via yt-dlp)\n"
+        "  (default: plays ./audio, or ~/Music; a YouTube playlist/video URL also works, via yt-dlp)\n"
         "  --fullscreen         start fullscreen\n"
         "  --size WxH           window size (default 1600x900)\n"
         "  --seed N             fixed scene seed (default: random each run)\n"
@@ -391,8 +392,7 @@ int App::run() {
     if (!win_) { std::fprintf(stderr, "could not create an OpenGL 3.3 window\n"); glfwTerminate(); return 1; }
     glfwMakeContextCurrent(win_);
     glfwSwapInterval(shotMode || opt_.hidden ? 0 : 1);
-    glewExperimental = GL_TRUE;
-    if (glewInit() != GLEW_OK) { std::fprintf(stderr, "glewInit failed\n"); return 1; }
+    if (!gladLoadGL(glfwGetProcAddress)) { std::fprintf(stderr, "could not load OpenGL functions\n"); return 1; }
     glGetError();
 
     int fbw, fbh;
@@ -690,7 +690,7 @@ int App::run() {
 }
 
 int main(int argc, char** argv) {
-    std::setvbuf(stdout, nullptr, _IOLBF, 0);
+    platform::lineBufferStdout();
     Options o;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
@@ -710,8 +710,10 @@ int main(int argc, char** argv) {
     if (o.paths.empty()) {
         // Look for ./audio, then next to the executable (and its parent, for build/ dirs).
         std::error_code ec;
-        fs::path exe = fs::canonical("/proc/self/exe", ec).parent_path();
-        for (fs::path p : {fs::path("audio"), exe / "audio", exe.parent_path() / "audio"})
+        fs::path exe = platform::executableDir();
+        std::vector<fs::path> candidates = {fs::path("audio"), exe / "audio", exe.parent_path() / "audio"};
+        candidates.push_back(platform::homeDir() / "Music");
+        for (const fs::path& p : candidates)
             if (fs::is_directory(p, ec)) { o.paths.push_back(p.string()); break; }
     }
     App app(o);

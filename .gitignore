@@ -10,3 +10,7 @@ audio/*
 .idea/
 *.swp
 .DS_Store
+
+# Python packaging
+dist/
+*.egg-info/

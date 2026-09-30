@@ -1,0 +1,59 @@
+[build-system]
+requires = ["scikit-build-core>=0.10"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "zentris"
+version = "0.1.0"
+description = "A Tetris Effect inspired game that plays any playlist (local music or YouTube)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+authors = [{ name = "Grégoire Passault" }]
+keywords = ["tetris", "game", "music", "visualizer", "opengl"]
+classifiers = [
+    "Topic :: Games/Entertainment :: Puzzle Games",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "Programming Language :: C++",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Environment :: X11 Applications",
+]
+dependencies = ["yt-dlp[default]", "imageio-ffmpeg"]
+
+[project.urls]
+Homepage = "https://github.com/Gregwar/zentris"
+
+[project.scripts]
+zentris = "zentris._launcher:main"
+zenscope = "zentris._launcher:scope"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.build-type = "Release"
+wheel.packages = ["python/zentris"]
+# The package holds native executables, not Python extensions: one wheel per platform, any Python 3.
+wheel.py-api = "py3"
+sdist.exclude = ["audio", "build", "docs", ".github"]
+
+[tool.scikit-build.cmake.define]
+ZENTRIS_BUNDLE_GLFW = "ON"
+
+[tool.cibuildwheel]
+build = "cp312-*"
+skip = "*-musllinux_* *-win32 *_i686"
+test-command = "zentris --help"
+build-verbosity = 1
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+before-all = "dnf install -y libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel mesa-libGL-devel"
+
+[tool.cibuildwheel.macos]
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]
