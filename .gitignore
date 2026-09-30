@@ -1,0 +1,12 @@
+# Build output (also holds test screenshots)
+build/
+
+# Songs are not versioned (copyrighted, large): put your own in audio/
+audio/*
+!audio/.gitkeep
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
