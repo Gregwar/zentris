@@ -5,9 +5,9 @@ a YouTube playlist. Each song is analysed ahead of time (tempo, key, structure: 
 chorus, drop...) and the game stages it: pieces fall on the beat, the pace follows the song's energy, and
 a procedurally generated 3D scene evolves with every section. Built in C++ / OpenGL 3.3.
 
-![Ten scenes from the example playlist](docs/scenes.jpg)
+![Nine scenes from the example playlist](docs/scenes.jpg)
 
-*Ten scenes generated for songs of the [example playlist](https://www.youtube.com/playlist?list=PLy_wKxVmWb4ZDMEH_u3oyDw-2GDfkZrP-).
+*Nine scenes generated for songs of the [example playlist](https://www.youtube.com/playlist?list=PLy_wKxVmWb4ZDMEH_u3oyDw-2GDfkZrP-).
 Every song, and every run, gets its own scene.*
 
 ## Build & run
