@@ -312,6 +312,20 @@ static float wipeCoord(int shape, float x, float y, float aspect, float noise) {
         return 0.6f * (a - std::floor(a)) + 0.4f * radial;
     }
     case WIPE_DIAMOND: return (std::fabs(x) + std::fabs(y)) * 0.5f;
+    case WIPE_RISE_WAVE: return (y * 0.5f + 0.5f) * 0.85f + 0.075f * (1.f + std::sin(x * 9.f));
+    case WIPE_FALL_WAVE: return (0.5f - y * 0.5f) * 0.85f + 0.075f * (1.f + std::sin(x * 7.f + 1.f));
+    case WIPE_BLINDS: { float f = y * 3.f; return 0.35f * (f - std::floor(f)) + 0.65f * (y * 0.25f + 0.5f); }
+    case WIPE_COLUMNS: { float f = x * 4.f; return 0.35f * (f - std::floor(f)) + 0.65f * (x * 0.25f + 0.5f); }
+    case WIPE_PETALS: return radial * (0.8f + 0.2f * std::cos(std::atan2(y, x * aspect) * 5.f));
+    case WIPE_CROSS: return std::min(std::fabs(x), std::fabs(y));
+    case WIPE_SALTIRE: return std::min(std::fabs(x - y), std::fabs(x + y)) * 0.7f;
+    case WIPE_CHECKER: return 0.5f * std::fmod(std::fabs(std::floor(x * 4.f) + std::floor(y * 3.f)), 2.f) + 0.45f * radial;
+    case WIPE_CORNER: {
+        float dx = (x + 1.f) * aspect, dy = y + 1.f;
+        return std::sqrt(dx * dx + dy * dy) / (2.f * std::sqrt(aspect * aspect + 1.f));
+    }
+    case WIPE_SPLIT: return std::fabs(y);
+    case WIPE_GRAIN: return noise;
     default: return radial;
     }
 }
@@ -399,6 +413,17 @@ void Renderer::onEvent(const GameEvent& ev, const Game&) {
             case CE_POUR: delay = rng_.range(0.f, 0.15f); dur = 0.5f; break;
             case CE_ZIP: dir = vec3(fromRight ? 1.f : -1.f, 0, 0); delay = (fromRight ? 9.f - x : x) * 0.012f; dur = 0.4f; break;
             case CE_BLOOM: delay = std::fabs(x - 4.5f) * 0.02f; dur = 0.45f; break;
+            case CE_FLIP: delay = x * 0.025f; dur = 0.4f; break;
+            case CE_DROPOUT: delay = rng_.range(0.f, 0.3f); dur = 0.18f; break;
+            case CE_DOMINO: delay = (fromRight ? 9.f - x : x) * 0.04f; dur = 0.45f; break;
+            case CE_IMPLODE: dir = vec3(4.5f - x, 0, 0); dur = 0.45f; break;
+            case CE_SPREAD: dir = vec3(x - 4.5f, 0, 0); dur = 0.45f; break;
+            case CE_WAVE: delay = x * 0.02f; dur = 0.55f; break;
+            case CE_SLICE: delay = (fromRight ? 9.f - x : x) * 0.03f; dur = 0.3f; break;
+            case CE_PULSE: dur = 0.5f; break;
+            case CE_STRETCH: delay = std::fabs(x - 4.5f) * 0.02f; dur = 0.45f; break;
+            case CE_SINK: delay = rng_.range(0.f, 0.1f); dur = 0.45f; break;
+            case CE_CASCADE: delay = std::fabs(x - 4.5f) * 0.05f; dur = 0.4f; break;
             }
             dying_.push_back({p, c.type, 0.f, delay, dur, effect, dir});
             int parts = effect == CE_SPARKLE ? 10 + 2 * ev.count : 3 + ev.count;
@@ -464,7 +489,6 @@ void Renderer::addEqualizer(const Theme& th, float weight, const MusicState& mus
     const float halfW = BOARD_W * 0.5f + 0.15f, halfH = BOARD_H * 0.5f + 0.15f;
     const int N = std::clamp(th.eqBars, 8, EQ_MAX);
     float alpha = th.eqAlpha * (0.55f + 0.45f * E) * weight;
-    if (th.eqStyle == 4) alpha *= 0.45f; // backdrop sits behind the playfield: keep it dim
     auto level = [&](float u, const float* src) { // u in [0,1] along the spectrum
         float x = u * (EQ_MAX - 1);
         int i0 = (int)x, i1 = std::min(EQ_MAX - 1, i0 + 1);
@@ -504,12 +528,6 @@ void Renderer::addEqualizer(const Theme& th, float weight, const MusicState& mus
                                 vec3(0, 1, 0), 1.9f, sp * 0.65f});
                 us.push_back(i / float(N - 1));
             }
-    } else if (th.eqStyle == 4) { // backdrop: rising behind the playfield
-        float sp = (2 * halfW) / N;
-        for (int i = 0; i < N; i++) {
-            bars.push_back({vec3(-halfW + (i + 0.5f) * sp, -halfH, -0.75f), vec3(0, 1, 0), vec3(1, 0, 0), 2 * halfH * 0.8f, sp * 0.7f});
-            us.push_back(std::fabs(i / float(N - 1) * 2.f - 1.f)); // lows in the middle
-        }
     } else { // ring behind the board (mirrored halves)
         int n = N * 2;
         for (int i = 0; i < n; i++) {
@@ -626,6 +644,22 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
             glow *= 1.3f;
             break;
         }
+        case CE_FLIP: sc = vec3(1.f, std::fabs(std::cos(k * PI * 1.5f)) * (1.f - k), 1.f); break;
+        case CE_DROPOUT: sc = vec3(1.f - e); glow = 0.6f * rise; break;
+        case CE_DOMINO: pos.y -= 3.f * k * k; pos.x += 0.4f * e * (d.pos.x > 0 ? 1.f : -1.f); sc = vec3(1.f - 0.7f * e); break;
+        case CE_IMPLODE: pos.x += d.dir.x * e; sc = vec3(1.f - e); break;
+        case CE_SPREAD: pos.x += d.dir.x * 0.5f * e; sc = vec3(1.f - e); break;
+        case CE_WAVE: pos.y += 1.2f * e; pos.x += 0.35f * std::sin(k * 9.f + d.pos.x); sc = vec3(1.f - 0.85f * e); break;
+        case CE_SLICE: sc = vec3(1.f - e, 1.f, 1.f); pos.x += 0.45f * e; break;
+        case CE_PULSE: {
+            float p = 0.5f + 0.5f * std::sin(k * TAU * 2.f);
+            sc = vec3(k < 0.7f ? 1.f + 0.12f * p : 1.f - (k - 0.7f) / 0.3f);
+            glow = 0.6f * p * (1.f - 0.5f * k);
+            break;
+        }
+        case CE_STRETCH: sc = vec3(1.f - e, 1.f + 1.5f * e, 1.f - e * 0.5f); pos.y += 0.9f * e; break;
+        case CE_SINK: pos.z -= 3.f * e; sc = vec3(1.f - 0.7f * e); break;
+        case CE_CASCADE: pos.y += 0.6f * std::sin(k * PI); sc = vec3(1.f - e); glow *= 1.2f; break;
         default: break;
         }
         if (sc.x <= 0.01f || sc.y <= 0.01f || sc.z <= 0.01f) continue;
@@ -735,6 +769,64 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
                 bar({0, halfH + o, 0}, {2 * (halfW + o), th, th}, fc, aa * 0.5f);
             }
             break;
+        case FR_GLOWBASE:
+            bar({0, -halfH, 0}, {2 * halfW + 1.f, th * 3.f, th}, fc, fa * 0.8f);
+            bar({0, -halfH + 0.25f, 0}, {2 * halfW + 2.f, th, th}, fc, fa * 0.4f);
+            bar({-halfW, 0, -0.3f}, {th * 0.5f, 2 * halfH, th}, fc, fa * 0.2f);
+            bar({halfW, 0, -0.3f}, {th * 0.5f, 2 * halfH, th}, fc, fa * 0.2f);
+            break;
+        case FR_TOPBOTTOM:
+            bar({0, -halfH, 0}, {2 * halfW, th, th}, fc, fa);
+            bar({0, halfH, 0}, {2 * halfW, th, th}, fc, fa * 0.6f);
+            for (int sx = -1; sx <= 1; sx += 2) {
+                bar({sx * halfW, -halfH + 0.4f, 0}, {th, 0.8f, th}, fc, fa);
+                bar({sx * halfW, halfH - 0.4f, 0}, {th, 0.8f, th}, fc, fa * 0.6f);
+            }
+            break;
+        case FR_TICKS:
+            for (int y = 0; y <= (int)BOARD_H; y++) {
+                float len = y % 5 == 0 ? 0.6f : 0.3f;
+                bar({-halfW - len * 0.5f, y - BOARD_H * 0.5f, 0}, {len, th * 0.8f, th}, fc, fa * 0.8f);
+                bar({halfW + len * 0.5f, y - BOARD_H * 0.5f, 0}, {len, th * 0.8f, th}, fc, fa * 0.8f);
+            }
+            bar({0, -halfH, 0}, {2 * halfW, th, th}, fc, fa * 0.6f);
+            break;
+        case FR_SIDEFADE:
+            for (int k = 0; k < 10; k++) {
+                float y0 = -halfH + k * (2 * halfH / 10.f);
+                float aa = fa * (1.f - k / 10.f);
+                bar({-halfW, y0 + halfH / 10.f, 0}, {th, 2 * halfH / 10.f - 0.05f, th}, fc, aa);
+                bar({halfW, y0 + halfH / 10.f, 0}, {th, 2 * halfH / 10.f - 0.05f, th}, fc, aa);
+            }
+            bar({0, -halfH, 0}, {2 * halfW, th, th}, fc, fa);
+            break;
+        case FR_UNDERLINE:
+            bar({0, -halfH - 0.2f, 0}, {2 * halfW + 8.f, th * 0.8f, th}, fc, fa * 0.7f);
+            break;
+        case FR_CORNERDOTS:
+            for (int sx = -1; sx <= 1; sx += 2)
+                for (int sy = -1; sy <= 1; sy += 2) bar({sx * halfW, sy * halfH, 0}, {0.3f, 0.3f, 0.3f}, fc, fa);
+            break;
+        case FR_RAILS:
+            for (int sx = -1; sx <= 1; sx += 2) {
+                bar({sx * halfW, 0, 0}, {th * 0.6f, 2 * halfH, th}, fc, fa);
+                bar({sx * (halfW + 0.3f), 0, 0}, {th * 0.6f, 2 * halfH - 1.f, th}, fc, fa * 0.5f);
+            }
+            break;
+        case FR_DASHED:
+            for (float y = -halfH + 0.3f; y < halfH; y += 0.8f) {
+                bar({-halfW, y, 0}, {th, 0.4f, th}, fc, fa);
+                bar({halfW, y, 0}, {th, 0.4f, th}, fc, fa);
+            }
+            for (float x = -halfW + 0.3f; x < halfW; x += 0.8f) bar({x, -halfH, 0}, {0.4f, th, th}, fc, fa);
+            break;
+        case FR_DOTPILLARS:
+            for (float y = -40.f; y <= 40.f; y += 0.7f) {
+                float aa = fa * (1.f - smoothstepf(halfH, 30.f, std::fabs(y)));
+                bar({-halfW, y, 0}, {0.1f, 0.1f, 0.1f}, fc, aa);
+                bar({halfW, y, 0}, {0.1f, 0.1f, 0.1f}, fc, aa);
+            }
+            break;
         case FR_DOTTED:
             for (float y = -halfH; y <= halfH + 0.01f; y += 0.5f) {
                 bar({-halfW, y, 0}, {0.1f, 0.1f, 0.1f}, fc, fa);
@@ -816,10 +908,29 @@ void Renderer::drawParticleLayer(const ParticleLayer& L, const Theme& owner, flo
     case PS_STARBURST: mult = 0.35f; break;
     case PS_ORBITS: mult = 0.4f; break;
     case PS_CONFETTI: mult = 0.08f; break;
+    case PS_SNOWGLOBE: mult = 0.3f; break;
+    case PS_LADDER: mult = 0.35f; break;
+    case PS_FOUNTAIN: mult = 0.25f; break;
+    case PS_PETALS: mult = 0.06f; break;
+    case PS_CONSTELLATION: mult = 0.15f; break;
+    case PS_TORUS: mult = 0.5f; break;
+    case PS_WALL: mult = 0.5f; break;
+    case PS_COMETS: mult = 0.03f; break;
+    case PS_SPARKLERS: mult = 0.15f; break;
+    case PS_BUBBLES: mult = 0.04f; break;
+    case PS_CUBESHELL: mult = 0.3f; break;
+    case PS_LEMNISCATE: mult = 0.4f; break;
+    case PS_BEATRINGS: mult = 0.3f; break;
+    case PS_PLASMA: mult = 0.25f; break;
+    case PS_MOIRE: mult = 0.4f; break;
+    case PS_SWARM: mult = 0.35f; break;
+    case PS_SPIRALS: mult = 0.35f; break;
+    case PS_RIBBON: mult = 0.3f; break;
+    case PS_METEORS: mult = 0.02f; break;
     default: mult = 1.f; break;
     }
     int count = (int)(MAX_PARTICLES * L.count * mult);
-    if (L.style == PS_WAVES) {
+    if (L.style == PS_WAVES || L.style == PS_WALL || L.style == PS_PLASMA) {
         int n = (int)std::sqrt((float)count);
         n = std::clamp(n, 60, 150);
         count = n * n;

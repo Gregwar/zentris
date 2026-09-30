@@ -1,16 +1,22 @@
 #include "theme.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 
 namespace {
 
 const char* BG_NAMES[BG_COUNT] = {"GRADIENT", "HALO", "HORIZON", "NEBULA", "VOID", "AURORA SKY", "BANDS", "SPOTLIGHT",
-                                  "GRID", "HILLS", "CONIC", "STARFIELD"};
+                                  "GRID", "HILLS", "CONIC", "STARFIELD", "DUAL GLOW", "WAVES", "CLOUDS", "POLKA",
+                                  "DIAGONAL", "SUNBURST", "RIPPLES", "PLASMA", "SEA", "PEAKS", "SHAFTS", "HALO RING"};
 const char* PS_NAMES[PS_COUNT] = {"GALAXY", "TUNNEL", "OCEAN", "SPHERE", "DRIFT", "STREAMS",
                                   "WARP", "CURTAINS", "HALOS", "HELIX", "BOKEH", "LATTICE",
-                                  "FIREFLIES", "RAIN", "VORTEX", "WAVEFORM", "STARBURST", "ORBITS", "CONFETTI"};
+                                  "FIREFLIES", "RAIN", "VORTEX", "WAVEFORM", "STARBURST", "ORBITS", "CONFETTI",
+                                  "SNOWGLOBE", "LADDER", "FOUNTAIN", "PETALS", "CONSTELLATION", "TORUS", "WALL",
+                                  "COMETS", "SPARKLERS", "BUBBLES", "CUBE", "INFINITY", "BEAT RINGS", "PLASMA",
+                                  "MOIRE", "SWARM", "SPIRALS", "RIBBON", "METEORS"};
 const char* BS_NAMES[BS_COUNT] = {"GLASS", "SOLID", "WIRE", "LANTERN", "INSET", "DOTS", "CRYSTAL", "SPLIT",
-                                  "HOLO", "GRADIENT", "DOUBLE"};
+                                  "HOLO", "GRADIENT", "DOUBLE", "NEON", "CIRCUIT", "FROSTED", "CHECKER", "RINGS",
+                                  "BEVEL", "PIXEL", "STRIPES", "CORE", "HATCH", "BREATH"};
 const char* MESH_NAMES[MESH_COUNT] = {"CUBE", "ROUNDED", "ORB", "GEM"};
 const char* MOOD_NAMES[3] = {"NIGHT", "DUSK", "PALE"};
 
@@ -31,7 +37,9 @@ float avoidMud(float h, float L) {
 int pickBackground(Rng& r, const Footprint& fp, int mood) {
     float w[BG_COUNT] = {2.f, 1.8f, mood == 2 ? 0.4f : 1.2f, mood == 2 ? 0.f : 1.5f,
                          1.0f, mood == 2 ? 0.f : 1.0f + fp.airWeight, 1.0f, 1.0f,
-                         mood == 2 ? 0.3f : 0.8f + 0.8f * fp.bassWeight, 1.0f, 0.9f, mood == 2 ? 0.f : 1.2f};
+                         mood == 2 ? 0.3f : 0.8f + 0.8f * fp.bassWeight, 1.0f, 0.9f, mood == 2 ? 0.f : 1.2f,
+                         1.2f, 1.0f, 1.0f, 0.7f, 1.0f, 0.9f, 0.9f, mood == 2 ? 0.4f : 1.0f,
+                         mood == 2 ? 0.5f : 1.0f, 0.9f, 1.0f, 1.0f};
     return r.weighted(w);
 }
 
@@ -59,6 +67,25 @@ int pickParticleStyle(Rng& r, const Footprint& fp, int mood, int avoid) {
         0.6f + 1.0f * bpmN,               // starburst
         0.8f + 0.4f * (1 - fp.density),   // orbits
         mood == 0 ? 0.5f : 0.9f,          // confetti
+        0.8f,                             // snowglobe
+        0.7f + 0.4f * fp.density,         // ladder
+        0.6f + 0.8f * bpmN,               // fountain
+        mood == 0 ? 0.5f : 1.0f,          // petals
+        0.8f + 0.5f * (1 - fp.density),   // constellation
+        0.8f + 0.4f * bass,               // torus
+        0.7f + 0.7f * bass,               // wall
+        0.5f + 0.8f * bpmN,               // comets
+        0.5f + 0.8f * bpmN * fp.density,  // sparklers
+        0.7f + 0.6f * air,                // bubbles
+        0.8f,                             // cube shell
+        0.8f,                             // infinity
+        0.6f + 1.0f * bpmN,               // beat rings
+        0.7f + 0.6f * bass,               // plasma
+        0.6f,                             // moire
+        0.8f + 0.5f * fp.density,         // swarm
+        0.8f,                             // spirals
+        mood == 2 ? 0.4f : 0.8f + 0.4f * air, // ribbon
+        0.4f + 0.8f * bpmN,               // meteors
     };
     if (avoid >= 0) w[avoid] = 0;
     return r.weighted(w);
@@ -68,12 +95,16 @@ int pickShape(Rng& r, int style) {
     switch (style) {
     case PS_WARP: return r.chance(0.8f) ? (int)SH_STREAK : (int)SH_DOT;
     case PS_BOKEH: return r.chance(0.6f) ? (int)SH_DISC : (r.chance(0.5f) ? (int)SH_RING : (int)SH_DOT);
-    case PS_RAIN: return (int)SH_STREAK;
-    case PS_CONFETTI: { float w[SH_COUNT] = {0, 0, 0, 2, 1.5f, 0, 0, 0.5f, 1, 1}; return r.weighted(w); }
+    case PS_RAIN:
+    case PS_METEORS:
+    case PS_COMETS: return (int)SH_STREAK;
+    case PS_BUBBLES: return r.chance(0.6f) ? (int)SH_RING : (int)SH_DOUBLERING;
+    case PS_PETALS: { float w[SH_COUNT] = {0.5f, 0, 0, 0, 0.5f, 0, 0, 0, 0.5f, 0, 0.5f, 1.2f, 1.2f, 0, 0, 0, 0.5f, 0, 0, 0}; return r.weighted(w); }
+    case PS_CONFETTI: { float w[SH_COUNT] = {0, 0, 0, 2, 1.5f, 0, 0, 0.5f, 1, 1, 1, 0.5f, 0, 0.5f, 0, 0.5f, 0.5f, 0, 0.5f, 0}; return r.weighted(w); }
     case PS_FIREFLIES: return r.chance(0.7f) ? (int)SH_DOT : (int)SH_SPARKLE;
-    case PS_LATTICE: { float w[SH_COUNT] = {2, 0.5f, 0.5f, 1.5f, 1, 0, 0, 1.5f, 0.5f, 1}; return r.weighted(w); }
-    case PS_TUNNEL: { float w[SH_COUNT] = {2, 0.5f, 0.5f, 0.8f, 0.8f, 0, 1.5f, 0.5f, 0.3f, 0.5f}; return r.weighted(w); }
-    default: { float w[SH_COUNT] = {3, 0.7f, 1.0f, 0.6f, 0.8f, 0.3f, 0.4f, 0.5f, 0.5f, 0.5f}; return r.weighted(w); }
+    case PS_LATTICE: { float w[SH_COUNT] = {2, 0.5f, 0.5f, 1.5f, 1, 0, 0, 1.5f, 0.5f, 1, 0.5f, 0, 0, 1, 0.3f, 1, 1, 0.3f, 0.3f, 0.5f}; return r.weighted(w); }
+    case PS_TUNNEL: { float w[SH_COUNT] = {2, 0.5f, 0.5f, 0.8f, 0.8f, 0, 1.5f, 0.5f, 0.3f, 0.5f, 0.3f, 0, 0, 0.3f, 0.3f, 0.5f, 0.5f, 0.5f, 0.8f, 0.3f}; return r.weighted(w); }
+    default: { float w[SH_COUNT] = {3, 0.7f, 1.0f, 0.6f, 0.8f, 0.3f, 0.4f, 0.5f, 0.5f, 0.5f, 0.4f, 0.2f, 0.3f, 0.4f, 0.4f, 0.4f, 0.4f, 0.6f, 0.3f, 0.5f}; return r.weighted(w); }
     }
 }
 
@@ -222,11 +253,14 @@ Theme generateTheme(const Footprint& fp, uint64_t seed) {
     // ---- Blocks.
     {
         float w[BS_COUNT] = {mood == 2 ? 0.8f : 3.f, mood == 2 ? 2.5f : 1.2f, 1.2f, mood == 2 ? 0.3f : 1.3f,
-                             1.3f, 0.9f, 1.3f, 1.0f, mood == 2 ? 0.4f : 1.1f, 1.1f, 1.0f};
+                             1.3f, 0.9f, 1.3f, 1.0f, mood == 2 ? 0.4f : 1.1f, 1.1f, 1.0f,
+                             mood == 2 ? 0.4f : 1.1f, 0.9f, 1.0f, 0.9f, 0.9f, 1.1f, 0.9f, 0.9f,
+                             mood == 2 ? 0.5f : 1.0f, 0.8f, 0.9f};
         t.blockStyle = r.weighted(w);
         float mw[MESH_COUNT] = {5.5f, 2.5f, 1.0f, 1.0f};
-        if (t.blockStyle == BS_DOTS || t.blockStyle == BS_INSET || t.blockStyle == BS_SPLIT || t.blockStyle == BS_DOUBLE)
-            mw[2] = mw[3] = 0;
+        const int faceStyles[] = {BS_DOTS, BS_INSET, BS_SPLIT, BS_DOUBLE, BS_CIRCUIT, BS_CHECKER, BS_RINGS, BS_PIXEL, BS_HATCH};
+        for (int fsIdx : faceStyles)
+            if (t.blockStyle == fsIdx) mw[2] = mw[3] = 0; // face patterns need flat faces
         t.blockMesh = r.weighted(mw);
         t.roundness = r.range(3.f, 7.f);
         t.blockScale = r.range(0.8f, 0.96f);
@@ -249,7 +283,7 @@ Theme generateTheme(const Footprint& fp, uint64_t seed) {
 
     // ---- Energy decorations: an audio equalizer and/or light rays behind the board.
     {
-        float w[5] = {1.0f, 1.f, 1.f, 0.8f, 0.8f};
+        float w[4] = {1.0f, 1.f, 1.f, 0.8f};
         t.eqStyle = r.weighted(w);
         float rw[6] = {1.f, 1.3f, 1.1f, 1.1f, 0.9f, 1.f};
         t.eqRender = r.weighted(rw);
@@ -266,7 +300,8 @@ Theme generateTheme(const Footprint& fp, uint64_t seed) {
 
     // ---- Board frame.
     {
-        float w[FR_COUNT] = {2.f, 1.5f, 1.5f, 1.2f, 1.0f, 0.8f, 1.0f, 1.0f, 1.0f};
+        float w[FR_COUNT] = {2.f, 1.5f, 1.5f, 1.2f, 1.0f, 0.8f, 1.0f, 1.0f, 1.0f,
+                             1.0f, 1.0f, 1.0f, 1.0f, 0.8f, 0.8f, 1.0f, 1.0f, 0.8f};
         t.frameStyle = r.weighted(w);
         t.frameAlpha = r.range(0.35f, 0.9f);
     }

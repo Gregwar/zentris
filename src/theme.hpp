@@ -7,20 +7,33 @@
 #include "mathutil.hpp"
 
 enum BgStyle { BG_GRADIENT, BG_RADIAL, BG_HORIZON, BG_NEBULA, BG_FLAT, BG_AURORA, BG_BANDS, BG_SPOTLIGHT,
-               BG_GRID, BG_HILLS, BG_CONIC, BG_STARS, BG_COUNT };
+               BG_GRID, BG_HILLS, BG_CONIC, BG_STARS,
+               BG_DUALGLOW, BG_WAVES, BG_CLOUDS, BG_POLKA, BG_DIAGONAL, BG_SUNBURST, BG_RIPPLES, BG_PLASMA,
+               BG_SEA, BG_PEAKS, BG_SHAFTS, BG_HALORING, BG_COUNT };
 enum ParticleStyle {
     PS_GALAXY, PS_TUNNEL, PS_WAVES, PS_SPHERE, PS_DRIFT, PS_STREAMS, PS_WARP,
     PS_AURORA, PS_HALOS, PS_HELIX, PS_BOKEH, PS_LATTICE,
-    PS_FIREFLIES, PS_RAIN, PS_VORTEX, PS_WAVEFORM, PS_STARBURST, PS_ORBITS, PS_CONFETTI, PS_COUNT
+    PS_FIREFLIES, PS_RAIN, PS_VORTEX, PS_WAVEFORM, PS_STARBURST, PS_ORBITS, PS_CONFETTI,
+    PS_SNOWGLOBE, PS_LADDER, PS_FOUNTAIN, PS_PETALS, PS_CONSTELLATION, PS_TORUS, PS_WALL, PS_COMETS,
+    PS_SPARKLERS, PS_BUBBLES, PS_CUBESHELL, PS_LEMNISCATE, PS_BEATRINGS, PS_PLASMA, PS_MOIRE, PS_SWARM,
+    PS_SPIRALS, PS_RIBBON, PS_METEORS, PS_COUNT
 };
-enum ParticleShape { SH_DOT, SH_RING, SH_SPARKLE, SH_SQUARE, SH_DIAMOND, SH_DISC, SH_STREAK, SH_PLUS, SH_STAR, SH_HEX, SH_COUNT };
+enum ParticleShape { SH_DOT, SH_RING, SH_SPARKLE, SH_SQUARE, SH_DIAMOND, SH_DISC, SH_STREAK, SH_PLUS, SH_STAR, SH_HEX,
+                     SH_TRIANGLE, SH_HEART, SH_CRESCENT, SH_XCROSS, SH_DOUBLERING, SH_SQUARE_OUT, SH_DIAMOND_OUT,
+                     SH_FLARE, SH_BAR, SH_RINGDOT, SH_COUNT };
 enum BlockStyle { BS_GLASS, BS_SOLID, BS_WIRE, BS_LANTERN, BS_INSET, BS_DOTS, BS_FRESNEL, BS_SPLIT,
-                  BS_HOLO, BS_GRADIENT, BS_DOUBLE, BS_COUNT };
+                  BS_HOLO, BS_GRADIENT, BS_DOUBLE,
+                  BS_NEON, BS_CIRCUIT, BS_FROSTED, BS_CHECKER, BS_RINGS, BS_BEVEL, BS_PIXEL, BS_STRIPES,
+                  BS_CORE, BS_HATCH, BS_BREATH, BS_COUNT };
 enum BlockMesh { MESH_CUBE, MESH_ROUNDED, MESH_SPHERE, MESH_GEM, MESH_COUNT };
 // How cleared blocks disappear. Each theme uses a set of 3; each clear picks one.
 enum ClearEffect { CE_SHRINK, CE_RISE, CE_SCATTER, CE_SQUASH, CE_SWEEP, CE_FOLD, CE_MELT, CE_SPARKLE,
-                   CE_POUR, CE_ZIP, CE_BLOOM, CE_COUNT };
-enum FrameStyle { FR_OUTLINE, FR_CORNERS, FR_WELL, FR_FLOOR, FR_GRID, FR_NONE, FR_PILLARS, FR_DOUBLE, FR_DOTTED, FR_COUNT };
+                   CE_POUR, CE_ZIP, CE_BLOOM,
+                   CE_FLIP, CE_DROPOUT, CE_DOMINO, CE_IMPLODE, CE_SPREAD, CE_WAVE, CE_SLICE, CE_PULSE,
+                   CE_STRETCH, CE_SINK, CE_CASCADE, CE_COUNT };
+enum FrameStyle { FR_OUTLINE, FR_CORNERS, FR_WELL, FR_FLOOR, FR_GRID, FR_NONE, FR_PILLARS, FR_DOUBLE, FR_DOTTED,
+                  FR_GLOWBASE, FR_TOPBOTTOM, FR_TICKS, FR_SIDEFADE, FR_UNDERLINE, FR_CORNERDOTS, FR_RAILS, FR_DASHED,
+                  FR_DOTPILLARS, FR_COUNT };
 
 struct PaletteParams {
     float hue = 0;        // radians
@@ -74,7 +87,7 @@ struct Theme {
 
     int clearEffects[3] = {CE_SHRINK, CE_RISE, CE_SWEEP};
     // Audio equalizer decoration.
-    int eqStyle = 0;        // layout: 0 none, 1 beside the board (bottom), 2 along both sides, 3 ring, 4 backdrop
+    int eqStyle = 0;        // layout: 0 none, 1 beside the board (bottom), 2 along both sides, 3 ring
     int eqRender = 0;       // 0 bars, 1 bars + falling peak caps, 2 LED segments, 3 line plot, 4 mirrored, 5 needles
     int eqBars = 16;        // 16, 24, 32 or 48 (interpolated between the analysed bands)
     int eqColor = 0;        // 0 gradient along frequencies, 1 by height, 2 single accent

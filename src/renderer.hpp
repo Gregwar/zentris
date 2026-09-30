@@ -35,6 +35,16 @@ enum WipeShape {
     WIPE_DIAGONAL, // corner to corner
     WIPE_SPIRAL,   // sweeping around the board
     WIPE_DIAMOND,  // diamond from the center
+    WIPE_RISE_WAVE, WIPE_FALL_WAVE, // wavy rising / falling fronts
+    WIPE_BLINDS,   // staggered horizontal bands
+    WIPE_COLUMNS,  // staggered vertical bands
+    WIPE_PETALS,   // radial front with angular lobes
+    WIPE_CROSS,    // plus-shaped from the center
+    WIPE_SALTIRE,  // X-shaped from the center
+    WIPE_CHECKER,  // checkerboard cells in two passes
+    WIPE_CORNER,   // from the bottom-left corner
+    WIPE_SPLIT,    // from the horizontal middle line outward
+    WIPE_GRAIN,    // fine noise
     WIPE_COUNT
 };
 
