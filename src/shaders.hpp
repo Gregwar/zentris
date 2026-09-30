@@ -936,7 +936,7 @@ uniform mat4 uVP;
 uniform float uDepth;
 out vec3 vN;
 out vec3 vWorld;
-out vec4 vEdge;
+centroid out vec4 vEdge; // centroid: never extrapolated outside the face with MSAA
 out vec4 vCol;
 out vec4 vPar;
 void main() {
@@ -955,7 +955,7 @@ void main() {
 inline const char* BLOCK_FS = R"(#version 330 core
 in vec3 vN;
 in vec3 vWorld;
-in vec4 vEdge;
+centroid in vec4 vEdge;
 in vec4 vCol;
 in vec4 vPar;
 out vec4 fragColor;
@@ -1073,13 +1073,17 @@ void main() {
     gSpec = pow(max(dot(reflect(-L, N), V), 0.0), 40.0);
     gFres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
     gUV = vEdge.xy;
-    gE = 1.0 - max(abs(gUV.x), abs(gUV.y)); // 1 at face center, 0 on the edge
+    // 1 at face center, 0 on the edge. Clamped: a negative value would make the edge glow explode
+    // into single-pixel sparkles.
+    gE = clamp(1.0 - max(abs(gUV.x), abs(gUV.y)), 0.0, 1.0);
     gAA = max(fwidth(gE) * 1.2, 1e-3);
     gEdge = 1.0 - smoothstep(uEdgeW - gAA, uEdgeW + gAA, gE);
     gEdgeGlow = gEdge + exp(-gE / max(uEdgeW, 0.01) * 2.5) * 0.35;
 
     if (kind == 1) { // ghost
         vec3 rgb = col * (gEdgeGlow * 0.9 * max(uEmissive, 0.5) + 0.06);
+        float gmx = max(rgb.r, max(rgb.g, rgb.b));
+        if (gmx > 1e-4) rgb *= 1.1 * (1.0 - exp(-gmx / 1.1)) / gmx; // same soft ceiling as blocks
         float a = uGhost * (gEdge * 0.8 + 0.25);
         fragColor = vec4(clamp(rgb, 0.0, 64.0), clamp(a, 0.0, 1.0));
         return;
