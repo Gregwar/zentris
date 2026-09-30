@@ -6,17 +6,21 @@
 #include "analysis.hpp"
 #include "mathutil.hpp"
 
-enum BgStyle { BG_GRADIENT, BG_RADIAL, BG_HORIZON, BG_NEBULA, BG_FLAT, BG_AURORA, BG_BANDS, BG_SPOTLIGHT, BG_COUNT };
+enum BgStyle { BG_GRADIENT, BG_RADIAL, BG_HORIZON, BG_NEBULA, BG_FLAT, BG_AURORA, BG_BANDS, BG_SPOTLIGHT,
+               BG_GRID, BG_HILLS, BG_CONIC, BG_STARS, BG_COUNT };
 enum ParticleStyle {
     PS_GALAXY, PS_TUNNEL, PS_WAVES, PS_SPHERE, PS_DRIFT, PS_STREAMS, PS_WARP,
-    PS_AURORA, PS_HALOS, PS_HELIX, PS_BOKEH, PS_LATTICE, PS_COUNT
+    PS_AURORA, PS_HALOS, PS_HELIX, PS_BOKEH, PS_LATTICE,
+    PS_FIREFLIES, PS_RAIN, PS_VORTEX, PS_WAVEFORM, PS_STARBURST, PS_ORBITS, PS_CONFETTI, PS_COUNT
 };
-enum ParticleShape { SH_DOT, SH_RING, SH_SPARKLE, SH_SQUARE, SH_DIAMOND, SH_DISC, SH_STREAK, SH_PLUS, SH_COUNT };
-enum BlockStyle { BS_GLASS, BS_SOLID, BS_WIRE, BS_LANTERN, BS_INSET, BS_DOTS, BS_FRESNEL, BS_SPLIT, BS_COUNT };
+enum ParticleShape { SH_DOT, SH_RING, SH_SPARKLE, SH_SQUARE, SH_DIAMOND, SH_DISC, SH_STREAK, SH_PLUS, SH_STAR, SH_HEX, SH_COUNT };
+enum BlockStyle { BS_GLASS, BS_SOLID, BS_WIRE, BS_LANTERN, BS_INSET, BS_DOTS, BS_FRESNEL, BS_SPLIT,
+                  BS_HOLO, BS_GRADIENT, BS_DOUBLE, BS_COUNT };
 enum BlockMesh { MESH_CUBE, MESH_ROUNDED, MESH_SPHERE, MESH_GEM, MESH_COUNT };
 // How cleared blocks disappear. Each theme uses a set of 3; each clear picks one.
-enum ClearEffect { CE_SHRINK, CE_RISE, CE_SCATTER, CE_SQUASH, CE_SWEEP, CE_FOLD, CE_MELT, CE_SPARKLE, CE_COUNT };
-enum FrameStyle { FR_OUTLINE, FR_CORNERS, FR_WELL, FR_FLOOR, FR_GRID, FR_NONE, FR_PILLARS, FR_COUNT };
+enum ClearEffect { CE_SHRINK, CE_RISE, CE_SCATTER, CE_SQUASH, CE_SWEEP, CE_FOLD, CE_MELT, CE_SPARKLE,
+                   CE_POUR, CE_ZIP, CE_BLOOM, CE_COUNT };
+enum FrameStyle { FR_OUTLINE, FR_CORNERS, FR_WELL, FR_FLOOR, FR_GRID, FR_NONE, FR_PILLARS, FR_DOUBLE, FR_DOTTED, FR_COUNT };
 
 struct PaletteParams {
     float hue = 0;        // radians
@@ -69,6 +73,10 @@ struct Theme {
     float ghostAlpha = 0.25f;
 
     int clearEffects[3] = {CE_SHRINK, CE_RISE, CE_SWEEP};
+    int eqStyle = 0;        // audio equalizer decoration: 0 none, 1 bars beside the board, 2 side bars, 3 ring
+    float eqAlpha = 0.5f;
+    float rays = 0.f;       // light rays behind the board (0 = none)
+    float rayCount = 8.f;
     int frameStyle = FR_OUTLINE;
     float frameAlpha = 0.6f;
 

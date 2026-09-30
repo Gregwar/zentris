@@ -306,6 +306,12 @@ static float wipeCoord(int shape, float x, float y, float aspect, float noise) {
     case WIPE_INWARD: return 1.f - radial;
     case WIPE_CURTAINS: return 1.f - std::fabs(x);
     case WIPE_DISSOLVE: return noise;
+    case WIPE_DIAGONAL: return (x + y) * 0.25f + 0.5f;
+    case WIPE_SPIRAL: {
+        float a = std::atan2(y, x * aspect) / TAU + 0.5f;
+        return 0.6f * (a - std::floor(a)) + 0.4f * radial;
+    }
+    case WIPE_DIAMOND: return (std::fabs(x) + std::fabs(y)) * 0.5f;
     default: return radial;
     }
 }
@@ -343,6 +349,26 @@ void Renderer::spawnBurst(vec3 pos, vec3 color, int n, float speed, float life, 
     }
 }
 
+// Particles launched outward in the board plane, as a ring.
+void Renderer::spawnRing(vec3 center, float radius, vec3 color, int n, float speed, float life, float size) {
+    for (int i = 0; i < n && bursts_.size() < 9000; i++) {
+        float a = TAU * (i + rng_.uniform()) / n;
+        vec3 d(std::cos(a), std::sin(a) * 0.8f, rng_.range(-0.1f, 0.1f));
+        Burst b;
+        b.pos = center + d * radius;
+        b.vel = d * speed * rng_.range(0.85f, 1.15f);
+        b.color = color;
+        b.maxLife = b.life = life * rng_.range(0.7f, 1.f);
+        b.size = size * rng_.range(0.7f, 1.2f);
+        bursts_.push_back(b);
+    }
+}
+
+void Renderer::levelUp() {
+    spawnRing(vec3(0, 0, 0.6f), 5.f, lerp(cur_.accent, cur_.partB, 0.4f), 180, 9.f, 1.6f, 0.14f);
+    spawnRing(vec3(0, 0, 0.6f), 3.f, cur_.partA, 120, 6.f, 1.4f, 0.12f);
+}
+
 void Renderer::onEvent(const GameEvent& ev, const Game&) {
     const Theme& t = cur_;
     switch (ev.type) {
@@ -370,10 +396,23 @@ void Renderer::onEvent(const GameEvent& ev, const Game&) {
             case CE_FOLD: delay = (4.5f - std::fabs(x - 4.5f)) * 0.035f; dur = 0.35f; break;
             case CE_MELT: delay = rng_.range(0.f, 0.12f); dur = 0.5f; break;
             case CE_SPARKLE: delay = rng_.range(0.f, 0.08f); dur = 0.22f; break;
+            case CE_POUR: delay = rng_.range(0.f, 0.15f); dur = 0.5f; break;
+            case CE_ZIP: dir = vec3(fromRight ? 1.f : -1.f, 0, 0); delay = (fromRight ? 9.f - x : x) * 0.012f; dur = 0.4f; break;
+            case CE_BLOOM: delay = std::fabs(x - 4.5f) * 0.02f; dur = 0.45f; break;
             }
             dying_.push_back({p, c.type, 0.f, delay, dur, effect, dir});
             int parts = effect == CE_SPARKLE ? 10 + 2 * ev.count : 3 + ev.count;
             spawnBurst(p, t.piece[c.type], parts, (effect == CE_SPARKLE ? 1.8f : 1.0f) + 0.2f * ev.count, 2.6f, 0.12f);
+        }
+        // Rings of light from the cleared rows (a double ring for a Tetris).
+        {
+            float yc = 0;
+            vec3 col(0.f);
+            for (auto& c : ev.cells) { yc += cellPos(0, (float)c.y).y; col += t.piece[c.type]; }
+            yc /= ev.cells.size();
+            col = col / (float)ev.cells.size();
+            spawnRing(vec3(0, yc, 0.4f), 1.f, lerp(col, t.accent, 0.3f), 50 + 25 * ev.count, 5.f + 1.5f * ev.count, 1.1f, 0.12f);
+            if (ev.count >= 4) spawnRing(vec3(0, yc, 0.4f), 1.f, t.partB, 140, 11.f, 1.5f, 0.14f);
         }
         clearGlow_ = std::min(0.5f, clearGlow_ + 0.1f * ev.count);
         settleGlow_ = std::min(0.3f, settleGlow_ + 0.12f + 0.04f * ev.count);
@@ -399,7 +438,48 @@ void Renderer::onEvent(const GameEvent& ev, const Game&) {
     }
 }
 
-void Renderer::collectBoard(const Game& g, double time, std::vector<BlockInst>& solid, std::vector<BlockInst>& ghost,
+// Audio equalizer decoration, drawn with emissive bars behind the board.
+void Renderer::addEqualizer(const Theme& th, float weight, const MusicState& music, std::vector<BlockInst>& fx) {
+    if (th.eqStyle == 0 || weight <= 0.01f) return;
+    const float E = music.energy;
+    const float a = th.eqAlpha * (0.55f + 0.45f * E) * weight;
+    const float halfW = BOARD_W * 0.5f + 0.15f, halfH = BOARD_H * 0.5f + 0.15f;
+    auto bar = [&](vec3 c, vec3 sc, int band) {
+        BlockInst b;
+        b.pos = c;
+        b.scale = sc;
+        b.color = vec4(lerp(cur_.partA, cur_.partB, band / 15.f) * lerpf(1.2f, 1.f, paleW(cur_)), a);
+        b.params = vec4(2, 0, 0, 0);
+        fx.push_back(b);
+    };
+    for (int i = 0; i < NUM_BANDS; i++) {
+        float v = music.bandsFast[i] * (0.6f + 0.6f * E);
+        for (int side = -1; side <= 1; side += 2) {
+            if (th.eqStyle == 1) { // bars rising beside the board
+                float h = 0.15f + 3.2f * v; // stays below the score column and previews
+                bar(vec3(side * (6.6f + i * 0.85f), -halfH + h * 0.5f, -1.5f), vec3(0.5f, h, 0.2f), i);
+            } else if (th.eqStyle == 2) { // bars growing outward along both sides
+                float len = 0.15f + 1.9f * v; // stays clear of the score column and previews
+                bar(vec3(side * (halfW + 0.45f + len * 0.5f), -halfH + 0.8f + i * 1.22f, -1.f), vec3(len, 0.42f, 0.2f), i);
+            }
+        }
+    }
+    if (th.eqStyle == 3) { // radial ring of dots behind the board
+        const int bars = 48;
+        for (int i = 0; i < bars; i++) {
+            int band = (i < bars / 2 ? i : bars - 1 - i) * NUM_BANDS / (bars / 2);
+            band = std::min(band, NUM_BANDS - 1);
+            float ang = TAU * i / bars + 0.5f * PI;
+            int n = 1 + (int)(music.bandsFast[band] * (0.6f + 0.6f * E) * 8.f);
+            for (int j = 0; j < n; j++) {
+                float rr = 12.5f + j * 0.55f;
+                bar(vec3(std::cos(ang) * rr, std::sin(ang) * rr, -3.f), vec3(0.3f, 0.3f, 0.1f), band);
+            }
+        }
+    }
+}
+
+void Renderer::collectBoard(const Game& g, const MusicState& music, double time, std::vector<BlockInst>& solid, std::vector<BlockInst>& ghost,
                             std::vector<BlockInst>& fx) {
     const Theme& t = cur_;
     const float s = t.blockScale;
@@ -416,7 +496,12 @@ void Renderer::collectBoard(const Game& g, double time, std::vector<BlockInst>& 
         for (int x = 0; x < Game::W; x++) {
             const Cell& c = g.cell(x, y);
             if (c.type < 0) continue;
-            solid.push_back(block(cellPos((float)x, y - g.rowOffset(y)), c.type, 0, c.flash, settleGlow_, 1));
+            // Beat wave travelling up the stack in energetic parts, and a small pop when a piece locks.
+            float rowDelay = (Game::H - 1 - y) * 0.035f;
+            float wave = music.beatPhase >= rowDelay ? std::exp(-(music.beatPhase - rowDelay) * 7.f) : 0.f;
+            float waveGlow = 0.3f * music.energy * music.intensity * wave;
+            solid.push_back(block(cellPos((float)x, y - g.rowOffset(y)), c.type, 0, c.flash, settleGlow_ + waveGlow,
+                                  1.f + 0.35f * c.flash));
         }
     for (const Dying& d : dying_) {
         const float k = saturate((d.t - d.delay) / d.dur);   // disappearing phase 0..1
@@ -432,6 +517,14 @@ void Renderer::collectBoard(const Game& g, double time, std::vector<BlockInst>& 
         case CE_FOLD: sc = vec3(1.f - e, 1.f, 1.f - 0.3f * e); break;
         case CE_MELT: pos.y -= 0.45f * e; sc = vec3(1.f + 0.3f * e, 1.f - e, 1.f); break;
         case CE_SPARKLE: glow = 0.9f * rise; break;
+        case CE_POUR: pos.y -= 5.f * k * k; sc = vec3(1.f - 0.6f * e); break;
+        case CE_ZIP: pos += d.dir * (11.f * k * k); sc = vec3(1.f, 1.f - 0.5f * e, 1.f); break;
+        case CE_BLOOM: {
+            float g = k < 0.75f ? 1.f + 0.45f * smoothstepf(0, 0.75f, k) : 1.45f * (1.f - (k - 0.75f) / 0.25f);
+            sc = vec3(g);
+            glow *= 1.3f;
+            break;
+        }
         default: break;
         }
         if (sc.x <= 0.01f || sc.y <= 0.01f || sc.z <= 0.01f) continue;
@@ -479,7 +572,7 @@ void Renderer::collectBoard(const Game& g, double time, std::vector<BlockInst>& 
     // Frame and board decoration (emissive). Both frame styles are drawn during a transition.
     const float halfW = BOARD_W * 0.5f + 0.15f, halfH = BOARD_H * 0.5f + 0.15f;
     const float th = 0.07f;
-    vec3 fc = t.accent * lerpf(1.3f + 0.4f * clearGlow_, 1.f, paleW(t));
+    vec3 fc = t.accent * lerpf(1.3f + 0.4f * clearGlow_, 1.f, paleW(t)) * (1.f + 0.6f * music.beatPulse * music.energy);
     auto bar = [&](vec3 c, vec3 sc, vec3 col, float a, float normalBlend = 0.f) {
         if (a <= 0.002f) return;
         BlockInst b;
@@ -532,9 +625,31 @@ void Renderer::collectBoard(const Game& g, double time, std::vector<BlockInst>& 
             bar({-halfW, 0, 0}, {th * 0.7f, 90.f, th}, fc, fa * 0.8f);
             bar({halfW, 0, 0}, {th * 0.7f, 90.f, th}, fc, fa * 0.8f);
             break;
+        case FR_DOUBLE:
+            for (int k = 0; k < 2; k++) {
+                float o = k * 0.35f, aa = fa * (k ? 0.45f : 1.f);
+                bar({-halfW - o, 0, 0}, {th, 2 * (halfH + o) + th, th}, fc, aa);
+                bar({halfW + o, 0, 0}, {th, 2 * (halfH + o) + th, th}, fc, aa);
+                bar({0, -halfH - o, 0}, {2 * (halfW + o), th, th}, fc, aa);
+                bar({0, halfH + o, 0}, {2 * (halfW + o), th, th}, fc, aa * 0.5f);
+            }
+            break;
+        case FR_DOTTED:
+            for (float y = -halfH; y <= halfH + 0.01f; y += 0.5f) {
+                bar({-halfW, y, 0}, {0.1f, 0.1f, 0.1f}, fc, fa);
+                bar({halfW, y, 0}, {0.1f, 0.1f, 0.1f}, fc, fa);
+            }
+            for (float x = -halfW; x <= halfW + 0.01f; x += 0.5f) bar({x, -halfH, 0}, {0.1f, 0.1f, 0.1f}, fc, fa);
+            break;
         default: break;
         }
     };
+    // Equalizer decoration (both themes' layouts during a transition).
+    if (from_.eqStyle == to_.eqStyle) addEqualizer(to_, 1.f, music, fx);
+    else {
+        addEqualizer(from_, 1.f - mix_, music, fx);
+        addEqualizer(to_, mix_, music, fx);
+    }
     if (from_.frameStyle == to_.frameStyle) {
         frame(to_.frameStyle, t.frameAlpha);
     } else {
@@ -570,6 +685,10 @@ void Renderer::drawBackground(const MusicState& music, double time) {
     set1f(progBg_, "uBeat", music.beatPulse * cur_.beatPulse);
     set1f(progBg_, "uAspect", (float)w_ / h_);
     set1f(progBg_, "uPale", paleW(cur_));
+    // Light rays: both themes' ray patterns during a transition.
+    const float rayGain = (0.4f + 0.8f * music.energy) * (0.6f + 0.6f * music.intensity) * govern_;
+    set4f(progBg_, "uRays", from_.rays * (1.f - mix_) * rayGain, from_.rayCount, to_.rays * mix_ * rayGain, to_.rayCount);
+    set1f(progBg_, "uRayTime", rayTime_);
     glBindVertexArray(emptyVao_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }
@@ -587,6 +706,13 @@ void Renderer::drawParticleLayer(const ParticleLayer& L, const Theme& owner, flo
     case PS_SPHERE: mult = 0.5f; break;
     case PS_HELIX: mult = 0.35f; break;
     case PS_STREAMS: mult = 0.6f; break;
+    case PS_FIREFLIES: mult = 0.05f; break;
+    case PS_RAIN: mult = 0.2f; break;
+    case PS_VORTEX: mult = 0.5f; break;
+    case PS_WAVEFORM: mult = 0.25f; break;
+    case PS_STARBURST: mult = 0.35f; break;
+    case PS_ORBITS: mult = 0.4f; break;
+    case PS_CONFETTI: mult = 0.08f; break;
     default: mult = 1.f; break;
     }
     int count = (int)(MAX_PARTICLES * L.count * mult);
@@ -621,6 +747,7 @@ void Renderer::drawParticleLayer(const ParticleLayer& L, const Theme& owner, flo
     set1f(p, "uHigh", music.audio.high);
     set1f(p, "uLoud", music.audio.loud);
     set1f(p, "uBeat", music.beatPulse * cur_.beatPulse);
+    set1f(p, "uKick", music.kick * (0.6f + 0.8f * music.energy));
     set2f(p, "uReact", cur_.bassReact, cur_.highReact);
     glUniform1fv(U(p, "uSpec"), 16, music.audio.bands.data());
     const bool wiping = wipe_ && transT_ < 1.f;
@@ -743,7 +870,8 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
 
     // ---- Simulation of effects.
     if (!paused) {
-        ptimeFrom_ += dt * (0.5f + 0.9f * music.intensity) * music.speed;
+        ptimeFrom_ += dt * (0.5f + 0.9f * music.intensity) * music.speed * (0.75f + 0.7f * music.energy);
+        rayTime_ += dt * (0.1f + 0.5f * music.energy);
         for (size_t i = 0; i < dying_.size();) {
             dying_[i].t += dt;
             if (dying_[i].t > dying_[i].delay + dying_[i].dur + 0.05f) { dying_[i] = dying_.back(); dying_.pop_back(); continue; }
@@ -799,7 +927,7 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
     for (int i = 0; i < to_.layerCount; i++) drawParticleLayer(to_.layers[i], to_, m, true, music);
 
     std::vector<BlockInst> solid, ghost, fx;
-    collectBoard(game, time, solid, ghost, fx);
+    collectBoard(game, music, time, solid, ghost, fx);
     glUseProgram(progBlock_);
     setMat(progBlock_, "uVP", vp_);
     set1f(progBlock_, "uDepth", cur_.blockDepth);

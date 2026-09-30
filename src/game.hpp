@@ -1,6 +1,7 @@
 #pragma once
 // Tetris rules: SRS rotation with wall kicks, 7-bag, hold, ghost, lock delay.
 // Topping out dissolves the board and ends the game; restart() starts a new one (best score is kept).
+#include <algorithm>
 #include <cstdint>
 #include <deque>
 #include <vector>
@@ -46,6 +47,10 @@ public:
     // Game over: the board has been cleared (the renderer dissolves it) and play waits for restart().
     bool over() const { return over_; }
     void restart();
+    // Debugging: add the lines needed to reach the next level.
+    void skipToNextLevel() {
+        if (level() < MAX_LEVEL) lines_ += LINES_PER_LEVEL - lines_ % LINES_PER_LEVEL;
+    }
 
     // Queries
     const Cell& cell(int x, int y) const { return board_[y][x]; }
@@ -59,13 +64,17 @@ public:
     float rowOffset(int y) const { return rowOffset_[y]; }
     float pieceVisualY() const { return visY_; }
     float pieceVisualX() const { return visX_; }
-    float lockProgress() const { return grounded_ ? lockTimer_ / LOCK_DELAY : 0.f; }
+    float lockProgress() const { return grounded_ ? lockTimer_ / lockDelay() : 0.f; }
     bool collides(const Piece& p) const;
     int stackHeight() const;
 
     int score() const { return score_; }
     int lastScore() const { return score_; } // final score while the game is over
     int lines() const { return lines_; }
+    // Level: 1 + one per 25 lines, plateau at MAX_LEVEL. difficulty() is 0 at level 1 .. 1 at the plateau.
+    static constexpr int MAX_LEVEL = 10, LINES_PER_LEVEL = 25;
+    int level() const { return std::min(MAX_LEVEL, 1 + lines_ / LINES_PER_LEVEL); }
+    float difficulty() const { return (level() - 1) / float(MAX_LEVEL - 1); }
     int best() const { return best_; }
     int combo() const { return combo_; }
 
@@ -75,7 +84,8 @@ public:
     bool planMove(int& rot, int& x) const;
 
 private:
-    static constexpr float LOCK_DELAY = 0.55f;
+    // Lock delay shortens with the level (0.55 s at level 1, 0.35 s at the plateau).
+    float lockDelay() const { return 0.55f - 0.2f * difficulty(); }
     static constexpr int MAX_RESETS = 15;
 
     void spawn(int type);

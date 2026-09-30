@@ -329,7 +329,7 @@ void Game::update(float dt) {
     grounded_ = collides(below);
     if (grounded_) {
         lockTimer_ += dt;
-        if (lockTimer_ >= LOCK_DELAY) lockPiece();
+        if (lockTimer_ >= lockDelay()) lockPiece();
     } else {
         lockTimer_ = 0;
     }

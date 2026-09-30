@@ -95,6 +95,7 @@ void Input::update(float dt) {
     kb[A_FULLSCREEN] = key(GLFW_KEY_F11) || letter('f');
     kb[A_QUIT] = letter('q');
     kb[A_HUD] = letter('h');
+    kb[A_DEBUG_LEVEL] = letter('l');
 
     bool pad[A_COUNT] = {};
     if (jid_ >= 0) {

@@ -52,6 +52,7 @@ and the on-screen hints follow whichever device you used last.
 | New scene | T | Y |
 | Next song | N / Tab / Enter / PageDown | Back |
 | Seek ±10 s in the song (testing) | Ctrl+Shift+Left/Right | |
+| Next level (debugging) | L | |
 | Pause | Esc / P (Q quits while paused) | Start |
 | Fullscreen | F / F11 | |
 
@@ -60,6 +61,7 @@ and the on-screen hints follow whichever device you used last.
 Each song is decoded and analyzed in the background (under 1 s):
 
 - **Tempo and beat grid**: gravity steps land on the beat, at 1 row every 2 beats, every beat, or every half beat, depending on the song's energy at that moment.
+- **Levels**: one level per 25 lines, up to a plateau at level 10. Each level speeds up the beat-locked gravity (at the plateau: 1.25, 2.5 or 4 rows per beat for calm, mid and peak parts, on musical subdivisions, capped at 7 rows/s) and shortens the lock delay (0.55 s → 0.35 s). Game over resets the level.
 - **Key**: the base hue follows the circle of fifths.
 - **Brightness, bass/air balance, dynamics, density**: choose the mood (night, dusk or pale), the particle layouts, bloom, how strongly things react, and the camera's motion.
 - **Song structure**: the song is split at bar lines into labelled segments (intro, verse, build, chorus, drop, break, outro), and segments that sound alike are grouped. Each segment eases the scene's density, speed, glow and saturation (builds ramp up, breaks thin out).
@@ -68,7 +70,9 @@ Each song is decoded and analyzed in the background (under 1 s):
 - **Live bands and loudness**, heavily smoothed, drive particle motion and glow.
 
 The scene seed combines the song's fingerprint with a random seed for each run, so the same song looks
-different every time. The combinatorial space covers 8 palette schemes × 3 moods, 8 backgrounds,
-12 particle layouts × 8 particle shapes (one or two layers), 8 block materials × 4 meshes (with a varying
-block depth), 7 board frames, and a post-processing grade (bloom, vignette, chromatic aberration, grain, split-toning).
+different every time. The combinatorial space covers 8 palette schemes × 3 moods, 12 backgrounds,
+19 particle layouts × 10 particle shapes (one or two layers), 11 block materials × a continuous family of
+block shapes (cube → rounded → sphere → gem), 9 board frames, an audio equalizer (3 layouts) and light rays,
+11 line-clear effects, 11 transition shapes, and a post-processing grade (bloom, vignette, chromatic
+aberration, grain, split-toning).
 The scene name is shown in the bottom-left corner.

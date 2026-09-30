@@ -85,12 +85,14 @@ private:
     std::string failedTitle_;
     float failedToast_ = 0;
     float overTime_ = 0; // seconds since game over
+    int lastLevel_ = 1;
+    float levelToast_ = 0;
     bool paused_ = false, wantSkip_ = false, showHelp_ = true, quit_ = false;
     double songTime_ = 0, simSongTime_ = 0;
     float trackAge_ = 0, helpTimer_ = 14.f, sceneNameTimer_ = 0, runTime_ = 0;
     // Gravity bookkeeping.
     double lastGravTick_ = 0;
-    float gravRate_ = -1, fallbackTimer_ = 0;
+    float gravRate_ = -1, pace_ = -1, fallbackTimer_ = 0;
     float intensitySmooth_ = 0.3f;
     // Autoplay.
     bool planned_ = false;
@@ -109,7 +111,7 @@ void App::startTrack(std::shared_ptr<Track> t) {
     trackAge_ = 0;
     lastPhase_ = 0;
     lastSeg_ = 0;
-    gravRate_ = -1;
+    gravRate_ = pace_ = -1;
     simSongTime_ = 0;
     std::printf("[app] now playing: %s\n", track_->title.c_str());
     sceneCounter_++;
@@ -151,10 +153,10 @@ Theme App::phaseTheme(int phase) const {
 int App::pickWipe(int kind) {
     float w[WIPE_COUNT];
     switch (kind) {
-    case 0: { float v[WIPE_COUNT] = {3, 2.5f, 0.3f, 1, 1, 1.5f, 1, 0.7f}; std::copy(v, v + WIPE_COUNT, w); break; }
-    case 1: { float v[WIPE_COUNT] = {0.5f, 0.3f, 2.5f, 1, 1, 0.7f, 1.5f, 3}; std::copy(v, v + WIPE_COUNT, w); break; }
-    case 2: { float v[WIPE_COUNT] = {1, 1.5f, 0.8f, 1.2f, 1.2f, 0.6f, 1.2f, 0}; std::copy(v, v + WIPE_COUNT, w); break; }
-    default: { float v[WIPE_COUNT] = {1, 1, 1, 1, 1, 1, 1, 1}; std::copy(v, v + WIPE_COUNT, w); break; }
+    case 0: { float v[WIPE_COUNT] = {3, 2.5f, 0.3f, 1, 1, 1.5f, 1, 0.7f, 1, 1.2f, 1.5f}; std::copy(v, v + WIPE_COUNT, w); break; }
+    case 1: { float v[WIPE_COUNT] = {0.5f, 0.3f, 2.5f, 1, 1, 0.7f, 1.5f, 3, 1, 0.8f, 0.5f}; std::copy(v, v + WIPE_COUNT, w); break; }
+    case 2: { float v[WIPE_COUNT] = {1, 1.5f, 0.8f, 1.2f, 1.2f, 0.6f, 1.2f, 0, 1.2f, 0.8f, 0.8f}; std::copy(v, v + WIPE_COUNT, w); break; }
+    default: { float v[WIPE_COUNT] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}; std::copy(v, v + WIPE_COUNT, w); break; }
     }
     return wipeRng_.weighted(w);
 }
@@ -179,10 +181,14 @@ void App::handleEvents() {
 }
 
 // Gravity rides the beat: one row every 2 beats, 1 beat or half beat depending on the music's energy.
+// Gravity rides the beat. The song's energy sets the pace (1 row every 2 beats, every beat, or 2 per
+// beat), and the level scales it up gradually to a plateau at level 10 (1 / 2 / 3 rows per beat), always
+// snapped to musical subdivisions so pieces keep falling in time.
 void App::updateGravity(double songTime, float dt) {
+    const float diff = game_.difficulty();
     if (!track_ || audio_.finished()) {
         fallbackTimer_ += dt;
-        if (fallbackTimer_ > 0.9f) { fallbackTimer_ = 0; game_.gravityStep(); }
+        if (fallbackTimer_ > 0.9f * (1.f - 0.45f * diff)) { fallbackTimer_ = 0; game_.gravityStep(); }
         return;
     }
     const Analysis& an = track_->analysis;
@@ -191,15 +197,22 @@ void App::updateGravity(double songTime, float dt) {
     float tempoMul = 1.f, bpm = an.fp.bpm;
     while (bpm * tempoMul > 130.f) tempoMul *= 0.5f;
     while (bpm * tempoMul < 65.f) tempoMul *= 2.f;
-    // Hysteresis between pace levels.
-    float target = gravRate_;
+    // Song pace with hysteresis: 0.5 (calm), 1 (mid), 2 (peak) rows per beat.
     float in = intensitySmooth_;
-    if (gravRate_ < 0) target = in < 0.4f ? 0.5f : (in < 0.85f ? 1.f : 2.f);
-    else if (gravRate_ == 0.5f && in > 0.45f) target = 1.f;
-    else if (gravRate_ == 1.f && in < 0.3f) target = 0.5f;
-    else if (gravRate_ == 1.f && in > 0.9f) target = 2.f;
-    else if (gravRate_ == 2.f && in < 0.75f) target = 1.f;
-    if (trackAge_ < 20.f) target = std::min(target, 1.f);
+    if (pace_ < 0) pace_ = in < 0.4f ? 0.5f : (in < 0.85f ? 1.f : 2.f);
+    else if (pace_ == 0.5f && in > 0.45f) pace_ = 1.f;
+    else if (pace_ == 1.f && in < 0.3f) pace_ = 0.5f;
+    else if (pace_ == 1.f && in > 0.9f) pace_ = 2.f;
+    else if (pace_ == 2.f && in < 0.75f) pace_ = 1.f;
+    float pace = trackAge_ < 20.f ? std::min(pace_, 1.f) : pace_;
+    // Level scaling: x2.5 at the plateau (x2 for peaks), snapped to musical subdivisions (log-nearest),
+    // and capped at 7 rows per second so the fastest songs stay playable.
+    float wanted = pace * (1.f + diff * (pace >= 2.f ? 1.f : 1.5f));
+    wanted = std::min(wanted, 7.f / (bpm * tempoMul / 60.f));
+    static const float SUB[] = {0.5f, 0.75f, 1.f, 1.25f, 1.5f, 2.f, 2.5f, 3.f, 4.f};
+    float target = SUB[0];
+    for (float v : SUB)
+        if (v * bpm * tempoMul / 60.f <= 7.01f && std::fabs(std::log(v / wanted)) < std::fabs(std::log(target / wanted))) target = v;
     double tick = std::floor(an.beatPosition(songTime) * tempoMul * target);
     if (target != gravRate_) {
         gravRate_ = target;
@@ -266,9 +279,12 @@ std::vector<HudText> App::buildHud(float dt) {
     hud.push_back({std::to_string(game_.score()), sc.x, sc.y + 18 * s, 2.8f * s, 0.9f, false, true});
     hud.push_back({"LINES", sc.x, sc.y + 62 * s, 1.4f * s, 0.45f, false, true});
     hud.push_back({std::to_string(game_.lines()), sc.x, sc.y + 80 * s, 2.8f * s, 0.9f, false, true});
+    hud.push_back({"LEVEL", sc.x, sc.y + 124 * s, 1.4f * s, 0.45f, false, true});
+    hud.push_back({std::to_string(game_.level()) + (game_.level() >= Game::MAX_LEVEL ? " MAX" : ""), sc.x, sc.y + 142 * s,
+                   2.8f * s, 0.9f, false, true});
     if (game_.best() > 0) {
-        hud.push_back({"BEST", sc.x, sc.y + 124 * s, 1.4f * s, 0.35f, false, true});
-        hud.push_back({std::to_string(game_.best()), sc.x, sc.y + 142 * s, 2.f * s, 0.6f, false, true});
+        hud.push_back({"BEST", sc.x, sc.y + 186 * s, 1.4f * s, 0.35f, false, true});
+        hud.push_back({std::to_string(game_.best()), sc.x, sc.y + 204 * s, 2.f * s, 0.6f, false, true});
     }
     if (game_.combo() > 0) {
         vec2 c = R_.project(vec3(8.6f, -4.5f, 0));
@@ -301,7 +317,14 @@ std::vector<HudText> App::buildHud(float dt) {
         hud.push_back({"COULD NOT LOAD " + failedTitle_ + ", TRYING ANOTHER SONG", -28 * s, 64 * s, 1.3f * s,
                        std::min(1.f, failedToast_), true});
 
-    // Input device toast.
+    levelToast_ = std::max(0.f, levelToast_ - dt);
+    if (levelToast_ > 0) {
+        vec2 c = R_.project(vec3(0, 3.f, 0));
+        float a = std::min(1.f, levelToast_) * std::min(1.f, (2.5f - levelToast_) * 4.f);
+        hud.push_back({"LEVEL " + std::to_string(game_.level()), c.x, c.y, 3.2f * s, 0.8f * a, true, true});
+    }
+
+        // Input device toast.
     if (input_.deviceChangedTimer() > 0) {
         std::string d = input_.active() == Input::Gamepad ? "GAMEPAD  " + upper(input_.gamepadName()) : "KEYBOARD";
         hud.push_back({d, -28 * s, 70.f * s, 1.5f * s, std::min(1.f, input_.deviceChangedTimer()), true});
@@ -453,11 +476,12 @@ int App::run() {
                 audio_.seek(target);
                 songTime_ = target;
                 simSongTime_ = target;
-                gravRate_ = -1; // re-sync the beat-driven gravity
+                gravRate_ = pace_ = -1; // re-sync the beat-driven gravity
                 lastSeg_ = track_->analysis.segmentAt(target);
                 seekToast_ = 1.5f;
             }
         }
+        if (input_.pressed(A_DEBUG_LEVEL) && !game_.over()) game_.skipToNextLevel();
         if (input_.pressed(A_HUD)) { showHelp_ = !showHelp_; helpTimer_ = showHelp_ ? 1e9f : 0; }
 
         // ---- Game.
@@ -488,6 +512,13 @@ int App::run() {
             }
             game_.update(dt);
             handleEvents();
+            if (game_.level() > lastLevel_ && !game_.over()) {
+                levelToast_ = 2.5f;
+                R_.setTheme(R_.latestTheme(), 1.6f, true, 0.35f, pickWipe(2)); // soft refresh wave
+                R_.levelUp();
+                std::printf("[app] level %d\n", game_.level());
+            }
+            lastLevel_ = game_.level();
             R_.setDim(game_.over() && overTime_ > 1.2f);
         }
 
@@ -516,9 +547,27 @@ int App::run() {
             const float zone = plan_.pulseEnvelope(t);
             float accent = zone * tempoAmp * swell * swell * (0.4f + 0.6f * std::max(f.bass, f.onset));
             // Soft hits on strong transients, for faster songs, still only inside pulse zones.
-            float hitTarget = zone * hitTempoAmp(an.fp.bpm) * smoothstepf(0.45f, 0.9f, f.onset);
+            // Overall energy: faster songs, intense sections and higher levels all push it up.
+            const int lvl = plan_.phases[plan_.phaseAt(t)].level;
+            music_.energy = approach(music_.energy,
+                                     saturate((0.3f + 0.7f * smoothstepf(80.f, 135.f, an.fp.bpm)) *
+                                              (0.45f + 0.55f * music_.intensity) * (1.f + 0.25f * game_.difficulty())),
+                                     1.f, dt);
+            const float E = music_.energy;
+            // Outside pulse zones, energetic songs still pulse on the beat in mid/peak parts.
+            float base = (lvl >= 1 ? 0.5f : 0.15f) * E * smoothstepf(95.f, 130.f, an.fp.bpm);
+            float groove = base * swell * swell * swell * (0.5f + 0.5f * f.bass);
+            float hitTarget = std::max(zone, lvl >= 1 ? 0.5f * E : 0.f) * smoothstepf(92.f, 120.f, an.fp.bpm) *
+                              smoothstepf(0.45f, 0.9f, f.onset);
             hit_ = hitTarget > hit_ ? approach(hit_, hitTarget, 30.f, dt) : approach(hit_, hitTarget, 3.f, dt);
-            music_.beatPulse = 0.25f * breath + accent + 0.7f * hit_;
+            music_.beatPulse = 0.25f * breath + accent + groove + 0.7f * hit_;
+            // Bass kick envelope (pushes the particle field) and fast band levels (equalizer).
+            float kickTarget = E * smoothstepf(0.45f, 0.85f, f.onset) * (0.4f + 0.6f * f.bass);
+            music_.kick = kickTarget > music_.kick ? approach(music_.kick, kickTarget, 30.f, dt)
+                                                   : approach(music_.kick, kickTarget, 4.f, dt);
+            for (int b = 0; b < NUM_BANDS; b++)
+                music_.bandsFast[b] = f.bands[b] > music_.bandsFast[b] ? approach(music_.bandsFast[b], f.bands[b], 25.f, dt)
+                                                                       : approach(music_.bandsFast[b], f.bands[b], 6.f, dt);
 
             // Structure-driven profile (density, speed, glow, saturation), eased over a few seconds.
             {

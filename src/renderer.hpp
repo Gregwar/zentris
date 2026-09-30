@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,9 @@ struct MusicState {
     float beatPulse = 0;     // decaying pulse on each beat
     // Slow multipliers from the song structure (intro sparse, chorus full, builds ramping...).
     float density = 1, speed = 1, glow = 1, saturation = 1;
+    float energy = 0.5f;     // overall energy: tempo x section intensity x level (0..1)
+    float kick = 0;          // envelope of strong bass hits (fast attack, ~0.3 s decay)
+    std::array<float, NUM_BANDS> bandsFast{}; // quickly smoothed band levels (equalizer)
 };
 
 // How a scene transition spreads over the screen (every shape has a soft glowing front).
@@ -28,6 +32,9 @@ enum WipeShape {
     WIPE_INWARD,   // edges to center
     WIPE_CURTAINS, // both sides to the middle
     WIPE_DISSOLVE, // organic noise blotches
+    WIPE_DIAGONAL, // corner to corner
+    WIPE_SPIRAL,   // sweeping around the board
+    WIPE_DIAMOND,  // diamond from the center
     WIPE_COUNT
 };
 
@@ -55,6 +62,7 @@ public:
 
     void onEvent(const GameEvent& ev, const Game& game);
     void kick(float amount) { kick_ = std::max(kick_, amount); }
+    void levelUp(); // ring of light around the board
     // Dim the scene (like pause) without freezing it, e.g. behind the game-over screen.
     void setDim(bool d) { dim_ = d; }
 
@@ -79,7 +87,9 @@ private:
     void drawBlocks(const std::vector<BlockInst>& inst, bool depthWrite);
     void drawBursts();
     void drawText(const std::vector<HudText>& hud);
-    void collectBoard(const Game& game, double time, std::vector<BlockInst>& solid,
+    void spawnRing(vec3 center, float radius, vec3 color, int n, float speed, float life, float size);
+    void addEqualizer(const Theme& th, float weight, const MusicState& music, std::vector<BlockInst>& fx);
+    void collectBoard(const Game& game, const MusicState& music, double time, std::vector<BlockInst>& solid,
                       std::vector<BlockInst>& ghost, std::vector<BlockInst>& fx);
     void spawnBurst(vec3 pos, vec3 color, int n, float speed, float life, float size);
     vec3 cellPos(float x, float y) const; // board cell -> world
@@ -120,6 +130,7 @@ private:
     float clearGlow_ = 0;
     std::vector<Burst> bursts_;
     std::vector<Dying> dying_;
+    float rayTime_ = 0;
     Rng rng_{12345};
     static constexpr int MAX_PARTICLES = 26000;
 };

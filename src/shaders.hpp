@@ -49,12 +49,17 @@ float wipeCoord(vec2 ndc, float aspect, float noise) {
     else if (uWipeShape == 5) d = 1.0 - radial;
     else if (uWipeShape == 6) d = 1.0 - abs(ndc.x);
     else if (uWipeShape == 7) d = noise;
+    else if (uWipeShape == 8) d = (ndc.x + ndc.y) * 0.25 + 0.5;
+    else if (uWipeShape == 9) d = 0.6 * fract(atan(ndc.y, ndc.x * aspect) / 6.2831853 + 0.5) + 0.4 * radial;
+    else if (uWipeShape == 10) d = (abs(ndc.x) + abs(ndc.y)) * 0.5;
     else d = radial;
     return clamp(d, 0.0, 1.0);
 }
 
 uniform vec4 uP;
 uniform float uTime, uBass, uIntensity, uBeat, uAspect, uPale;
+uniform vec4 uRays; // strength A, count A, strength B, count B
+uniform float uRayTime;
 )";
 
 inline const char* BG_FS_BODY = R"(
@@ -103,10 +108,49 @@ vec3 bgStyle(int s, vec2 uv) {
         float edge = smoothstep(0.0, 0.02, fract(uv.y * n)) * (1.0 - smoothstep(0.98, 1.0, fract(uv.y * n)));
         vec3 col = mix(uBottom, uTop, b);
         return mix(col * 0.97, col, edge);
-    } else { // spotlight from above
+    } else if (s == 7) { // spotlight from above
         float x = c.x - (uP.x - 0.5) * 0.4;
         float cone = (1.0 - smoothstep(0.0, 0.35 + 0.4 * (1.0 - uv.y) * uP.y, abs(x))) * smoothstep(-0.2, 1.0, uv.y);
         return mix(grad, uGlow, cone * 0.45 * breathe);
+    } else if (s == 8) { // synthwave grid floor under a horizon
+        float hy = 0.3 + 0.12 * uP.x;
+        vec3 col = mix(uBottom, uTop, smoothstep(hy - 0.02, 1.0, uv.y));
+        col = mix(col, uGlow * 0.7, exp(-abs(uv.y - hy) * 25.0) * 0.5 * breathe);
+        if (uv.y < hy) {
+            float depth = 0.12 / max(hy - uv.y, 0.004);
+            float gx = abs(fract(c.x * depth * 3.0) - 0.5);
+            float gz = abs(fract(depth * 2.0 + uTime * (0.3 + 0.4 * uIntensity)) - 0.5);
+            float w = 0.02 + 0.01 * depth;
+            float line = max(smoothstep(0.5 - w, 0.5, gx), smoothstep(0.5 - w * 1.5, 0.5, gz));
+            col = mix(col, uGlow, line * 0.45 * exp(-depth * 0.35) * breathe);
+        }
+        return col;
+    } else if (s == 9) { // layered hills
+        vec3 col = grad;
+        for (int k = 0; k < 3; k++) {
+            float fk = float(k);
+            float hh = 0.34 - 0.08 * fk + 0.05 * sin(c.x * (1.6 + fk) + uP.x * 6.0 + fk * 2.0 + uTime * 0.01 * (fk + 1.0))
+                       + 0.025 * sin(c.x * (5.0 + 2.0 * fk) + fk * 3.0);
+            vec3 layer = mix(uBottom, uTop, 0.55 - 0.18 * fk) * (0.75 + 0.12 * fk);
+            layer = mix(layer, uGlow, 0.08 * (2.0 - fk));
+            col = mix(col, layer, 1.0 - smoothstep(hh - 0.004, hh + 0.004, uv.y));
+        }
+        return col;
+    } else if (s == 10) { // slowly turning conic gradient
+        float a = atan(c.y, c.x) / 6.2831853 + uTime * 0.008;
+        float k = 0.5 + 0.5 * sin(a * 6.2831853 * (1.0 + floor(uP.x * 3.0)));
+        vec3 col = mix(uBottom, uTop, k);
+        return mix(col, uGlow, exp(-dot(c, c) * 4.0) * 0.3 * breathe);
+    } else { // starfield
+        vec3 col = grad;
+        vec2 cell = floor(uv * vec2(140.0 * uAspect, 140.0));
+        float h = hash12(cell);
+        if (h > 0.975) {
+            vec2 f = fract(uv * vec2(140.0 * uAspect, 140.0)) - 0.5;
+            float tw = 0.6 + 0.4 * sin(uTime * (0.3 + h * 0.6) + h * 50.0); // slow shimmer
+            col += uGlow * exp(-dot(f, f) * 30.0) * tw * (h - 0.975) * 30.0 * 0.5;
+        }
+        return col;
     }
 }
 // Phase changes ripple outward from the board: k = how much of the new scene is shown here.
@@ -130,6 +174,15 @@ void main() {
         float x = (d - (uWipe.y - uWipe.z * 0.5)) / (uWipe.z * 0.4);
         col = mix(col, uGlowB * 1.3, exp(-x * x) * uWipe.w * mix(0.22, 0.35, uPale));
     }
+    // Slowly rotating light rays from behind the board.
+    if (uRays.x + uRays.z > 0.001) {
+        vec2 rc = vec2((vUV.x - 0.5) * uAspect, vUV.y - 0.52);
+        float ang = atan(rc.y, rc.x), r = length(rc);
+        float fall = smoothstep(0.06, 0.35, r) * exp(-r * 1.4);
+        float ra = pow(max(0.0, sin(ang * uRays.y + uRayTime)), 6.0);
+        float rb = pow(max(0.0, sin(ang * uRays.w - uRayTime * 0.8)), 6.0);
+        col = mix(col, glow * 1.2, clamp((ra * uRays.x + rb * uRays.z) * fall, 0.0, 0.6));
+    }
     col *= 1.0 + 0.08 * uBeat * (1.0 - uPale);
     fragColor = vec4(col, 1.0);
 }
@@ -140,7 +193,7 @@ inline const char* PARTICLE_VS = R"(#version 330 core
 layout(location = 0) in vec2 aCorner;
 layout(location = 1) in vec4 aSeed;
 uniform mat4 uVP, uView;
-uniform float uTime, uSize, uBright, uCount, uAspect, uP11, uPixel, uIntensity, uDensity, uSide;
+uniform float uTime, uSize, uBright, uCount, uAspect, uP11, uPixel, uIntensity, uDensity, uSide, uKick;
 uniform vec4 uWipe;
 uniform int uWipeShape;
 uniform float uWipeSeed;
@@ -155,6 +208,9 @@ float wipeCoord(vec2 ndc, float aspect, float noise) {
     else if (uWipeShape == 5) d = 1.0 - radial;
     else if (uWipeShape == 6) d = 1.0 - abs(ndc.x);
     else if (uWipeShape == 7) d = noise;
+    else if (uWipeShape == 8) d = (ndc.x + ndc.y) * 0.25 + 0.5;
+    else if (uWipeShape == 9) d = 0.6 * fract(atan(ndc.y, ndc.x * aspect) / 6.2831853 + 0.5) + 0.4 * radial;
+    else if (uWipeShape == 10) d = (abs(ndc.x) + abs(ndc.y)) * 0.5;
     else d = radial;
     return clamp(d, 0.0, 1.0);
 }
@@ -294,7 +350,7 @@ vec3 stylePos(vec4 s, float t, out float bright, out float cm, out float sz) {
         sz = 2.5 + 5.0 * s.w;
         bright = 0.12 + 0.1 * uMid * uReact.y;
         return p;
-    } else { // lattice
+    } else if (uStyle == 11) { // lattice
         float n = floor(pow(uCount, 1.0 / 3.0));
         float i = float(gl_InstanceID);
         vec3 g = vec3(mod(i, n), mod(floor(i / n), n), floor(i / (n * n))) - (n - 1.0) * 0.5;
@@ -306,12 +362,74 @@ vec3 stylePos(vec4 s, float t, out float bright, out float cm, out float sz) {
         cm = fract(d * 0.01);
         sz = 0.8;
         return p + vec3(0.0, 0.0, -50.0);
+    } else if (uStyle == 12) { // fireflies: slow wandering glows
+        vec3 base = vec3((s.x - 0.5) * 100.0, (s.y - 0.5) * 60.0, -8.0 - s.z * 55.0);
+        float tt = t * 0.15 + s.w * 20.0;
+        bright = 0.35 + 0.65 * (0.5 + 0.5 * sin(t * 0.6 + s.w * 30.0));
+        sz = 0.9 + 0.6 * s.w;
+        return base + vec3(sin(tt * 1.3 + s.y * 7.0) * 5.0, cos(tt * 1.1 + s.x * 5.0) * 3.5, sin(tt * 0.7) * 3.0);
+    } else if (uStyle == 13) { // slanted rain
+        float slant = (uP.x - 0.5) * 0.8;
+        float y = mod(s.y * 110.0 - t * (18.0 + 14.0 * s.w), 110.0) - 55.0;
+        bright = 0.3 + 0.3 * s.w;
+        cm = s.w;
+        return vec3((s.x - 0.5) * 150.0 + y * slant, y, -6.0 - s.z * 80.0);
+    } else if (uStyle == 14) { // vortex pulling inward
+        float k = fract(s.x + t * 0.02 * (0.5 + s.w));
+        float r = 3.0 + 65.0 * (1.0 - k);
+        float ang = s.y * TAU + t * 0.1 + 25.0 / r * (uP.x > 0.5 ? 1.0 : -1.0);
+        bright = smoothstep(3.0, 12.0, r) * (1.0 - smoothstep(45.0, 68.0, r));
+        cm = k;
+        vec3 p = vec3(cos(ang) * r, sin(ang) * r, 0.0);
+        p = rotX(p, 0.3 + uP.y * 0.9);
+        return p + vec3(0.0, 0.0, -35.0);
+    } else if (uStyle == 15) { // waveform lines following the spectrum
+        float u = float(gl_InstanceID) / max(uCount, 1.0);
+        float layer = floor(s.y * 3.0);
+        float x = (fract(u * 3.0) - 0.5) * 170.0;
+        float amp = spec(abs(fract(u * 3.0) - 0.5) * 2.0) * (5.0 + 5.0 * uP.x);
+        float y = -6.0 + (layer - 1.0) * 9.0 * (0.6 + uP.y) + amp * sin(x * 0.12 + t * 1.5 + layer * 2.0);
+        bright = 0.4 + 0.6 * amp / 10.0;
+        cm = layer / 2.0;
+        sz = 0.7;
+        return vec3(x, y, -28.0 - layer * 12.0);
+    } else if (uStyle == 16) { // starburst rays flowing out
+        float rays = 10.0 + floor(uP.x * 18.0);
+        float ray = floor(s.x * rays);
+        float k = fract(s.y + t * 0.08 * (0.6 + s.w));
+        float d = 5.0 + k * 75.0;
+        float ang = ray / rays * TAU + t * 0.015 + (s.z - 0.5) * 0.04;
+        bright = smoothstep(5.0, 12.0, d) * (1.0 - k);
+        cm = k;
+        return vec3(cos(ang) * d, sin(ang) * d * 0.9, -32.0);
+    } else if (uStyle == 17) { // orbits with bodies
+        float n = 3.0 + floor(uP.x * 4.0);
+        float o = floor(s.x * n);
+        float R = 12.0 + o * (6.0 + 5.0 * uP.y);
+        bool body = s.w > 0.985;
+        float ang = s.y * TAU + t * (body ? 0.5 : 0.1) / (o + 1.0);
+        vec3 p = vec3(cos(ang) * R, 0.0, sin(ang) * R);
+        p = rotX(p, 1.1 + uP.z * 0.4 + o * 0.08);
+        bright = body ? 1.0 : 0.3;
+        sz = body ? 3.0 : 0.6;
+        cm = o / n;
+        return p + vec3(0.0, 0.0, -30.0);
+    } else { // confetti tumbling down
+        float x = (s.x - 0.5) * 130.0 + sin(t * 0.4 + s.w * 20.0) * 4.0;
+        float y = mod(s.y * 90.0 - t * (2.0 + 2.5 * s.w), 90.0) - 45.0;
+        bright = (1.0 - smoothstep(32.0, 45.0, abs(y))) * 0.8;
+        sz = 0.7 + 0.7 * abs(sin(t * 0.9 + s.w * 20.0)); // tumbling
+        cm = s.w;
+        return vec3(x, y, -6.0 - s.z * 70.0);
     }
 }
 
 void main() {
     float bright, cm, sz;
     vec3 p = stylePos(aSeed, uTime, bright, cm, sz);
+    // Bass kicks push the whole field softly outward from behind the board, then it settles back.
+    vec3 fromCenter = p - vec3(0.0, 0.0, -20.0);
+    p += normalize(fromCenter + vec3(1e-3)) * uKick * (1.2 + 0.03 * length(fromCenter)) * (0.6 + 0.8 * aSeed.z);
     vec4 clip = uVP * vec4(p, 1.0);
     float viewZ = -(uView * vec4(p, 1.0)).z;
     float size = 0.22 * uSize * sz * (1.0 + 0.4 * uBeat * uReact.x);
@@ -404,6 +522,15 @@ void main() {
     else if (uShape == 4) m = 1.0 - smoothstep(0.5, 0.7, abs(q.x) + abs(q.y));
     else if (uShape == 5) m = (1.0 - smoothstep(0.9, 1.0, r)) * (0.55 + 0.45 * smoothstep(0.7, 0.95, r));
     else if (uShape == 6) m = exp(-q.y * q.y * 6.0) * (1.0 - smoothstep(0.3, 1.0, abs(q.x)));
+    else if (uShape == 8) { // five-point star
+        float a = atan(q.y, q.x);
+        float rs = 0.45 + 0.35 * pow(abs(cos(a * 2.5)), 3.0);
+        m = 1.0 - smoothstep(rs - 0.08, rs + 0.02, r);
+    } else if (uShape == 9) { // hexagon
+        vec2 h = abs(q);
+        float d = max(h.x * 0.866 + h.y * 0.5, h.y);
+        m = 1.0 - smoothstep(0.6, 0.7, d);
+    }
     else {
         float bar = min(abs(q.x), abs(q.y));
         m = (1.0 - smoothstep(0.1, 0.2, bar)) * (1.0 - smoothstep(0.6, 0.8, max(abs(q.x), abs(q.y))));
@@ -487,9 +614,20 @@ vec4 shade(int style, vec3 col) {
     } else if (style == 6) { // crystal (fresnel)
         rgb = col * (0.08 + fres * em * 2.0) + mix(col, vec3(1.0), 0.4) * spec * 0.4 + col * lam * 0.12 + col * edge * 0.3 * em;
         a = mix(uFill * 0.7, 1.0, max(fres, edge));
-    } else { // split two-tone
+    } else if (style == 7) { // split two-tone
         float tone = smoothstep(-aa, aa, uv.x + uv.y);
         rgb = col * mix(0.4, 0.95, tone) * lam + col * edge * 0.3 * em + vec3(spec) * 0.2;
+    } else if (style == 8) { // holographic scanlines
+        float stripes = 0.5 + 0.5 * sin(vWorld.y * 16.0 - uTime * 2.0);
+        rgb = col * (0.1 + 0.5 * stripes * em) + col * edgeGlow * em * 0.8;
+        a = mix(0.45, 1.0, max(edge, stripes * 0.5));
+    } else if (style == 9) { // lit gradient (bright top, deep bottom)
+        float g = clamp(0.5 + 0.5 * (vWorld.y - floor(vWorld.y + 0.5)) * 2.0, 0.0, 1.0);
+        rgb = col * mix(0.3, 1.05, g) * (0.5 + 0.5 * lam) + col * edge * 0.25 * em;
+    } else { // double outline
+        float ring = (1.0 - smoothstep(uEdgeW * 2.3 - aa, uEdgeW * 2.3 + aa, e)) * smoothstep(uEdgeW * 1.6 - aa, uEdgeW * 1.6 + aa, e);
+        rgb = col * (edge + ring * 0.8) * em * 1.2 + col * 0.06;
+        a = max(max(edge, ring), 0.12 + 0.1 * uPale);
     }
     return vec4(rgb, a);
 }
