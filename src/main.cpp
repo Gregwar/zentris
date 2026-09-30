@@ -186,7 +186,7 @@ void App::handleEvents() {
 
 // Gravity rides the beat: one row every 2 beats, 1 beat or half beat depending on the music's energy.
 // Gravity rides the beat. The song's energy sets the pace (1 row every 2 beats, every beat, or 2 per
-// beat), and the level scales it up gradually to a plateau at level 10 (1 / 2 / 3 rows per beat), always
+// beat), and the level scales it up gradually to a plateau at level 20 (1 / 2 / 3 rows per beat), always
 // snapped to musical subdivisions so pieces keep falling in time.
 void App::updateGravity(double songTime, float dt) {
     const float diff = game_.difficulty();

@@ -71,8 +71,8 @@ public:
     int score() const { return score_; }
     int lastScore() const { return score_; } // final score while the game is over
     int lines() const { return lines_; }
-    // Level: 1 + one per 25 lines, plateau at MAX_LEVEL. difficulty() is 0 at level 1 .. 1 at the plateau.
-    static constexpr int MAX_LEVEL = 10, LINES_PER_LEVEL = 25;
+    // Level: 1 + one per 20 lines, plateau at MAX_LEVEL. difficulty() is 0 at level 1 .. 1 at the plateau.
+    static constexpr int MAX_LEVEL = 20, LINES_PER_LEVEL = 20;
     int level() const { return std::min(MAX_LEVEL, 1 + lines_ / LINES_PER_LEVEL); }
     float difficulty() const { return (level() - 1) / float(MAX_LEVEL - 1); }
     int best() const { return best_; }
@@ -84,7 +84,7 @@ public:
     bool planMove(int& rot, int& x) const;
 
 private:
-    // Lock delay shortens with the level (0.55 s at level 1, 0.35 s at the plateau).
+    // Lock delay shortens with the level (0.55 s at level 1, 0.35 s at the plateau, level 20).
     float lockDelay() const { return 0.55f - 0.2f * difficulty(); }
     static constexpr int MAX_RESETS = 15;
 
