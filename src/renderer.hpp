@@ -134,6 +134,8 @@ private:
     float pauseFade_ = 0, settleGlow_ = 0;
     bool dim_ = false;
     float govern_ = 1.f;      // automatic exposure reduction when the scene gets too bright
+    float bgLum_ = 0.f;       // measured brightness around the board (sides of the screen)
+    float legible_ = 0.f;     // 0..1: how much the board needs separating from the scene (eased)
     int sceneLevels_ = 1;
 
     mat4 view_, proj_, vp_;

@@ -3,8 +3,14 @@ project(Zentris C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release)
+# Release by default (stored in the cache so tools and IDEs show it). Multi-config generators
+# (Visual Studio, Xcode) choose the configuration at build time: cmake --build build --config Release.
+get_property(ZENTRIS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(NOT ZENTRIS_MULTI_CONFIG AND NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE)
+endif()
+if(NOT ZENTRIS_MULTI_CONFIG)
+  message(STATUS "Zentris build type: ${CMAKE_BUILD_TYPE}")
 endif()
 
 # GLFW: the system one by default; ZENTRIS_BUNDLE_GLFW=ON (used for Python wheels) builds it from

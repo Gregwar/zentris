@@ -13,6 +13,18 @@ namespace {
 // 0 for night/dusk themes, 1 for pale ones; continuous during transitions.
 float paleW(const Theme& t) { return smoothstepf(0.4f, 1.f, t.pale); }
 
+// How see-through a block material is (outline-only materials need a calm backdrop to stay readable).
+static float seeThrough(const Theme& t) {
+    switch (t.blockStyle) {
+    case BS_WIRE: case BS_NEON: case BS_DOUBLE: return 1.f;
+    case BS_HOLO: return 0.6f;
+    case BS_GLASS: return 0.9f * (1.f - t.fillAlpha);
+    case BS_FRESNEL: return 1.f - 0.7f * t.fillAlpha;
+    case BS_FROSTED: case BS_DOTS: return 0.35f;
+    default: return 0.f;
+    }
+}
+
 GLint U(GLuint p, const char* n) { return glGetUniformLocation(p, n); }
 void set1f(GLuint p, const char* n, float v) { glUniform1f(U(p, n), v); }
 void set1i(GLuint p, const char* n, int v) { glUniform1i(U(p, n), v); }
@@ -722,12 +734,18 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
         fx.push_back(b);
     };
     // Backplate (always first): improves legibility over busy backgrounds.
-    vec3 plate = lerp(t.bgTop * 0.3f, vec3(1.f), paleW(t));
+    //            With outline-type blocks over a bright scene it turns darker and nearly opaque.
+    vec3 plate = t.bgTop * 0.3f;
+    {
+        const float lum = luminance(plate), cap = lerpf(0.06f, 0.012f, legible_);
+        if (lum > cap) plate = plate * (cap / lum);
+    }
+    plate = lerp(plate, vec3(1.f), paleW(t));
     fx.clear();
     BlockInst pl;
     pl.pos = vec3(0, 0, -0.62f) + base;
     pl.scale = vec3(BOARD_W + 0.3f, BOARD_H + 0.3f, 0.01f);
-    pl.color = vec4(plate, lerpf(0.7f, 0.4f, paleW(t)));
+    pl.color = vec4(plate, lerpf(lerpf(0.7f, 0.4f, paleW(t)), lerpf(0.94f, 0.82f, paleW(t)), legible_));
     pl.params = vec4(2, 0, 0, 1);
     fx.push_back(pl);
     auto frame = [&](int style, float fa) {
@@ -983,6 +1001,7 @@ void Renderer::drawParticleLayer(const ParticleLayer& L, const Theme& owner, flo
     set1i(p, "uWipeShape", wipeShape_);
     set1f(p, "uWipeSeed", wipeSeed_);
     set1f(p, "uPale", paleW(cur_));
+    set1f(p, "uBoardDim", lerpf(0.8f, 0.97f, legible_));
     glBindVertexArray(partVao_);
     glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, count);
 }
@@ -1163,6 +1182,7 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
     set1f(progBlock_, "uFill", cur_.fillAlpha);
     set1f(progBlock_, "uGhost", cur_.ghostAlpha);
     set1f(progBlock_, "uPale", paleW(cur_));
+    set1f(progBlock_, "uLegible", legible_);
     set1f(progBlock_, "uBeat", music.beatPulse * cur_.beatPulse);
     set1f(progBlock_, "uTime", (float)time);
     set3f(progBlock_, "uCamPos", camPos_);
@@ -1218,6 +1238,25 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
         // Also rein in large areas of very bright light (highlights of the downsampled image).
         if (hi > 0.8f) want = std::min(want, std::max(0.6f, 0.8f / (float)hi));
         govern_ = approach(govern_, want, want < govern_ ? 1.5f : 0.7f, dt);
+
+        // Legibility: brightness of the scene on both sides of the board (outside the middle 46%),
+        // combined with how see-through the block material is.
+        double side = 0;
+        int ns = 0;
+        for (int y = 0; y < lh; y++)
+            for (int x = 0; x < lw; x++) {
+                float u = (x + 0.5f) / lw;
+                if (std::abs(u - 0.5f) < 0.23f) continue;
+                const float* q = &px[((size_t)y * lw + x) * 4];
+                side += 0.2126f * q[0] + 0.7152f * q[1] + 0.0722f * q[2];
+                ns++;
+            }
+        bgLum_ = approach(bgLum_, ns ? (float)(side / ns) : 0.f, 0.5f, dt);
+        const float m = from_.blockStyle == to_.blockStyle ? 1.f : smoothstepf(0, 1, transT_);
+        const float see = lerpf(seeThrough(from_), seeThrough(to_), m);
+        const float bright = smoothstepf(0.05f, 0.22f, bgLum_ * (1.f - 0.6f * pw));
+        const float need = std::clamp(std::max(see * (0.25f + 0.75f * bright), 0.5f * bright), 0.f, 1.f);
+        legible_ = approach(legible_, need, 0.35f, dt);
     }
 
     // ---- Bloom mip chain.

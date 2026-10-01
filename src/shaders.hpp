@@ -371,7 +371,7 @@ inline const char* PARTICLE_VS = R"(#version 330 core
 layout(location = 0) in vec2 aCorner;
 layout(location = 1) in vec4 aSeed;
 uniform mat4 uVP, uView;
-uniform float uTime, uSize, uBright, uCount, uAspect, uP11, uPixel, uIntensity, uDensity, uSide, uKick;
+uniform float uTime, uSize, uBright, uCount, uAspect, uP11, uPixel, uIntensity, uDensity, uSide, uKick, uBoardDim;
 uniform vec4 uWipe;
 uniform int uWipeShape;
 uniform float uWipeSeed;
@@ -803,7 +803,7 @@ void main() {
     a *= 1.0 - smoothstep(uDensity - 0.15, uDensity + 0.001, frac);
     // Keep the playfield legible: dim particles in the board's column of space.
     float inBoard = (1.0 - smoothstep(4.5, 7.0, abs(p.x))) * (1.0 - smoothstep(9.5, 13.0, abs(p.y)));
-    a *= 1.0 - 0.8 * inBoard * smoothstep(-30.0, -8.0, p.z);
+    a *= 1.0 - uBoardDim * inBoard * smoothstep(-30.0, -8.0, p.z);
 
     // Enforce a minimum on-screen size: fade instead of shrinking below ~1.5px (no shimmer).
     float ndcSize = size * uP11 / max(clip.w, 1e-3);
@@ -961,7 +961,7 @@ in vec4 vPar;
 out vec4 fragColor;
 uniform int uStyleA, uStyleB;
 uniform float uStyleMix;
-uniform float uEdgeW, uEmissive, uFill, uGhost, uPale, uBeat, uTime;
+uniform float uEdgeW, uEmissive, uFill, uGhost, uPale, uBeat, uTime, uLegible;
 uniform vec3 uCamPos, uLightDir;
 
 float gLam, gSpec, gFres, gE, gEdge, gEdgeGlow, gAA;
@@ -979,7 +979,8 @@ vec4 shade(int style, vec3 col) {
         rgb = col * (0.3 + 0.7 * lam) * (1.0 - 0.3 * edge) + vec3(spec) * 0.3 + col * 0.12 * em;
     } else if (style == 2) { // wire
         rgb = col * edgeGlow * em * 1.5 + col * 0.03;
-        a = max(edge, 0.1 + 0.1 * uPale);
+        a = max(edge, mix(0.1 + 0.1 * uPale, 0.45, uLegible));
+        rgb *= 1.0 + 0.5 * uLegible * (1.0 - uPale); // brighter lines over the darkened backplate
     } else if (style == 3) { // lantern
         float inner = pow(clamp(e, 0.0, 1.0), 1.4);
         rgb = col * (0.15 + inner * em * 1.4) + col * edge * 0.4 + vec3(spec) * 0.2;
@@ -1008,11 +1009,13 @@ vec4 shade(int style, vec3 col) {
     } else if (style == 10) { // double outline
         float ring = (1.0 - smoothstep(uEdgeW * 2.3 - aa, uEdgeW * 2.3 + aa, e)) * smoothstep(uEdgeW * 1.6 - aa, uEdgeW * 1.6 + aa, e);
         rgb = col * (edge + ring * 0.8) * em * 1.2 + col * 0.06;
-        a = max(max(edge, ring), 0.12 + 0.1 * uPale);
+        a = max(max(edge, ring), mix(0.12 + 0.1 * uPale, 0.45, uLegible));
+        rgb *= 1.0 + 0.5 * uLegible * (1.0 - uPale); // brighter lines over the darkened backplate
     } else if (style == 11) { // neon tube: wide soft glow along the edges, dark core
         float tube = exp(-e / max(uEdgeW, 0.02) * 1.2);
         rgb = col * (0.04 + tube * em * 1.4);
-        a = max(tube, 0.15 + 0.1 * uPale);
+        a = max(tube, mix(0.15 + 0.1 * uPale, 0.45, uLegible));
+        rgb *= 1.0 + 0.5 * uLegible * (1.0 - uPale); // brighter lines over the darkened backplate
     } else if (style == 12) { // circuit traces
         vec2 g = abs(fract((uv * 0.5 + 0.5) * 3.0) - 0.5);
         float trace = 1.0 - smoothstep(0.04 - aa, 0.06 + aa, min(g.x, g.y));
