@@ -1161,6 +1161,9 @@ uniform float uBloomStrength, uExposure, uSaturation, uVignette, uChroma, uGrain
 uniform float uFade, uPale;
 uniform vec3 uShadowTint, uHighlightTint;
 uniform vec2 uRes;
+uniform float uInvert, uInvFront; // reversed colors (0/1), and the front still spreading that state (-1: done)
+uniform vec2 uInvCenter;
+uniform vec3 uInvRim;
 float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 vec3 tonemap(vec3 c) {
     // Hue-preserving soft shoulder: linear up to k, then compresses; very bright light desaturates to white.
@@ -1196,6 +1199,14 @@ void main() {
     if (uScanlines > 0.0) col *= 1.0 - uScanlines * (0.5 + 0.5 * sin(gl_FragCoord.y * 3.14159));
     col = clamp(col, 0.0, 1.0);
     col = pow(col, vec3(1.0 / 2.2));
+    {
+        // Inside the front: the new state; outside: the previous one.
+        float inv = uInvert;
+        float d = length((vUV - uInvCenter) * vec2(uAspect, 1.0));
+        if (uInvFront >= 0.0) inv = mix(1.0 - uInvert, uInvert, 1.0 - smoothstep(uInvFront - 0.03, uInvFront + 0.03, d));
+        col = mix(col, 1.0 - col * 0.92 - 0.04, inv); // negative, softened a little at both ends
+        if (uInvFront >= 0.0) col = clamp(col + uInvRim * exp(-pow((d - uInvFront) / 0.035, 2.0)), 0.0, 1.0);
+    }
     col += (hash(gl_FragCoord.xy) - 0.5) * (uGrain * 0.6 + 1.0 / 255.0);
     fragColor = vec4(col * uFade, 1.0);
 }

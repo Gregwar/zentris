@@ -76,6 +76,12 @@ public:
     void onEvent(const GameEvent& ev, const Game& game);
     void kick(float amount) { kick_ = std::max(kick_, amount); }
     void levelUp(); // ring of light around the board
+    // Slow-motion bonus: the screen's colors are reversed while it lasts. Switching sweeps a front out
+    // from the board (like a drop's wave, with its ring and glow), right away.
+    void setInverted(bool on);
+    // Testing: force the next slow-motion / Tetris animation (index in its pool, -1 = random).
+    void forceSpecialFx(int slowAnim, int tetrisAnim) { forceSlow_ = slowAnim; forceTetris_ = tetrisAnim; }
+    static constexpr int SLOW_ANIMS = 7, TETRIS_ANIMS = 7;
     // Dim the scene (like pause) without freezing it, e.g. behind the game-over screen.
     void setDim(bool d) { dim_ = d; }
 
@@ -105,6 +111,25 @@ private:
     void collectBoard(const Game& game, const MusicState& music, double time, std::vector<BlockInst>& solid,
                       std::vector<BlockInst>& ghost, std::vector<BlockInst>& fx);
     void spawnBurst(vec3 pos, vec3 color, int n, float speed, float life, float size);
+    // Special animations (specialfx.cpp): the slow-motion bonus and Tetris celebrations, each picked from a
+    // pool, plus the bonus gauge beside the board.
+    struct Glint { vec3 pos, color; float size, alpha; }; // a particle drawn for this frame only
+    struct Anim { int kind; float t, dur; vec3 origin, colA, colB; uint64_t seed; float emitted; };
+    void startSlowFx();
+    void startTetrisFx(float rowY, bool backToBack);
+    void updateSpecialFx(const Game& game, const MusicState& music, float dt);
+    void addGauge(const Game& game, double time, std::vector<BlockInst>& fx);
+    void slowGlints(float t, float presence, const Game& game, const MusicState& music);
+    void tetrisStep(Anim& a, float dt);
+    std::vector<Glint> glints_;
+    std::vector<Anim> tetrisAnims_;
+    int slowAnim_ = 0, lastSlow_ = -1, lastTetris_ = -1, forceSlow_ = -1, forceTetris_ = -1;
+    bool slowOn_ = false;
+    float slowT_ = 0, slow_ = 0;   // time in the bonus; eased presence 0..1 (also slows the world)
+    float gaugeShown_ = 0, readyFlash_ = 0;
+    uint64_t slowSeed_ = 1;
+    bool inverted_ = false;
+    float invT_ = 10.f; // time since the inversion switched
     vec3 cellPos(float x, float y) const; // board cell -> world
 
     int w_ = 1, h_ = 1;

@@ -35,6 +35,13 @@ public:
     void setPaused(bool p) { paused_ = p; }
     bool paused() const { return paused_; }
     void setMuted(bool m) { muted_ = m; }
+    // Playback speed of the song (tape-style: slower is also lower). 1 = normal. With glideSeconds > 0
+    // the speed slides there (a full 1 <-> 0.5 change takes that long) instead of jumping.
+    void setSpeed(float s, float glideSeconds = 0.f) { glide_ = glideSeconds; speed_ = s; }
+    float speed() const { return speed_; }          // target speed
+    float currentSpeed() const { return curSpeed_; } // speed right now (during a glide)
+    // One-shot sound mixed over the song (interleaved stereo at the engine rate); heard even when paused.
+    void playSample(std::shared_ptr<const std::vector<float>> pcm, float gain = 1.f);
 
 private:
     static void dataCallback(ma_device* dev, void* out, const void* in, unsigned int frameCount);
@@ -47,5 +54,13 @@ private:
     uint64_t pos_ = 0, prevPos_ = 0;
     std::atomic<uint64_t> atomicPos_{0};
     float fade_ = 1.f, prevFade_ = 0.f;
+    struct Voice {
+        std::shared_ptr<const std::vector<float>> pcm;
+        size_t pos = 0;
+        float gain = 1.f;
+    };
+    std::vector<Voice> voices_;
     std::atomic<bool> paused_{false}, muted_{false};
+    std::atomic<float> speed_{1.f}, glide_{0.f}, curSpeed_{1.f};
+    double frac_ = 0; // fractional position inside the current frame when slowed down
 };

@@ -49,6 +49,7 @@ void AudioEngine::play(std::shared_ptr<Track> track) {
     prevFade_ = previous_ ? fade_ : 0.f;
     current_ = std::move(track);
     pos_ = 0;
+    frac_ = 0;
     atomicPos_ = 0;
     fade_ = 0.f;
 }
@@ -58,7 +59,15 @@ void AudioEngine::seek(double seconds) {
     if (!current_) return;
     uint64_t f = (uint64_t)std::max(0.0, seconds * sampleRate_);
     pos_ = std::min<uint64_t>(f, current_->frames());
+    frac_ = 0;
     atomicPos_ = pos_;
+}
+
+void AudioEngine::playSample(std::shared_ptr<const std::vector<float>> pcm, float gain) {
+    if (!pcm || pcm->empty()) return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (voices_.size() >= 4) voices_.erase(voices_.begin()); // drop the oldest
+    voices_.push_back({std::move(pcm), 0, gain});
 }
 
 double AudioEngine::position() const {
@@ -76,8 +85,16 @@ void AudioEngine::dataCallback(ma_device* dev, void* out, const void*, unsigned 
 
 void AudioEngine::render(float* out, unsigned int frames) {
     for (unsigned int i = 0; i < frames * 2; i++) out[i] = 0.f;
-    if (paused_) return;
     std::lock_guard<std::mutex> lock(mutex_);
+    for (Voice& v : voices_)
+        for (unsigned int i = 0; i < frames * 2 && v.pos < v.pcm->size(); i++, v.pos++) out[i] += (*v.pcm)[v.pos] * v.gain;
+    voices_.erase(std::remove_if(voices_.begin(), voices_.end(), [](const Voice& v) { return v.pos >= v.pcm->size(); }),
+                  voices_.end());
+    if (paused_) {
+        if (muted_)
+            for (unsigned int i = 0; i < frames * 2; i++) out[i] = 0.f;
+        return;
+    }
 
     const float fadeStep = 1.0f / (1.2f * sampleRate_);
     auto mixTrack = [&](Track* t, uint64_t& pos, float& fade, bool fadingIn) {
@@ -91,7 +108,31 @@ void AudioEngine::render(float* out, unsigned int frames) {
             out[i * 2 + 1] += t->pcm[pos * 2 + 1] * g;
         }
     };
-    mixTrack(current_.get(), pos_, fade_, true);
+    const float target = speed_, glide = glide_;
+    float speed = curSpeed_;
+    if (glide <= 0.f) speed = target;
+    const float glideStep = glide > 0.f ? 0.5f / (glide * sampleRate_) : 0.f;
+    if ((speed == 1.f && target == 1.f) || !current_) mixTrack(current_.get(), pos_, fade_, true);
+    else {
+        // Slowed down: read between frames with linear interpolation.
+        const Track* t = current_.get();
+        const uint64_t n = t->frames();
+        for (unsigned int i = 0; i < frames && pos_ < n; i++) {
+            if (speed != target) speed = speed < target ? std::min(target, speed + glideStep) : std::max(target, speed - glideStep);
+            fade_ = std::min(1.f, fade_ + fadeStep);
+            float g = std::sin(fade_ * 1.5707963f), a = (float)frac_;
+            uint64_t q = std::min(pos_ + 1, n - 1);
+            out[i * 2] += (t->pcm[pos_ * 2] * (1 - a) + t->pcm[q * 2] * a) * g;
+            out[i * 2 + 1] += (t->pcm[pos_ * 2 + 1] * (1 - a) + t->pcm[q * 2 + 1] * a) * g;
+            frac_ += speed;
+            while (frac_ >= 1.0) {
+                frac_ -= 1.0;
+                pos_++;
+            }
+        }
+        if (pos_ >= n) speed = target;
+    }
+    curSpeed_ = speed;
     if (previous_) {
         mixTrack(previous_.get(), prevPos_, prevFade_, false);
         if (prevFade_ <= 0.f || prevPos_ >= previous_->frames()) previous_.reset();

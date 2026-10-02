@@ -7,9 +7,11 @@ struct GLFWwindow;
 
 enum Action {
     A_LEFT, A_RIGHT, A_SOFT, A_HARD, A_CW, A_CCW, A_HOLD,
+    A_BONUS,                 // slow-motion bonus: V / E, gamepad triggers (ZL / ZR, LT / RT)
     A_PAUSE, A_NEXT_SONG, A_NEW_SCENE, A_FULLSCREEN, A_QUIT, A_HUD,
     A_SEEK_BACK, A_SEEK_FWD, // Ctrl+Shift+Left/Right: seek in the song (testing)
     A_DEBUG_LEVEL,           // L: jump to the next level (debugging)
+    A_DEBUG_BONUS,           // B: fill the bonus gauge (testing the slow-motion effects)
     A_COUNT
 };
 

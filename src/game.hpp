@@ -16,8 +16,11 @@ struct Cell {
 };
 
 struct GameEvent {
-    enum Type { Move, Rotate, Lock, HardDrop, Clear, Hold, Spawn, TopOut } type;
+    enum Type { Move, Rotate, Lock, HardDrop, Clear, Hold, Spawn, TopOut, BonusReady, BonusStart, BonusEnd } type;
     int count = 0;                 // lines cleared / rows dropped
+    int points = 0;                // Clear: points scored; for a Tetris, the Tetris bonus included
+    int bonus = 0;                 // Clear: Tetris bonus points (doubled back-to-back)
+    bool backToBack = false;       // Clear: a Tetris right after another Tetris
     float x = 0;                   // mean column, for stereo pan
     struct CellInfo { int x, y, type; };
     std::vector<CellInfo> cells;   // cells involved (locked cells, cleared cells, dissolved cells)
@@ -47,6 +50,12 @@ public:
     // Game over: the board has been cleared (the renderer dissolves it) and play waits for restart().
     bool over() const { return over_; }
     void restart();
+    // Testing (B key): fill the bonus gauge.
+    void debugChargeBonus() {
+        if (bonusActive_ || over_ || bonusLines_ >= BONUS_LINES) return;
+        bonusLines_ = BONUS_LINES;
+        events_.push_back({GameEvent::BonusReady});
+    }
     // Debugging: add the lines needed to reach the next level.
     void skipToNextLevel() {
         if (level() < MAX_LEVEL) lines_ += LINES_PER_LEVEL - lines_ % LINES_PER_LEVEL;
@@ -77,6 +86,24 @@ public:
     float difficulty() const { return (level() - 1) / float(MAX_LEVEL - 1); }
     int best() const { return best_; }
     int combo() const { return combo_; }
+
+    // Slow-motion bonus: each cleared line charges one step of a gauge (BONUS_LINES steps to fill it; a
+    // Tetris charges one extra step, so 5). Once full, activateBonus()
+    // starts it: the gauge drains over BONUS_SECONDS (the app plays the song at half speed meanwhile, and
+    // gravity follows the song). Lines cleared during the bonus don't charge it.
+    static constexpr int BONUS_LINES = 12;
+    static constexpr float BONUS_SECONDS = 10.f;
+    // Gauge level 0..1 (while active: the time left).
+    float bonusGauge() const {
+        return bonusActive_ ? bonusLeft_ / BONUS_SECONDS : std::min(1.f, bonusLines_ / (float)BONUS_LINES);
+    }
+    bool bonusReady() const { return !bonusActive_ && !over_ && bonusLines_ >= BONUS_LINES; }
+    bool bonusActive() const { return bonusActive_; }
+    float bonusLeft() const { return bonusActive_ ? bonusLeft_ : 0.f; }
+    bool activateBonus();
+    // Tetris bonus on top of the line score, doubled for back-to-back Tetrises.
+    static constexpr int TETRIS_BONUS = 400;
+    static constexpr int TETRIS_EXTRA_STEPS = 1; // a Tetris charges 4 + 1 gauge steps
 
     std::vector<GameEvent>& events() { return events_; }
 
@@ -111,5 +138,9 @@ private:
     bool over_ = false;
     float visX_ = 0, visY_ = 0;
     int score_ = 0, lines_ = 0, best_ = 0, combo_ = -1;
+    int bonusLines_ = 0; // gauge steps charged
+    bool bonusActive_ = false, lastWasTetris_ = false;
+    float bonusLeft_ = 0;
+    void endBonus();
     std::vector<GameEvent> events_;
 };

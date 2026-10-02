@@ -124,6 +124,7 @@ void Input::update(float dt) {
     }
     shiftWasDown_ = shift;
     kb[A_HOLD] = letter('c') || shiftTap;
+    kb[A_BONUS] = letter('v') || letter('e');
     kb[A_PAUSE] = key(GLFW_KEY_ESCAPE) || letter('p');
     kb[A_NEXT_SONG] = letter('n') || key(GLFW_KEY_TAB) || key(GLFW_KEY_PAGE_DOWN) || key(GLFW_KEY_ENTER);
     kb[A_NEW_SCENE] = letter('t');
@@ -131,6 +132,7 @@ void Input::update(float dt) {
     kb[A_QUIT] = letter('q');
     kb[A_HUD] = letter('h');
     kb[A_DEBUG_LEVEL] = letter('l');
+    kb[A_DEBUG_BONUS] = letter('b');
 
     bool pad[A_COUNT] = {};
     if (jid_ >= 0) {
@@ -146,7 +148,9 @@ void Input::update(float dt) {
             if (ax && bt) {
                 std::memset(&st, 0, sizeof(st));
                 for (int i = 0; i < 6 && i < na; i++) st.axes[i] = ax[i];
-                st.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] = st.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] = -1.f;
+                // Triggers are usually buttons 6/7 on such controllers.
+                st.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] = 6 < nb && bt[6] ? 1.f : -1.f;
+                st.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] = 7 < nb && bt[7] ? 1.f : -1.f;
                 auto B = [&](int i) { return (unsigned char)(i < nb ? bt[i] : 0); };
                 st.buttons[GLFW_GAMEPAD_BUTTON_A] = B(1);
                 st.buttons[GLFW_GAMEPAD_BUTTON_B] = B(2);
@@ -177,8 +181,8 @@ void Input::update(float dt) {
             pad[A_HARD] = b(GLFW_GAMEPAD_BUTTON_DPAD_UP) || (sy && ay < -0.8f);
             pad[A_CW] = b(GLFW_GAMEPAD_BUTTON_A);
             pad[A_CCW] = b(GLFW_GAMEPAD_BUTTON_B) || b(GLFW_GAMEPAD_BUTTON_X);
-            pad[A_HOLD] = b(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER) || b(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER) ||
-                          lt > 0.5f || rt > 0.5f;
+            pad[A_HOLD] = b(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER) || b(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER);
+            pad[A_BONUS] = lt > 0.5f || rt > 0.5f;
             pad[A_NEW_SCENE] = b(GLFW_GAMEPAD_BUTTON_Y);
             pad[A_PAUSE] = b(GLFW_GAMEPAD_BUTTON_START);
             pad[A_NEXT_SONG] = b(GLFW_GAMEPAD_BUTTON_BACK);

@@ -41,6 +41,7 @@ set_target_properties(glad PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(zencore STATIC
   src/analysis.cpp
   src/audio.cpp
+  src/samples.cpp
   src/library.cpp
   src/songplan.cpp
   src/youtube.cpp
@@ -64,6 +65,7 @@ add_executable(zentris
   src/input.cpp
   src/theme.cpp
   src/renderer.cpp
+  src/specialfx.cpp
 )
 target_link_libraries(zentris PRIVATE zencore glfw glad)
 # Gamepad mappings (SDL_GameControllerDB): looked up next to the executable, then in the sources.

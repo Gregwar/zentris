@@ -307,6 +307,14 @@ void Renderer::setTheme(const Theme& t, float seconds, bool wipe, float impact, 
     swell_ = std::max(swell_, impact);
 }
 
+void Renderer::setInverted(bool on) {
+    if (on == inverted_) return;
+    inverted_ = on;
+    invT_ = 0.f;
+    swell_ = std::max(swell_, on ? 0.8f : 0.4f);
+    spawnRing(vec3(0, 0, 0.6f), 5.f, lerp(cur_.accent, cur_.partB, 0.4f), 180, 9.f, 1.6f, 0.15f);
+}
+
 // Where the transition front reaches first (0) to last (1), in screen space. Mirrors wipeCoord() in
 // the shaders.
 static float wipeCoord(int shape, float x, float y, float aspect, float noise) {
@@ -457,8 +465,22 @@ void Renderer::onEvent(const GameEvent& ev, const Game&) {
         }
         clearGlow_ = std::min(0.5f, clearGlow_ + 0.1f * ev.count);
         settleGlow_ = std::min(0.3f, settleGlow_ + 0.12f + 0.04f * ev.count);
+        if (ev.count >= 4) {
+            float yc = 0;
+            for (auto& c : ev.cells) yc += cellPos(0, (float)c.y).y;
+            startTetrisFx(yc / ev.cells.size(), ev.backToBack);
+        }
         break;
     }
+    case GameEvent::BonusReady:
+        readyFlash_ = 1.f;
+        break;
+    case GameEvent::BonusStart:
+        startSlowFx();
+        break;
+    case GameEvent::BonusEnd:
+        slowOn_ = false;
+        break;
     case GameEvent::TopOut:
         // Game over: the stack dissolves slowly, row by row from the top, with one of the scene's effects.
         {
@@ -1017,29 +1039,41 @@ void Renderer::drawBlocks(const std::vector<BlockInst>& inst, bool depthWrite) {
 }
 
 void Renderer::drawBursts() {
-    if (bursts_.empty()) return;
-    std::vector<float> data;
-    data.reserve(bursts_.size() * 8);
+    if (bursts_.empty() && glints_.empty()) return;
+    const float pw = paleW(cur_);
+    std::vector<float> burstData, glintData;
+    burstData.reserve(bursts_.size() * 8);
     for (auto& b : bursts_) {
         float k = b.life / b.maxLife;
-        float a = k * k * lerpf(1.1f, 0.8f, paleW(cur_));
-        vec3 c = lerp(lerp(b.color, vec3(1.f), 0.25f), b.color * 0.9f, paleW(cur_));
+        float a = k * k * lerpf(1.1f, 0.8f, pw);
+        vec3 c = lerp(lerp(b.color, vec3(1.f), 0.25f), b.color * 0.9f, pw);
         float d[8] = {b.pos.x, b.pos.y, b.pos.z, b.size * (0.5f + 0.5f * k), c.x, c.y, c.z, a};
-        data.insert(data.end(), d, d + 8);
+        burstData.insert(burstData.end(), d, d + 8);
     }
-    glBindBuffer(GL_ARRAY_BUFFER, burstVbo_);
-    glBufferData(GL_ARRAY_BUFFER, data.size() * sizeof(float), data.data(), GL_STREAM_DRAW);
+    for (auto& g : glints_) {
+        if (g.alpha <= 0.003f) continue;
+        vec3 c = lerp(lerp(g.color, vec3(1.f), 0.15f), g.color * 0.9f, pw);
+        float d[8] = {g.pos.x, g.pos.y, g.pos.z, g.size, c.x, c.y, c.z, g.alpha * lerpf(1.f, 0.8f, pw)};
+        glintData.insert(glintData.end(), d, d + 8);
+    }
     glUseProgram(progBurst_);
     setMat(progBurst_, "uVP", vp_);
     set1f(progBurst_, "uAspect", (float)w_ / h_);
     set1f(progBurst_, "uP11", proj_.at(1, 1));
+    set1f(progBurst_, "uWeight", 1.f);
+    set1f(progBurst_, "uPale", pw);
+    glBindVertexArray(burstVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, burstVbo_);
+    auto draw = [&](const std::vector<float>& data, int shape) {
+        if (data.empty()) return;
+        glBufferData(GL_ARRAY_BUFFER, data.size() * sizeof(float), data.data(), GL_STREAM_DRAW);
+        set1i(progBurst_, "uShape", shape);
+        glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)(data.size() / 8));
+    };
     int shape = cur_.layers[0].shape;
     if (shape == SH_STREAK || shape == SH_DISC || shape == SH_RING) shape = SH_DOT;
-    set1i(progBurst_, "uShape", shape);
-    set1f(progBurst_, "uWeight", 1.f);
-    set1f(progBurst_, "uPale", paleW(cur_));
-    glBindVertexArray(burstVao_);
-    glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)bursts_.size());
+    draw(burstData, shape);
+    draw(glintData, SH_DOT); // procedural animations: always soft dots, whatever the scene's particle shape
 }
 
 void Renderer::drawText(const std::vector<HudText>& hud) {
@@ -1077,6 +1111,8 @@ void Renderer::drawText(const std::vector<HudText>& hud) {
         }
         glBufferData(GL_ARRAY_BUFFER, tri.size() * sizeof(float), tri.data(), GL_STREAM_DRAW);
         vec3 c = toSrgb(h.accent ? ac : tc);
+        // Reversed screen (slow-motion bonus): reverse the text too, once the front has covered most of it.
+        if (inverted_ == (invT_ > 0.35f)) c = vec3(1.f) - c * 0.92f - vec3(0.04f);
         glUniform4f(U(progText_, "uColor"), c.x, c.y, c.z, h.alpha);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(tri.size() / 2));
     }
@@ -1098,6 +1134,7 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
         wipeSeed_ = rng_.range(0.f, 100.f);
         swell_ = std::max(swell_, impact_);
     }
+    invT_ += dt;
     const float m = smoothstepf(0, 1, transT_);
     mix_ = m;
     wipeFront_ = m * (1.f + WIPE_W);
@@ -1111,9 +1148,13 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
 
     // ---- Simulation of effects.
     if (!paused) {
-        ptimeFrom_ += dt * (0.5f + 0.9f * music.intensity) * music.speed * (0.75f + 0.7f * music.energy);
-        rayTime_ += dt * (0.1f + 0.5f * music.energy);
-        surfTime_ += dt * (0.4f + 0.8f * music.energy) * (0.6f + 0.6f * music.intensity);
+        glints_.clear(); // kept while paused, so the animation freezes instead of vanishing
+        updateSpecialFx(game, music, dt);
+        // The slow-motion bonus slows the whole world down, not only the song.
+        const float world = lerpf(1.f, 0.45f, slow_), wdt = dt * world;
+        ptimeFrom_ += wdt * (0.5f + 0.9f * music.intensity) * music.speed * (0.75f + 0.7f * music.energy);
+        rayTime_ += wdt * (0.1f + 0.5f * music.energy);
+        surfTime_ += wdt * (0.4f + 0.8f * music.energy) * (0.6f + 0.6f * music.intensity);
         for (size_t i = 0; i < dying_.size();) {
             dying_[i].t += dt;
             if (dying_[i].t > dying_[i].delay + dying_[i].dur + 0.05f) { dying_[i] = dying_.back(); dying_.pop_back(); continue; }
@@ -1121,10 +1162,10 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
         }
         for (size_t i = 0; i < bursts_.size();) {
             Burst& b = bursts_[i];
-            b.life -= dt;
+            b.life -= wdt;
             if (b.life <= 0) { b = bursts_.back(); bursts_.pop_back(); continue; }
-            b.vel = b.vel * std::exp(-1.2f * dt) + vec3(0, 0.25f, 0) * dt;
-            b.pos += b.vel * dt;
+            b.vel = b.vel * std::exp(-1.2f * wdt) + vec3(0, 0.25f, 0) * wdt;
+            b.pos += b.vel * wdt;
             i++;
         }
     }
@@ -1171,6 +1212,7 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
     std::vector<BlockInst> solid, ghost, fx;
     updateEqualizer(music, paused ? 0.f : dt);
     collectBoard(game, music, time, solid, ghost, fx);
+    addGauge(game, time, fx);
     glUseProgram(progBlock_);
     setMat(progBlock_, "uVP", vp_);
     set1f(progBlock_, "uDepth", cur_.blockDepth);
@@ -1304,8 +1346,19 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
                   music.glow * (1.f + 0.45f * swell_) * govern_ * 0.22f;
     set1f(progComp_, "uBloomStrength", bloom);
     set1f(progComp_, "uExposure", cur_.exposure * govern_ * (1.f + 0.05f * swell_) * lerpf(1.f, 0.55f, pauseFade_));
-    set1f(progComp_, "uSaturation", cur_.saturation * music.saturation * lerpf(1.f, 0.4f, pauseFade_));
-    set1f(progComp_, "uVignette", cur_.vignette);
+    set1f(progComp_, "uSaturation", cur_.saturation * music.saturation * lerpf(1.f, 0.4f, pauseFade_) * (1.f - 0.15f * slow_));
+    set1f(progComp_, "uVignette", cur_.vignette + 0.15f * slow_);
+    {
+        // Reversed colors (slow-motion bonus): the new state spreads from the board behind a glowing front.
+        const float k = saturate(invT_ / 0.7f), front = invT_ < 0.7f ? 1.6f * (1.f - (1.f - k) * (1.f - k)) : -1.f;
+        const vec2 c = project(vec3(0, 0, 0));
+        set1f(progComp_, "uInvert", inverted_ ? 1.f : 0.f);
+        set1f(progComp_, "uInvFront", front);
+        set2f(progComp_, "uInvCenter", c.x / w_, 1.f - c.y / h_);
+        vec3 rim = lerp(cur_.accent, cur_.partB, 0.3f);
+        rim = vec3(std::pow(saturate(rim.x), 1 / 2.2f), std::pow(saturate(rim.y), 1 / 2.2f), std::pow(saturate(rim.z), 1 / 2.2f));
+        set3f(progComp_, "uInvRim", rim * (0.6f * (1.f - k)));
+    }
     set1f(progComp_, "uChroma", cur_.chroma);
     set1f(progComp_, "uGrain", cur_.grain);
     set1f(progComp_, "uScanlines", cur_.scanlines);

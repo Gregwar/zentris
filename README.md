@@ -69,8 +69,14 @@ Other options: `--shuffle` (random song order; default is in order: folders alph
 - pulse zones, a 16-band spectrum, loudness, intensity and onsets, and bar lines
 - a live readout of the current section and the game's density/speed/glow profile, with the beat in the bar
 - a zoomed detail view with the beat grid
+- four beat-aligned samples cut from the song (an experiment for line clears, not used by the game yet):
+  HIT (one clean transient, 1 beat), LOW (a bass-led half bar), TONE (a sustained, steady half bar) and
+  HOOK (the first bar of the most repeated chorus/drop)
 
-Space plays/pauses, Left/Right seek 5 s, Up/Down zoom the detail view, N/P change song, click to seek.
+Space plays/pauses, Left/Right seek 5 s, Up/Down zoom the detail view, N/P change song, click to seek,
+1–4 or a click on a sample button plays that sample (over the song, or alone when paused).
+The SPEED buttons (top right) slow the song down to ×0.5 or ×0.25, tape-style (the pitch drops too);
+click the active one again to go back to normal speed.
 The game and zenscope share the same analysis and song plan code (`src/songplan.*`), so what you see is what the game uses.
 
 ## Controls
@@ -86,13 +92,27 @@ missing from it still works with a generic layout.
 | Move | ← → | D-pad / left stick |
 | Soft / hard drop | ↓ / Space | Down / Up |
 | Rotate | ↑ or X (Z or J to rotate left) | A (B/X to rotate left) |
-| Hold | C / Shift (tap) | LB / RB / triggers |
+| Hold | C / Shift (tap) | LB / RB |
+| Slow motion (when the gauge is full) | V / E | ZL / ZR (LT / RT) |
 | New scene | T | Y |
 | Next song | N / Tab / Enter / PageDown | Back |
 | Seek ±10 s in the song (testing) | Ctrl+Shift+Left/Right | |
 | Next level (debugging) | L | |
+| Fill the bonus gauge (testing) | B | |
 | Pause | Esc / P (Q quits while paused) | Start |
 | Fullscreen | F / F11 | |
+
+## Slow motion and Tetris rewards
+
+Each cleared line charges one step of the bonus gauge on the left of the board (12 steps to fill it; a
+Tetris charges 5). Once it's full, the slow-motion button starts the bonus: for 10 s the gauge drains, the
+song slides down to half speed (tape-style, so it also sounds lower) and, since gravity follows the
+song's beat, pieces fall half as fast. Use it to clean up the stack in a part that's too fast. The screen's
+colors are reversed while it lasts (swept in and out from the board), and the scene slows down too, with one
+animation from a pool (halo, hourglass, ripples, orbits, stasis, ribbons, clock).
+
+A Tetris scores a 400-point bonus (800 back-to-back) and plays a celebration from another pool (pillars,
+blooms, spiral, waves, starfall, frame trace, light sheet); a back-to-back Tetris plays two at once.
 
 ## How the music shapes the game
 

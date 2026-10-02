@@ -46,6 +46,9 @@ void Game::reset(uint64_t seed) {
     holdUsed_ = false;
     score_ = lines_ = 0;
     combo_ = -1;
+    bonusLines_ = 0;
+    bonusActive_ = lastWasTetris_ = false;
+    bonusLeft_ = 0;
     active_ = false;
     spawnDelay_ = 0.4f;
     std::fill(std::begin(rowOffset_), std::end(rowOffset_), 0.f);
@@ -110,6 +113,7 @@ void Game::spawn(int type) {
         for (auto& row : board_)
             for (auto& c : row) c = Cell{};
         best_ = std::max(best_, score_);
+        endBonus();
         over_ = true;
         active_ = false;
         return;
@@ -278,10 +282,19 @@ void Game::lockPiece() {
         std::memcpy(rowOffset_, off, sizeof(off));
         static const int pts[5] = {0, 100, 300, 500, 800};
         combo_++;
-        score_ += pts[std::min(4, (int)full.size())] + 50 * combo_;
+        const bool tetris = full.size() >= 4;
+        ev.backToBack = tetris && lastWasTetris_;
+        ev.bonus = tetris ? TETRIS_BONUS * (ev.backToBack ? 2 : 1) : 0;
+        ev.points = pts[std::min(4, (int)full.size())] + 50 * combo_ + ev.bonus;
+        lastWasTetris_ = tetris;
+        score_ += ev.points;
         lines_ += (int)full.size();
+        const int steps = (int)full.size() + (tetris ? TETRIS_EXTRA_STEPS : 0);
+        const bool charged = !bonusActive_ && bonusLines_ < BONUS_LINES && bonusLines_ + steps >= BONUS_LINES;
+        if (!bonusActive_) bonusLines_ = std::min(BONUS_LINES, bonusLines_ + steps);
         best_ = std::max(best_, score_);
         events_.push_back(ev);
+        if (charged) events_.push_back({GameEvent::BonusReady});
         spawnDelay_ = 0.5f;
         fallHold_ = 0.3f; // let the cleared blocks dissolve before the stack settles
     } else {
@@ -296,6 +309,9 @@ void Game::restart() {
     std::fill(std::begin(rowOffset_), std::end(rowOffset_), 0.f);
     score_ = lines_ = 0;
     combo_ = -1;
+    bonusLines_ = 0;
+    bonusActive_ = lastWasTetris_ = false;
+    bonusLeft_ = 0;
     holdType_ = -1;
     holdUsed_ = false;
     active_ = false;
@@ -303,8 +319,28 @@ void Game::restart() {
     spawnDelay_ = 0.6f;
 }
 
+bool Game::activateBonus() {
+    if (!bonusReady()) return false;
+    bonusActive_ = true;
+    bonusLeft_ = BONUS_SECONDS;
+    bonusLines_ = 0;
+    events_.push_back({GameEvent::BonusStart});
+    return true;
+}
+
+void Game::endBonus() {
+    if (!bonusActive_) return;
+    bonusActive_ = false;
+    bonusLeft_ = 0;
+    events_.push_back({GameEvent::BonusEnd});
+}
+
 void Game::update(float dt) {
     if (over_) return;
+    if (bonusActive_) {
+        bonusLeft_ -= dt;
+        if (bonusLeft_ <= 0) endBonus();
+    }
     fallHold_ = std::max(0.f, fallHold_ - dt);
     for (int y = 0; y < H; y++) {
         if (fallHold_ <= 0) rowOffset_[y] = approach(rowOffset_[y], 0.f, 7.f, dt);

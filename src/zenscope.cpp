@@ -3,7 +3,8 @@
 //
 //   zenscope [songs or folders...]        (default: ./audio)
 //   SPACE play/pause, LEFT/RIGHT seek 5 s, UP/DOWN zoom the detail view, N/P next/previous song,
-//   click the overview or the detail view to seek, ESC quits.
+//   click the overview or the detail view to seek, 1-4 or click a sample button to hear it,
+//   click X0.5 / X0.25 (top right) to slow the song down, ESC quits.
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 
@@ -18,6 +19,7 @@
 
 #include "library.hpp"
 #include "platform.hpp"
+#include "samples.hpp"
 #include "mathutil.hpp"
 #include "songplan.hpp"
 #include "youtube.hpp"
@@ -55,6 +57,8 @@ Col levelColor(int level) {
     return level <= 0 ? rgb(0.28f, 0.4f, 0.62f) : level == 1 ? rgb(0.5f, 0.5f, 0.62f) : rgb(0.98f, 0.58f, 0.28f);
 }
 const char* levelName(int level) { return level <= 0 ? "CALM" : level == 1 ? "MID" : "PEAK"; }
+Col sampleColor(int k) { return fromLinear(oklchToLinear(0.72f, 0.14f, 0.5f + k * 1.5708f)); }
+const char* sampleLines(int k) { static const char* l[SMP_COUNT] = {"1 LINE", "2 LINES", "3 LINES", "4 LINES"}; return l[k]; }
 Col groupColor(int g) { return fromLinear(oklchToLinear(0.75f, 0.13f, g * 2.39996f + 0.6f)); }
 
 std::string mmss(double t) {
@@ -225,6 +229,8 @@ private:
     void drawOverview(float L, float R, float y);
     void drawDetail(float L, float R, float y, float bottom);
     void drawReadout(float L, float R, float y);
+    void drawSamples(float L, float R, float y);
+    void playSample(int i);
     double now() const { return track_ ? (seekPreview_ >= 0 ? seekPreview_ : audio_.position()) : 0; }
 
     GLFWwindow* win_ = nullptr;
@@ -240,6 +246,13 @@ private:
     int specW_ = 0;
     std::vector<float> ovLoud_, ovOnset_, ovInt_; // overview curves (max-pooled)
     bool paused_ = false;
+    std::vector<SongSample> samples_;
+    struct Box { float x0 = 0, y0 = 0, x1 = 0, y1 = 0; };
+    std::vector<Box> sampleBoxes_;
+    std::vector<std::pair<Box, float>> speedBoxes_; // speed buttons and the speed they set
+    void drawSpeed(float R, float y);
+    void setSpeed(float s);
+    std::vector<double> sampleStarted_; // glfwGetTime() of the last play, per sample
     float span_ = 16.f;
     double seekPreview_ = -1; // shot mode: fixed time without playback
     // Overview / detail hit areas for mouse seeking.
@@ -297,6 +310,11 @@ void Scope::onTrackReady(std::shared_ptr<Track> t) {
             ovInt_[x] = std::max(ovInt_[x], an.intensity[f]);
         }
     }
+    samples_ = extractSamples(*t);
+    sampleStarted_.assign(samples_.size(), -1e9);
+    for (const SongSample& sm : samples_)
+        std::printf("[zenscope] sample %-4s %s-%s  %d beat(s)  score %.2f  %s\n", sampleName(sm.kind), mmss(sm.start).c_str(),
+                    mmss(sm.end).c_str(), sm.beats, sm.score, sm.why.c_str());
     audio_.play(track_);
     audio_.setPaused(paused_);
     std::printf("[zenscope] %s: %zu segments, %zu scene phases, %zu pulse zones\n", t->title.c_str(),
@@ -401,6 +419,11 @@ void Scope::drawOverview(float L, float R, float y) {
     const float hB = 14;
     label("BARS", y, hB);
     for (size_t i = an.downbeat; i < an.beats.size(); i += 4) d_.rect(X(an.beats[i]), y, 1, hB, withA(DIM, 0.8f));
+    for (size_t i = 0; i < samples_.size(); i++) {
+        float x0 = X(samples_[i].start), x1 = std::max(x0 + 4, X(samples_[i].end));
+        d_.rect(x0, y, x1 - x0, hB, sampleColor(samples_[i].kind));
+        d_.text(std::to_string(i + 1), x1 + 3, y + 2, 1.1f, sampleColor(samples_[i].kind));
+    }
     y += hB;
     ovBottom_ = y;
 
@@ -468,6 +491,12 @@ void Scope::drawDetail(float L, float R, float y, float bottom) {
     // Beats: bar lines taller, with the bar's first beat marked "1".
     const float hB = 22;
     label("BEATS", y, hB);
+    for (size_t i = 0; i < samples_.size(); i++) {
+        float x0 = std::max(L, X(samples_[i].start)), x1 = std::min(R, X(samples_[i].end));
+        if (x1 <= x0) continue;
+        d_.rect(x0, y, x1 - x0, hB, withA(sampleColor(samples_[i].kind), 0.3f));
+        if (x1 - x0 > 60) d_.text(std::string(sampleName(samples_[i].kind)), x1 - 6, y + 6, 1.1f, sampleColor(samples_[i].kind), 2);
+    }
     for (size_t i = 0; i < an.beats.size(); i++) {
         float x = X(an.beats[i]);
         if (x < L || x > R) continue;
@@ -503,7 +532,9 @@ void Scope::drawReadout(float L, float R, float y) {
     d_.rect(L, y, R - L, 70, PANEL);
     float x = L + 14;
     d_.text(mmss(t) + " / " + mmss(track_->duration()), x, y + 10, 2.f, TEXT);
-    d_.text(paused_ ? "PAUSED" : "PLAYING", x, y + 40, 1.3f, paused_ ? LABEL : rgb(0.5f, 0.85f, 0.6f));
+    const float sp = audio_.speed();
+    std::string state = paused_ ? "PAUSED" : sp == 1.f ? "PLAYING" : sp == 0.5f ? "PLAYING X0.5" : "PLAYING X0.25";
+    d_.text(state, x, y + 40, 1.3f, paused_ ? LABEL : sp == 1.f ? rgb(0.5f, 0.85f, 0.6f) : rgb(1.f, 0.7f, 0.35f));
     x += 190;
 
     d_.rect(x, y + 10, 14, 50, kindColor(sg.kind));
@@ -552,6 +583,63 @@ void Scope::drawReadout(float L, float R, float y) {
     }
 }
 
+// Clicking the active speed again goes back to normal speed.
+void Scope::setSpeed(float s) { audio_.setSpeed(audio_.speed() == s ? 1.f : s); }
+
+// Speed buttons, right-aligned at the top.
+void Scope::drawSpeed(float R, float y) {
+    speedBoxes_.clear();
+    const float speeds[3] = {1.f, 0.5f, 0.25f};
+    const char* names[3] = {"X1", "X0.5", "X0.25"};
+    const float bw = 64, bh = 26, gap = 8;
+    float x = R - 3 * bw - 2 * gap;
+    d_.text("SPEED", x - 12, y + 8, 1.3f, LABEL, 2);
+    for (int i = 0; i < 3; i++, x += bw + gap) {
+        bool on = audio_.speed() == speeds[i];
+        Col c = i == 0 ? rgb(0.5f, 0.85f, 0.6f) : rgb(1.f, 0.7f, 0.35f);
+        d_.rect(x, y, bw, bh, on ? c : PANEL);
+        d_.text(names[i], x + bw * 0.5f, y + 8, 1.3f, on ? BG : TEXT, 1);
+        speedBoxes_.push_back({{x, y, x + bw, y + bh}, speeds[i]});
+    }
+}
+
+void Scope::playSample(int i) {
+    if (i < 0 || i >= (int)samples_.size()) return;
+    audio_.playSample(samples_[i].pcm);
+    sampleStarted_[i] = glfwGetTime();
+}
+
+// One button per sample: click (or 1-4) plays it over the song, or alone when paused.
+void Scope::drawSamples(float L, float R, float y) {
+    const float hB = 46, gap = 12;
+    d_.text("SAMPLES", L - 14, y + hB * 0.5f - 5, 1.3f, LABEL, 2);
+    sampleBoxes_.clear();
+    if (samples_.empty()) {
+        d_.text("NO SAMPLES (SONG TOO SHORT OR NO BEAT GRID)", L, y + 16, 1.3f, DIM);
+        return;
+    }
+    const float bw = (R - L - gap * (SMP_COUNT - 1)) / SMP_COUNT;
+    const double nowT = glfwGetTime();
+    for (size_t i = 0; i < samples_.size(); i++) {
+        const SongSample& sm = samples_[i];
+        float x = L + i * (bw + gap);
+        sampleBoxes_.push_back({x, y, x + bw, y + hB});
+        Col c = sampleColor(sm.kind);
+        double since = nowT - sampleStarted_[i], len = sm.end - sm.start;
+        bool playing = since >= 0 && since < len;
+        d_.rect(x, y, bw, hB, playing ? withA(c, 0.22f) : PANEL);
+        d_.rect(x, y, 6, hB, c);
+        if (playing) d_.rect(x + 6, y + hB - 3, (bw - 6) * (float)(since / len), 3, c); // progress
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "%zu  %s", i + 1, sampleName(sm.kind));
+        d_.text(buf, x + 16, y + 7, 1.8f, TEXT);
+        std::snprintf(buf, sizeof(buf), "%s  %s  %d BEAT%s  %.2f S", sampleLines(sm.kind), mmss(sm.start).c_str(), sm.beats,
+                      sm.beats > 1 ? "S" : "", len);
+        d_.text(buf, x + bw - 10, y + 9, 1.15f, LABEL, 2);
+        d_.text(sm.why, x + 16, y + 29, 1.15f, withA(TEXT, 0.7f));
+    }
+}
+
 void Scope::drawFrame(int w, int h) {
     d_.begin(w, h);
     d_.rect(0, 0, (float)w, (float)h, BG);
@@ -572,12 +660,17 @@ void Scope::drawFrame(int w, int h) {
     d_.text(buf, 30, 52, 1.4f, LABEL);
     std::snprintf(buf, sizeof(buf), "SONG %d/%zu", index_ + 1, files_.size());
     d_.text(buf, R, 22, 1.4f, LABEL, 2);
-    if (loading_.valid()) d_.text("LOADING  " + asciiFold(loadingTitle_) + " ...", R, 52, 1.3f, rgb(1.f, 0.7f, 0.35f), 2);
+    if (loading_.valid())
+        d_.text("LOADING  " + asciiFold(loadingTitle_) + " ...", R - d_.textWidth(buf, 1.4f) - 30, 22, 1.3f,
+                rgb(1.f, 0.7f, 0.35f), 2);
+    drawSpeed(R, 46);
 
     drawOverview(L, R, 90);
     float y = ovBottom_ + 22;
     drawReadout(L, R, y);
-    y += 70 + 26;
+    y += 70 + 16;
+    drawSamples(L, R, y);
+    y += 46 + 22;
     drawDetail(L, R, y, (float)h - 70);
 
     // Legend and controls.
@@ -593,9 +686,9 @@ void Scope::drawFrame(int w, int h) {
         d_.text(levelName(l), lx + 18, ly + 1, 1.2f, LABEL);
         lx += 18 + d_.textWidth(levelName(l), 1.2f) + 22;
     }
-    d_.text("WHITE LINES: SCENE CHANGES   YELLOW: INTENSITY   GREY: LOUDNESS   BLUE: ONSETS   TABS: SIMILAR GROUPS", L,
+    d_.text("WHITE LINES: SCENE CHANGES   YELLOW: INTENSITY   GREY: LOUDNESS   BLUE: ONSETS   TABS: GROUPS", L,
             h - 26.f, 1.2f, DIM);
-    d_.text("SPACE PLAY/PAUSE   LEFT/RIGHT SEEK   UP/DOWN ZOOM   N/P SONG   CLICK TO SEEK   ESC QUIT", R, h - 26.f,
+    d_.text("SPACE PLAY/PAUSE  LEFT/RIGHT SEEK  UP/DOWN ZOOM  N/P SONG  CLICK SEEK  1-4 SAMPLES  ESC QUIT", R, h - 26.f,
             1.2f, DIM, 2);
     d_.flush();
 }
@@ -683,6 +776,8 @@ int Scope::run(int argc, char** argv) {
         if (pressed(GLFW_KEY_LEFT) && track_) audio_.seek(audio_.position() - 5);
         if (pressed(GLFW_KEY_UP)) span_ = std::max(4.f, span_ * 0.5f);
         if (pressed(GLFW_KEY_DOWN)) span_ = std::min(64.f, span_ * 2.f);
+        for (int k = 0; k < SMP_COUNT; k++)
+            if (pressed(GLFW_KEY_1 + k)) playSample(k);
 
         bool mouse = glfwGetMouseButton(win_, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         if (mouse && track_) {
@@ -693,6 +788,13 @@ int Scope::run(int argc, char** argv) {
             glfwGetFramebufferSize(win_, &fw, &fh);
             mx *= (double)fw / std::max(1, ww);
             my *= (double)fh / std::max(1, wh);
+            auto inside = [&](const Box& b) { return mx >= b.x0 && mx <= b.x1 && my >= b.y0 && my <= b.y1; };
+            if (!prevMouse) {
+                for (size_t i = 0; i < sampleBoxes_.size(); i++)
+                    if (inside(sampleBoxes_[i])) playSample((int)i);
+                for (const auto& [b, s] : speedBoxes_)
+                    if (inside(b)) setSpeed(s);
+            }
             if (mx >= ovL_ && mx <= ovR_) {
                 if (my >= ovTop_ && my <= ovBottom_)
                     audio_.seek((mx - ovL_) / (ovR_ - ovL_) * track_->duration());

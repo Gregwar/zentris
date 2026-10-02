@@ -89,6 +89,11 @@ private:
     float overTime_ = 0; // seconds since game over
     int lastLevel_ = 1;
     float levelToast_ = 0;
+    // Slow-motion bonus (the song plays at half speed while it lasts) and Tetris rewards.
+    bool slowWas_ = false;
+    float slowToast_ = 0, tetrisToast_ = 0;
+    int tetrisPoints_ = 0;
+    bool tetrisB2B_ = false;
     bool paused_ = false, wantSkip_ = false, showHelp_ = true, quit_ = false;
     double songTime_ = 0, simSongTime_ = 0;
     float trackAge_ = 0, helpTimer_ = 14.f, sceneNameTimer_ = 0, runTime_ = 0;
@@ -181,7 +186,15 @@ void App::toggleFullscreen() {
 
 // Game events only drive visuals: the song is the only thing you hear.
 void App::handleEvents() {
-    for (const GameEvent& ev : game_.events()) R_.onEvent(ev, game_);
+    for (const GameEvent& ev : game_.events()) {
+        R_.onEvent(ev, game_);
+        if (ev.type == GameEvent::Clear && ev.count >= 4) {
+            tetrisToast_ = 2.4f;
+            tetrisPoints_ = ev.points;
+            tetrisB2B_ = ev.backToBack;
+        }
+        if (ev.type == GameEvent::BonusStart) slowToast_ = 2.f;
+    }
     game_.events().clear();
 }
 
@@ -235,6 +248,7 @@ void App::updateGravity(double songTime, float dt) {
 }
 
 void App::autoplay(float dt) {
+    if (game_.bonusReady()) game_.activateBonus();
     if (!game_.hasPiece()) { planned_ = false; return; }
     if (!planned_) {
         planned_ = game_.planMove(planRot_, planX_);
@@ -325,9 +339,38 @@ std::vector<HudText> App::buildHud(float dt) {
         hud.push_back({"COULD NOT LOAD " + asciiFold(failedTitle_) + ", TRYING ANOTHER SONG", -28 * s, 64 * s, 1.3f * s,
                        std::min(1.f, failedToast_), true});
 
+    // Bonus gauge: label under it, and the key to press once it's full.
+    {
+        vec2 g = R_.project(vec3(-6.15f, 10.6f, 0)); // above it: the bottom can be cut by close cameras
+        const bool pad = input_.active() == Input::Gamepad;
+        if (game_.bonusReady()) {
+            float br = 0.55f + 0.3f * (0.5f + 0.5f * std::sin(runTime_ * TAU * 0.4f));
+            hud.push_back({pad ? "ZL / ZR" : "V", g.x, g.y, 1.5f * s, br, true, true});
+            hud.push_back({"SLOW", g.x, g.y - 18 * s, 1.2f * s, 0.5f, false, true});
+        } else {
+            hud.push_back({game_.bonusActive() ? "SLOW" : "BONUS", g.x, g.y, 1.2f * s, game_.bonusActive() ? 0.6f : 0.3f,
+                           game_.bonusActive(), true});
+        }
+    }
+    slowToast_ = std::max(0.f, slowToast_ - dt);
+    if (slowToast_ > 0) {
+        vec2 c = R_.project(vec3(0, 8.5f, 0));
+        float a = std::min(1.f, slowToast_) * std::min(1.f, (2.f - slowToast_) * 4.f);
+        hud.push_back({"SLOW MOTION", c.x, c.y, 3.f * s, 0.75f * a, true, true});
+    }
+    tetrisToast_ = std::max(0.f, tetrisToast_ - dt);
+    if (tetrisToast_ > 0) {
+        vec2 c = R_.project(vec3(0, 6.5f, 0)); // between the slow-motion and level toasts
+        float a = std::min(1.f, tetrisToast_ * 1.5f) * std::min(1.f, (2.4f - tetrisToast_) * 5.f);
+        float grow = 1.f + 0.08f * smoothstepf(2.4f, 1.6f, tetrisToast_);
+        hud.push_back({tetrisB2B_ ? "BACK TO BACK TETRIS" : "TETRIS", c.x, c.y, (tetrisB2B_ ? 3.4f : 4.2f) * grow * s, 0.9f * a,
+                       true, true});
+        hud.push_back({"+" + std::to_string(tetrisPoints_), c.x, c.y + 44 * s, 2.2f * s, 0.75f * a, false, true});
+    }
+
     levelToast_ = std::max(0.f, levelToast_ - dt);
     if (levelToast_ > 0) {
-        vec2 c = R_.project(vec3(0, 3.f, 0));
+        vec2 c = R_.project(vec3(0, 2.f, 0));
         float a = std::min(1.f, levelToast_) * std::min(1.f, (2.5f - levelToast_) * 4.f);
         hud.push_back({"LEVEL " + std::to_string(game_.level()), c.x, c.y, 3.2f * s, 0.8f * a, true, true});
     }
@@ -344,10 +387,10 @@ std::vector<HudText> App::buildHud(float dt) {
         // One control per line, right-aligned in the bottom-right corner, clear of the board.
         std::vector<std::string> lines;
         if (input_.active() == Input::Gamepad)
-            lines = {"MOVE  DPAD / STICK", "ROTATE  A / B", "HARD DROP  UP", "HOLD  LB / RB", "NEW SCENE  Y",
+            lines = {"MOVE  DPAD / STICK", "ROTATE  A / B", "HARD DROP  UP", "HOLD  LB / RB", "SLOW MOTION  ZL / ZR", "NEW SCENE  Y",
                      "NEXT SONG  BACK", "PAUSE  START"};
         else
-            lines = {"MOVE  ARROWS", "ROTATE  UP / Z", "HARD DROP  SPACE", "HOLD  C", "NEW SCENE  T",
+            lines = {"MOVE  ARROWS", "ROTATE  UP / Z", "HARD DROP  SPACE", "HOLD  C", "SLOW MOTION  V", "NEW SCENE  T",
                      "NEXT SONG  N", "SEEK  CTRL+SHIFT+ARROWS", "FULLSCREEN  F", "PAUSE  ESC"};
         const float lineH = 20.f * s, bottom = h - 40.f * s;
         for (size_t i = 0; i < lines.size(); i++)
@@ -452,7 +495,7 @@ int App::run() {
                 double end = k + 1 < (int)plan_.phases.size() ? plan_.phases[k + 1].start : track_->duration();
                 if (simSongTime_ < end - 14.0) simSongTime_ = std::max(plan_.phases[k].start, end - 14.0);
             } else if (simSongTime_ < opt_.shotTime - 12.0) simSongTime_ = opt_.shotTime - 12.0;
-            simSongTime_ += dt;
+            simSongTime_ += dt * audio_.currentSpeed();
             songTime_ = simSongTime_;
         } else {
             songTime_ = audio_.position();
@@ -491,6 +534,7 @@ int App::run() {
             }
         }
         if (input_.pressed(A_DEBUG_LEVEL) && !game_.over()) game_.skipToNextLevel();
+        if (input_.pressed(A_DEBUG_BONUS)) game_.debugChargeBonus();
         if (input_.pressed(A_HUD)) { showHelp_ = !showHelp_; helpTimer_ = showHelp_ ? 1e9f : 0; }
 
         // ---- Game.
@@ -506,6 +550,7 @@ int App::run() {
                 if (input_.pressed(A_CCW)) game_.rotate(-1);
                 if (input_.pressed(A_HOLD)) game_.hold();
                 if (input_.pressed(A_HARD)) game_.hardDrop();
+                if (input_.pressed(A_BONUS)) game_.activateBonus();
             }
             if (game_.over()) {
                 // Game over: the board dissolves, then any gameplay key/button starts a new game.
@@ -529,6 +574,13 @@ int App::run() {
             }
             lastLevel_ = game_.level();
             R_.setDim(game_.over() && overTime_ > 1.2f);
+            // Slow motion: the song slides down to half speed (gravity follows the song) and back.
+            if (game_.bonusActive() != slowWas_) {
+                slowWas_ = game_.bonusActive();
+                audio_.setSpeed(slowWas_ ? 0.5f : 1.f, slowWas_ ? 0.8f : 1.2f);
+                // The screen's colors are reversed for the whole bonus (a front sweeps it in and out).
+                R_.setInverted(slowWas_);
+            }
         }
 
         // ---- Music-driven state.
@@ -648,6 +700,26 @@ int App::run() {
         if (fbw > 0 && fbh > 0) R_.render(game_, music_, runTime_, dt, paused_, buildHud(dt), shotMode ? 1.f : fade);
 
         if (shotMode && track_) {
+            // Test hook: ZEN_FX=slow:N or tetris:N plays that special animation ZEN_FX_AT seconds before each shot.
+            static const char* fxEnv = std::getenv("ZEN_FX");
+            static const float fxAt = std::getenv("ZEN_FX_AT") ? (float)std::atof(std::getenv("ZEN_FX_AT")) : 6.f;
+            if (fxEnv && shotSettle < 12.f - fxAt && shotSettle + dt >= 12.f - fxAt) {
+                int idx = std::atoi(std::strchr(fxEnv, ':') ? std::strchr(fxEnv, ':') + 1 : "0") + shotsTaken;
+                if (std::strncmp(fxEnv, "slow", 4) == 0) {
+                    R_.forceSpecialFx(idx, -1);
+                    game_.debugChargeBonus();
+                } else {
+                    R_.forceSpecialFx(-1, idx);
+                    GameEvent ev{GameEvent::Clear};
+                    ev.count = 4;
+                    for (int y = 18; y < 22; y++)
+                        for (int x = 0; x < Game::W; x++) ev.cells.push_back({x, y, (x + y) % 7});
+                    ev.points = 1200;
+                    tetrisToast_ = 2.4f;
+                    tetrisPoints_ = 1200;
+                    R_.onEvent(ev, game_);
+                }
+            }
             shotSettle += dt;
             if (shotSettle > 12.f) {
                 char name[512];
