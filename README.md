@@ -19,7 +19,7 @@ Prebuilt packages for Linux, macOS (Intel and Apple Silicon) and Windows are on
 Run it directly with [uv](https://docs.astral.sh/uv/), without installing:
 
 ```sh
-uvx zentris "https://www.youtube.com/playlist?list=PLWHPu2N_Gb2lbZ8-7sYKSEbDlb3UiAVye"
+uvx zentris                              # the default playlist
 uvx zentris ~/Music
 uvx --from zentris zenscope ~/Music      # the analysis viewer
 ```
@@ -28,8 +28,8 @@ Or install it with [pipx](https://pipx.pypa.io/) (or `uv tool install zentris`):
 
 ```sh
 pipx install zentris
-zentris "https://www.youtube.com/playlist?list=PLWHPu2N_Gb2lbZ8-7sYKSEbDlb3UiAVye"
-zentris ~/Music             # with no argument it plays ./audio, or ~/Music
+zentris                     # with no argument it plays the default YouTube playlist
+zentris ~/Music             # or any folders, files and YouTube playlist/video URLs
 zenscope ~/Music            # the analysis viewer
 ```
 
@@ -44,7 +44,7 @@ Dependencies (Debian/Ubuntu): `sudo apt install cmake g++ libglfw3-dev libglew-d
 
 ```sh
 cmake -S . -B build && cmake --build build -j
-./build/zentris                 # plays every .mp3/.wav/.flac in ./audio, in order (--shuffle for random)
+./build/zentris audio           # plays every .mp3/.wav/.flac in ./audio, in random order (--in-order to keep it)
 ./build/zentris song.mp3 ~/Music --fullscreen
 ```
 
@@ -58,7 +58,7 @@ Node.js, and Node.js is picked up automatically). Songs are downloaded when queu
 ./build/zenscope "https://www.youtube.com/watch?v=..."
 ```
 
-Other options: `--shuffle` (random song order; default is in order: folders alphabetically, playlists in their order), `--seed N` (repeat a scene), `--autoplay`, `--mute`, `--size WxH`,
+Other options: `--in-order` (play songs in order: folders alphabetically, playlists in their order; the default is a random order), `--seed N` (repeat a scene), `--autoplay`, `--mute`, `--size WxH`,
 `--shots PREFIX N` (renders N screenshots of different scenes and exits), `--phase-shots PREFIX` (one screenshot per scene level of a song).
 
 ## zenscope: see what the game hears

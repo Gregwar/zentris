@@ -24,7 +24,7 @@ namespace fs = std::filesystem;
 
 struct Options {
     std::vector<std::string> paths;
-    bool autoplay = false, mute = false, fullscreen = false, hidden = false, shuffle = false;
+    bool autoplay = false, mute = false, fullscreen = false, hidden = false, shuffle = true;
     std::string shotPrefix;
     int shotCount = 0;
     bool phaseShots = false;
@@ -33,14 +33,17 @@ struct Options {
     int width = 1600, height = 900;
 };
 
+static const char* DEFAULT_PLAYLIST = "https://www.youtube.com/playlist?list=PLWHPu2N_Gb2lbZ8-7sYKSEbDlb3UiAVye";
+
 static void usage() {
     std::printf(
         "usage: zentris [options] [songs or folders...]\n"
-        "  (default: plays ./audio, or ~/Music; a YouTube playlist/video URL also works, via yt-dlp)\n"
+        "  (default: a built-in YouTube playlist, via yt-dlp; local files, folders and other YouTube\n"
+        "   playlist/video URLs work too)\n"
         "  --fullscreen         start fullscreen\n"
         "  --size WxH           window size (default 1600x900)\n"
         "  --seed N             fixed scene seed (default: random each run)\n"
-        "  --shuffle            play songs in random order (default: in order)\n"
+        "  --in-order           play songs in order (default: random order)\n"
         "  --autoplay           let the computer play\n"
         "  --mute               no sound\n"
         "  --shots PREFIX N     render N screenshots of different scenes then exit (testing)\n"
@@ -128,9 +131,14 @@ void App::startTrack(std::shared_ptr<Track> t) {
     simSongTime_ = 0;
     std::printf("[app] now playing: %s\n", track_->title.c_str());
     sceneCounter_++;
-    baseTheme_ = generateTheme(track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_));
     computePhases();
-    R_.setTheme(phaseTheme(0), first ? 0.01f : 3.5f, true, 0.f, pickWipe(3));
+    if (first) {
+        // The scene shown (paused) while the first song loaded becomes its scene: it just starts.
+        lastPhase_ = plan_.phaseAt(0.0);
+    } else {
+        baseTheme_ = generateTheme(track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_));
+        R_.setTheme(phaseTheme(0), 3.5f, true, 0.f, pickWipe(3));
+    }
     sceneNameTimer_ = 8.f;
     std::printf("[app] scene: %s\n", baseTheme_.name.c_str());
     lib_.prefetch(runSeed_ + sceneCounter_ * 7919);
@@ -522,7 +530,9 @@ int App::run() {
         }
 
         // ---- Global controls.
-        if (input_.pressed(A_PAUSE) && !game_.over()) {
+        // Until the first song is ready the game waits, paused (no play without music).
+        const bool waiting = !track_;
+        if (input_.pressed(A_PAUSE) && !game_.over() && !waiting) {
             paused_ = !paused_;
             audio_.setPaused(paused_);
         }
@@ -558,7 +568,7 @@ int App::run() {
         if (input_.pressed(A_HUD)) { showHelp_ = !showHelp_; helpTimer_ = showHelp_ ? 1e9f : 0; }
 
         // ---- Game.
-        if (!paused_) {
+        if (!paused_ && !waiting) {
             trackAge_ += dt;
             if (opt_.autoplay || shotMode) {
                 autoplay(dt);
@@ -717,7 +727,7 @@ int App::run() {
             lastH = fbh;
         }
         fade = std::min(1.f, fade + dt * 0.8f);
-        if (fbw > 0 && fbh > 0) R_.render(game_, music_, runTime_, dt, paused_, buildHud(dt), shotMode ? 1.f : fade);
+        if (fbw > 0 && fbh > 0) R_.render(game_, music_, runTime_, dt, paused_ || waiting, buildHud(dt), shotMode ? 1.f : fade);
 
         if (shotMode && track_) {
             // Test hook: ZEN_FX=slow:N or tetris:N plays that special animation ZEN_FX_AT seconds before each shot.
@@ -789,7 +799,8 @@ int main(int argc, char** argv) {
         if (a == "-h" || a == "--help") { usage(); return 0; }
         else if (a == "--autoplay") o.autoplay = true;
         else if (a == "--mute") o.mute = true;
-        else if (a == "--shuffle") o.shuffle = true;
+        else if (a == "--shuffle") o.shuffle = true; // the default; kept for older command lines
+        else if (a == "--in-order") o.shuffle = false;
         else if (a == "--fullscreen") o.fullscreen = true;
         else if (a == "--hidden") o.hidden = true;
         else if (a == "--seed" && i + 1 < argc) o.seed = std::stoull(argv[++i]);
@@ -799,15 +810,8 @@ int main(int argc, char** argv) {
         else if (a == "--shot-time" && i + 1 < argc) o.shotTime = std::stof(argv[++i]);
         else o.paths.push_back(a);
     }
-    if (o.paths.empty()) {
-        // Look for ./audio, then next to the executable (and its parent, for build/ dirs).
-        std::error_code ec;
-        fs::path exe = platform::executableDir();
-        std::vector<fs::path> candidates = {fs::path("audio"), exe / "audio", exe.parent_path() / "audio"};
-        candidates.push_back(platform::homeDir() / "Music");
-        for (const fs::path& p : candidates)
-            if (fs::is_directory(p, ec)) { o.paths.push_back(p.string()); break; }
-    }
+    // No songs given: the default playlist.
+    if (o.paths.empty()) o.paths.push_back(DEFAULT_PLAYLIST);
     App app(o);
     int rc = app.run();
     // Exit now: don't wait for background downloads/analysis (an unfinished download resumes next time).
