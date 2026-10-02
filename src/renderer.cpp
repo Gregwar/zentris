@@ -1151,7 +1151,7 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
         glints_.clear(); // kept while paused, so the animation freezes instead of vanishing
         updateSpecialFx(game, music, dt);
         // The slow-motion bonus slows the whole world down, not only the song.
-        const float world = lerpf(1.f, 0.45f, slow_), wdt = dt * world;
+        const float world = lerpf(1.f, 0.3f, slow_), wdt = dt * world;
         ptimeFrom_ += wdt * (0.5f + 0.9f * music.intensity) * music.speed * (0.75f + 0.7f * music.energy);
         rayTime_ += wdt * (0.1f + 0.5f * music.energy);
         surfTime_ += wdt * (0.4f + 0.8f * music.energy) * (0.6f + 0.6f * music.intensity);

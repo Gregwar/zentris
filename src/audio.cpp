@@ -70,6 +70,13 @@ void AudioEngine::playSample(std::shared_ptr<const std::vector<float>> pcm, floa
     voices_.push_back({std::move(pcm), 0, gain});
 }
 
+void AudioEngine::bend(float depth, float seconds) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    bendDepth_ = depth;
+    bendLen_ = (uint64_t)std::max(1.0, (double)seconds * sampleRate_);
+    bendPos_ = 0;
+}
+
 double AudioEngine::position() const {
     if (!current_) return 0;
     return (double)atomicPos_.load() / sampleRate_;
@@ -112,7 +119,7 @@ void AudioEngine::render(float* out, unsigned int frames) {
     float speed = curSpeed_;
     if (glide <= 0.f) speed = target;
     const float glideStep = glide > 0.f ? 0.5f / (glide * sampleRate_) : 0.f;
-    if ((speed == 1.f && target == 1.f) || !current_) mixTrack(current_.get(), pos_, fade_, true);
+    if ((speed == 1.f && target == 1.f && bendPos_ >= bendLen_) || !current_) mixTrack(current_.get(), pos_, fade_, true);
     else {
         // Slowed down: read between frames with linear interpolation.
         const Track* t = current_.get();
@@ -124,7 +131,12 @@ void AudioEngine::render(float* out, unsigned int frames) {
             uint64_t q = std::min(pos_ + 1, n - 1);
             out[i * 2] += (t->pcm[pos_ * 2] * (1 - a) + t->pcm[q * 2] * a) * g;
             out[i * 2 + 1] += (t->pcm[pos_ * 2 + 1] * (1 - a) + t->pcm[q * 2 + 1] * a) * g;
-            frac_ += speed;
+            float s = speed;
+            if (bendPos_ < bendLen_) { // smooth bump: 0 -> depth -> 0
+                s *= 1.f + bendDepth_ * std::sin(3.14159265f * (float)bendPos_ / (float)bendLen_);
+                bendPos_++;
+            }
+            frac_ += s;
             while (frac_ >= 1.0) {
                 frac_ -= 1.0;
                 pos_++;

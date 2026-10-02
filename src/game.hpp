@@ -89,8 +89,8 @@ public:
 
     // Slow-motion bonus: each cleared line charges one step of a gauge (BONUS_LINES steps to fill it; a
     // Tetris charges one extra step, so 5). Once full, activateBonus()
-    // starts it: the gauge drains over BONUS_SECONDS (the app plays the song at half speed meanwhile, and
-    // gravity follows the song). Lines cleared during the bonus don't charge it.
+    // starts it: the gauge drains over BONUS_SECONDS (meanwhile the app runs gravity at x0.25; the song
+    // keeps its speed). Lines cleared during the bonus don't charge it.
     static constexpr int BONUS_LINES = 12;
     static constexpr float BONUS_SECONDS = 10.f;
     // Gauge level 0..1 (while active: the time left).

@@ -66,7 +66,7 @@ void Renderer::startTetrisFx(float rowY, bool backToBack) {
 
 void Renderer::updateSpecialFx(const Game& game, const MusicState& music, float dt) {
     slow_ = approach(slow_, slowOn_ ? 1.f : 0.f, slowOn_ ? 2.5f : 1.5f, dt);
-    const float wdt = dt * lerpf(1.f, 0.45f, slow_);
+    const float wdt = dt * lerpf(1.f, 0.3f, slow_);
     if (slowOn_ || slow_ > 0.01f) {
         slowT_ += dt;
         slowGlints(slowT_, smoothstepf(0.f, 1.f, slow_), game, music);

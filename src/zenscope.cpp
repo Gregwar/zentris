@@ -4,7 +4,7 @@
 //   zenscope [songs or folders...]        (default: ./audio)
 //   SPACE play/pause, LEFT/RIGHT seek 5 s, UP/DOWN zoom the detail view, N/P next/previous song,
 //   click the overview or the detail view to seek, 1-4 or click a sample button to hear it,
-//   click X0.5 / X0.25 (top right) to slow the song down, ESC quits.
+//   click X0.9 / X0.5 (top right) to slow the song down, ESC quits.
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 
@@ -533,7 +533,9 @@ void Scope::drawReadout(float L, float R, float y) {
     float x = L + 14;
     d_.text(mmss(t) + " / " + mmss(track_->duration()), x, y + 10, 2.f, TEXT);
     const float sp = audio_.speed();
-    std::string state = paused_ ? "PAUSED" : sp == 1.f ? "PLAYING" : sp == 0.5f ? "PLAYING X0.5" : "PLAYING X0.25";
+    char speedBuf[32];
+    std::snprintf(speedBuf, sizeof(speedBuf), "PLAYING X%g", sp);
+    std::string state = paused_ ? "PAUSED" : sp == 1.f ? "PLAYING" : speedBuf;
     d_.text(state, x, y + 40, 1.3f, paused_ ? LABEL : sp == 1.f ? rgb(0.5f, 0.85f, 0.6f) : rgb(1.f, 0.7f, 0.35f));
     x += 190;
 
@@ -589,8 +591,8 @@ void Scope::setSpeed(float s) { audio_.setSpeed(audio_.speed() == s ? 1.f : s); 
 // Speed buttons, right-aligned at the top.
 void Scope::drawSpeed(float R, float y) {
     speedBoxes_.clear();
-    const float speeds[3] = {1.f, 0.5f, 0.25f};
-    const char* names[3] = {"X1", "X0.5", "X0.25"};
+    const float speeds[3] = {1.f, 0.9f, 0.5f};
+    const char* names[3] = {"X1", "X0.9", "X0.5"};
     const float bw = 64, bh = 26, gap = 8;
     float x = R - 3 * bw - 2 * gap;
     d_.text("SPEED", x - 12, y + 8, 1.3f, LABEL, 2);

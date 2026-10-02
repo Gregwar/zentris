@@ -89,7 +89,7 @@ private:
     float overTime_ = 0; // seconds since game over
     int lastLevel_ = 1;
     float levelToast_ = 0;
-    // Slow-motion bonus (the song plays at half speed while it lasts) and Tetris rewards.
+    // Slow-motion bonus (gravity at x0.25 while it lasts) and Tetris rewards.
     bool slowWas_ = false;
     float slowToast_ = 0, tetrisToast_ = 0;
     int tetrisPoints_ = 0;
@@ -99,6 +99,12 @@ private:
     float trackAge_ = 0, helpTimer_ = 14.f, sceneNameTimer_ = 0, runTime_ = 0;
     // Gravity bookkeeping.
     double lastGravTick_ = 0;
+    // Slow-motion bonus: gravity runs at BONUS_GAME_SPEED (real time) while the music keeps its speed (only a
+    // short tape bend marks the start and the end). Gravity follows its own beat clock: the song's beats,
+    // scaled; back on the song's beat after.
+    static constexpr float BONUS_GAME_SPEED = 0.25f;
+    double gameBeat_ = 0, lastSongBeat_ = -1;
+    float gameRate_ = 1.f; // gravity speed in real time (eased)
     float gravRate_ = -1, pace_ = -1, fallbackTimer_ = 0;
     float intensitySmooth_ = 0.3f;
     // Autoplay.
@@ -204,8 +210,10 @@ void App::handleEvents() {
 // snapped to musical subdivisions so pieces keep falling in time.
 void App::updateGravity(double songTime, float dt) {
     const float diff = game_.difficulty();
+    gameRate_ = approach(gameRate_, game_.bonusActive() ? BONUS_GAME_SPEED : 1.f, 3.f, dt);
+    if (gameRate_ > 0.999f) gameRate_ = 1.f;
     if (!track_ || audio_.finished()) {
-        fallbackTimer_ += dt;
+        fallbackTimer_ += dt * gameRate_;
         if (fallbackTimer_ > 0.9f * (1.f - 0.45f * diff)) { fallbackTimer_ = 0; game_.gravityStep(); }
         return;
     }
@@ -234,8 +242,21 @@ void App::updateGravity(double songTime, float dt) {
     for (float v : SUB)
         if (v * beatsPerSec <= MAX_ROWS_PER_SEC + 0.01f && std::fabs(std::log(v / wanted)) < std::fabs(std::log(target / wanted)))
             target = v;
-    double tick = std::floor(an.beatPosition(songTime) * tempoMul * target);
-    if (target != gravRate_) {
+    // Gravity's beat clock: the song's beats, scaled so gravity runs at gameRate_ in real time.
+    const double songBeat = an.beatPosition(songTime);
+    bool resync = false;
+    if (lastSongBeat_ < 0 || songBeat < lastSongBeat_ || songBeat - lastSongBeat_ > 8.0) { // start, seek, new song
+        gameBeat_ = songBeat;
+        resync = true;
+    } else if (gameRate_ >= 1.f) { // normal speed: on the song's beat (re-synced once after a bonus)
+        resync = std::fabs(gameBeat_ - lastSongBeat_) > 1e-6;
+        gameBeat_ = songBeat;
+    } else {
+        gameBeat_ += (songBeat - lastSongBeat_) * std::min(1.f, gameRate_ / std::max(0.05f, audio_.currentSpeed()));
+    }
+    lastSongBeat_ = songBeat;
+    double tick = std::floor(gameBeat_ * tempoMul * target);
+    if (target != gravRate_ || resync) {
         gravRate_ = target;
         lastGravTick_ = tick;
         return;
@@ -574,10 +595,10 @@ int App::run() {
             }
             lastLevel_ = game_.level();
             R_.setDim(game_.over() && overTime_ > 1.2f);
-            // Slow motion: the song slides down to half speed (gravity follows the song) and back.
+            // Slow motion: a short tape bend of the song marks it (gravity's own slow-down is in updateGravity).
             if (game_.bonusActive() != slowWas_) {
                 slowWas_ = game_.bonusActive();
-                audio_.setSpeed(slowWas_ ? 0.5f : 1.f, slowWas_ ? 0.8f : 1.2f);
+                audio_.bend(-0.15f, 0.9f); // a very slight slow-down and back, at the start and at the end
                 // The screen's colors are reversed for the whole bonus (a front sweeps it in and out).
                 R_.setInverted(slowWas_);
             }

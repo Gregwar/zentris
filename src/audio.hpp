@@ -40,6 +40,9 @@ public:
     void setSpeed(float s, float glideSeconds = 0.f) { glide_ = glideSeconds; speed_ = s; }
     float speed() const { return speed_; }          // target speed
     float currentSpeed() const { return curSpeed_; } // speed right now (during a glide)
+    // A short tape-like bend of the song's speed: it slides by `depth` (e.g. -0.15 = 15% slower) and back to
+    // where it was, along a smooth bump lasting `seconds`.
+    void bend(float depth, float seconds);
     // One-shot sound mixed over the song (interleaved stereo at the engine rate); heard even when paused.
     void playSample(std::shared_ptr<const std::vector<float>> pcm, float gain = 1.f);
 
@@ -63,4 +66,6 @@ private:
     std::atomic<bool> paused_{false}, muted_{false};
     std::atomic<float> speed_{1.f}, glide_{0.f}, curSpeed_{1.f};
     double frac_ = 0; // fractional position inside the current frame when slowed down
+    float bendDepth_ = 0;          // current bend (guarded by mutex_)
+    uint64_t bendLen_ = 0, bendPos_ = 0;
 };

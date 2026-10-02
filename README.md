@@ -75,7 +75,7 @@ Other options: `--shuffle` (random song order; default is in order: folders alph
 
 Space plays/pauses, Left/Right seek 5 s, Up/Down zoom the detail view, N/P change song, click to seek,
 1–4 or a click on a sample button plays that sample (over the song, or alone when paused).
-The SPEED buttons (top right) slow the song down to ×0.5 or ×0.25, tape-style (the pitch drops too);
+The SPEED buttons (top right) slow the song down to ×0.9 or ×0.5, tape-style (the pitch drops too);
 click the active one again to go back to normal speed.
 The game and zenscope share the same analysis and song plan code (`src/songplan.*`), so what you see is what the game uses.
 
@@ -106,10 +106,11 @@ missing from it still works with a generic layout.
 
 Each cleared line charges one step of the bonus gauge on the left of the board (12 steps to fill it; a
 Tetris charges 5). Once it's full, the slow-motion button starts the bonus: for 10 s the gauge drains, the
-song slides down to half speed (tape-style, so it also sounds lower) and, since gravity follows the
-song's beat, pieces fall half as fast. Use it to clean up the stack in a part that's too fast. The screen's
-colors are reversed while it lasts (swept in and out from the board), and the scene slows down too, with one
-animation from a pool (halo, hourglass, ripples, orbits, stasis, ribbons, clock).
+game slows down to ×0.25 (pieces fall four times slower) while the song keeps playing normally: only a very
+slight tape-like slow-down (and back) marks the start and the end. Use it to clean up the stack in a part that's too fast. Gravity gets
+back on the beat when the bonus ends. Meanwhile the screen's colors are reversed (swept in and out from the
+board) and the scene slows down, with one animation from a pool (halo, hourglass, ripples, orbits, stasis,
+ribbons, clock).
 
 A Tetris scores a 400-point bonus (800 back-to-back) and plays a celebration from another pool (pillars,
 blooms, spiral, waves, starfall, frame trace, light sheet); a back-to-back Tetris plays two at once.
