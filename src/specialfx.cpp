@@ -10,7 +10,6 @@
 namespace {
 
 constexpr float HALF_W = 5.15f, HALF_H = 10.15f; // board frame half extents (world units)
-constexpr float GAUGE_X = -6.15f;
 
 float paleW(const Theme& t) { return smoothstepf(0.4f, 1.f, t.pale); }
 
@@ -288,31 +287,24 @@ void Renderer::tetrisStep(Anim& a, float dt) {
     }
 }
 
-// The bonus gauge: 12 segments (one per line) left of the board. It breathes slowly once full and drains
-// continuously during the bonus.
-void Renderer::addGauge(const Game& game, double time, std::vector<BlockInst>& fx) {
-    const int N = Game::BONUS_LINES;
-    const float gap = 0.14f, segH = (2.f * HALF_H - gap * (N - 1)) / N, w = 0.14f;
+// The bonus gauge: a ring below the "next" previews, filling clockwise from the top like a clock. It breathes
+// slowly once full and drains back during the bonus. Densely packed soft dots read as a continuous line.
+void Renderer::addGauge(const Game& game, double time) {
+    const vec3 c = gaugeCenter();
+    const int N = 140;
     const float pw = paleW(cur_);
     const bool ready = game.bonusReady(), active = game.bonusActive();
     const float breath = 0.5f + 0.5f * std::sin((float)time * TAU * 0.4f);
-    const float level = gaugeShown_ * N;
-    auto bar = [&](float y0, float h, vec3 c, float a) {
-        if (h <= 0.002f || a <= 0.002f) return;
-        BlockInst b;
-        b.pos = vec3(GAUGE_X, y0 + h * 0.5f, 0);
-        b.scale = vec3(w, h, w);
-        b.color = vec4(c, a);
-        b.params = vec4(2, 0, 0, 0);
-        fx.push_back(b);
-    };
+    const float level = gaugeShown_;
     for (int i = 0; i < N; i++) {
-        float y0 = -HALF_H + i * (segH + gap), f = std::clamp(level - i, 0.f, 1.f);
-        vec3 c = lerp(cur_.partA, cur_.accent, (float)i / (N - 1));
-        if (active) c = lerp(cur_.partB, cur_.accent, 0.35f);
-        c = c * lerpf(1.2f + 0.4f * readyFlash_, 1.f, pw);
-        bar(y0, segH, cur_.accent, lerpf(0.1f, 0.2f, pw));                    // track
-        float a = ready ? 0.7f + 0.3f * breath : active ? 0.85f : 0.75f;
-        bar(y0, segH * f, c, a);
+        const float u = (i + 0.5f) / N, ang = PI * 0.5f - TAU * u; // clockwise from 12 o'clock
+        const vec3 p = c + vec3(std::cos(ang), std::sin(ang), 0) * GAUGE_R;
+        glints_.push_back({p, cur_.accent, 0.08f, lerpf(0.06f, 0.14f, pw)}); // track
+        const float f = saturate((level - u) * N); // soft end of the filled arc
+        if (f <= 0.f) continue;
+        vec3 col = active ? lerp(cur_.partB, cur_.accent, 0.35f) : lerp(cur_.partA, cur_.accent, u);
+        col = col * lerpf(0.85f + 0.3f * readyFlash_, 1.f, pw);
+        float a = ready ? 0.3f + 0.12f * breath : active ? 0.35f : 0.28f;
+        glints_.push_back({p, col, ready ? 0.13f + 0.02f * breath : 0.12f, a * f});
     }
 }

@@ -118,7 +118,12 @@ private:
     void startSlowFx();
     void startTetrisFx(float rowY, bool backToBack);
     void updateSpecialFx(const Game& game, const MusicState& music, float dt);
-    void addGauge(const Game& game, double time, std::vector<BlockInst>& fx);
+    void addGauge(const Game& game, double time);
+public:
+    // Where the bonus gauge is (board space): below the third "next" preview.
+    static vec3 gaugeCenter() { return vec3(8.6f, -2.1f, 0.f); }
+    static constexpr float GAUGE_R = 1.f;
+private:
     void slowGlints(float t, float presence, const Game& game, const MusicState& music);
     void tetrisStep(Anim& a, float dt);
     std::vector<Glint> glints_;

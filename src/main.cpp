@@ -360,18 +360,17 @@ std::vector<HudText> App::buildHud(float dt) {
         hud.push_back({"COULD NOT LOAD " + asciiFold(failedTitle_) + ", TRYING ANOTHER SONG", -28 * s, 64 * s, 1.3f * s,
                        std::min(1.f, failedToast_), true});
 
-    // Bonus gauge: label under it, and the key to press once it's full.
+    // Bonus gauge (a ring below the "next" previews): the key to press in its center once it's full.
     {
-        vec2 g = R_.project(vec3(-6.15f, 10.6f, 0)); // above it: the bottom can be cut by close cameras
+        const vec3 gc = Renderer::gaugeCenter();
+        vec2 g = R_.project(gc), lbl = R_.project(gc - vec3(0, Renderer::GAUGE_R + 0.55f, 0));
         const bool pad = input_.active() == Input::Gamepad;
         if (game_.bonusReady()) {
             float br = 0.55f + 0.3f * (0.5f + 0.5f * std::sin(runTime_ * TAU * 0.4f));
-            hud.push_back({pad ? "ZL / ZR" : "V", g.x, g.y, 1.5f * s, br, true, true});
-            hud.push_back({"SLOW", g.x, g.y - 18 * s, 1.2f * s, 0.5f, false, true});
-        } else {
-            hud.push_back({game_.bonusActive() ? "SLOW" : "BONUS", g.x, g.y, 1.2f * s, game_.bonusActive() ? 0.6f : 0.3f,
-                           game_.bonusActive(), true});
+            hud.push_back({pad ? "ZL ZR" : "V", g.x, g.y - 7 * s, (pad ? 1.3f : 1.8f) * s, br, true, true});
         }
+        hud.push_back({game_.bonusActive() || game_.bonusReady() ? "SLOW" : "BONUS", lbl.x, lbl.y, 1.2f * s,
+                       game_.bonusActive() ? 0.6f : game_.bonusReady() ? 0.5f : 0.3f, game_.bonusActive(), true});
     }
     slowToast_ = std::max(0.f, slowToast_ - dt);
     if (slowToast_ > 0) {

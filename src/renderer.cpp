@@ -1212,7 +1212,7 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
     std::vector<BlockInst> solid, ghost, fx;
     updateEqualizer(music, paused ? 0.f : dt);
     collectBoard(game, music, time, solid, ghost, fx);
-    addGauge(game, time, fx);
+    if (!paused) addGauge(game, time); // glints are kept as they are while paused
     glUseProgram(progBlock_);
     setMat(progBlock_, "uVP", vp_);
     set1f(progBlock_, "uDepth", cur_.blockDepth);
