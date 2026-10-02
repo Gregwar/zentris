@@ -219,7 +219,7 @@ void resolvePalette(Theme& t, float hueShift) {
 
 float meshExponent(int mesh, float roundness) {
     switch (mesh) {
-    case MESH_GEM: return 1.f;
+    case MESH_GEM: return 1.35f; // a full, rounded diamond (a sharp octahedron leaves cells touching at tips)
     case MESH_SPHERE: return 2.f;
     case MESH_ROUNDED: return roundness;
     default: return 24.f;
@@ -274,14 +274,16 @@ Theme generateTheme(const Footprint& fp, uint64_t seed) {
                              mood == 2 ? 0.4f : 1.1f, 0.9f, 1.0f, 0.9f, 0.9f, 1.1f, 0.9f, 0.9f,
                              mood == 2 ? 0.5f : 1.0f, 0.8f, 0.9f};
         t.blockStyle = r.weighted(w);
-        float mw[MESH_COUNT] = {5.5f, 2.5f, 1.0f, 1.0f};
-        const int faceStyles[] = {BS_DOTS, BS_INSET, BS_SPLIT, BS_DOUBLE, BS_CIRCUIT, BS_CHECKER, BS_RINGS, BS_PIXEL, BS_HATCH};
+        float mw[MESH_COUNT] = {5.5f, 2.5f, 1.0f, 0.5f}; // gems read less clearly as pieces: rarer
+        const int faceStyles[] = {BS_DOTS, BS_INSET, BS_SPLIT, BS_DOUBLE, BS_CIRCUIT, BS_CHECKER, BS_RINGS, BS_PIXEL, BS_HATCH,
+                                  BS_STRIPES};
         for (int fsIdx : faceStyles)
             if (t.blockStyle == fsIdx) mw[2] = mw[3] = 0; // face patterns need flat faces
         t.blockMesh = r.weighted(mw);
         t.roundness = r.range(3.f, 7.f);
         t.blockScale = r.range(0.8f, 0.96f);
-        if (t.blockMesh == MESH_SPHERE || t.blockMesh == MESH_GEM) t.blockScale = r.range(0.85f, 1.0f);
+        if (t.blockMesh == MESH_SPHERE) t.blockScale = r.range(0.85f, 1.0f);
+        if (t.blockMesh == MESH_GEM) t.blockScale = r.range(0.95f, 1.05f); // diamonds leave gaps: draw them larger
         t.blockDepth = (t.blockMesh == MESH_CUBE && r.chance(0.3f)) ? r.range(0.2f, 0.6f) : 1.f;
         t.edgeWidth = r.range(0.04f, 0.14f);
         t.emissive = mood == 2 ? r.range(0.15f, 0.4f) : r.range(0.7f, 1.6f);

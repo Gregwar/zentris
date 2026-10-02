@@ -31,6 +31,8 @@ struct StructureProfile {
     float density = 1, speed = 1, glow = 1, saturation = 1;
 };
 StructureProfile structureProfile(const Analysis& an, double t);
+// Gravity pace in rows per beat (before level scaling): one constant per section kind.
+float gravityPace(const Analysis& an, double t);
 
 // Pulse strength grows with tempo; transient "hits" only for faster songs.
 float pulseTempoAmp(float bpm);

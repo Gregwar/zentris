@@ -48,6 +48,29 @@ GLuint compileStage(GLenum type, const char* src, const char* name) {
     return s;
 }
 
+// Perceptual color blend (OKLab), so a hue change keeps its lightness and saturation instead of dipping
+// through duller colors halfway as a linear RGB mix does.
+vec3 toOklab(const vec3& c) {
+    float l = std::cbrt(0.4122214708f * c.x + 0.5363325363f * c.y + 0.0514459929f * c.z);
+    float m = std::cbrt(0.2119034982f * c.x + 0.6806995451f * c.y + 0.1073969566f * c.z);
+    float s = std::cbrt(0.0883024619f * c.x + 0.2817188376f * c.y + 0.6299787005f * c.z);
+    return {0.2104542553f * l + 0.7936177850f * m - 0.0040720468f * s, 1.9779984951f * l - 2.4285922050f * m + 0.4505937099f * s,
+            0.0259040371f * l + 0.7827717662f * m - 0.8086757660f * s};
+}
+vec3 fromOklab(const vec3& L) {
+    float l = L.x + 0.3963377774f * L.y + 0.2158037573f * L.z, m = L.x - 0.1055613458f * L.y - 0.0638541728f * L.z,
+          s = L.x - 0.0894841775f * L.y - 1.2914855480f * L.z;
+    l = l * l * l; m = m * m * m; s = s * s * s;
+    return {std::max(0.f, 4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s),
+            std::max(0.f, -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s),
+            std::max(0.f, -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s)};
+}
+vec3 mixOklab(const vec3& a, const vec3& b, float t) {
+    if (t <= 0.f) return a;
+    if (t >= 1.f) return b;
+    return fromOklab(lerp(toOklab(a), toOklab(b), t));
+}
+
 // Board geometry (world units, one cell = 1).
 constexpr float BOARD_W = 10.f, BOARD_H = 20.f;
 
@@ -359,8 +382,9 @@ float Renderer::wipeMix(const vec3& p) const {
     if (!wipe_ || transT_ >= 1.f) return mix_;
     vec4 c = vp_ * vec4(p, 1.f);
     float w = std::max(c.w, 1e-3f);
-    float h = std::sin(p.x * 12.9898f + p.y * 78.233f + wipeSeed_) * 43758.5453f;
-    float d = saturate(wipeCoord(wipeShape_, c.x / w, c.y / w, (float)w_ / h_, h - std::floor(h)));
+    // No per-position noise for blocks: the falling piece and settling rows move every frame, so a hash of
+    // their position flickered their color between the two themes while the front passed.
+    float d = saturate(wipeCoord(wipeShape_, c.x / w, c.y / w, (float)w_ / h_, 0.5f));
     return 1.f - smoothstepf(wipeFront_ - WIPE_W, wipeFront_, d);
 }
 
@@ -645,7 +669,7 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
         BlockInst b;
         b.pos = p + base;
         b.scale = vec3(s * sc);
-        b.color = vec4(lerp(from_.piece[type], to_.piece[type], wipeMix(p)), 1);
+        b.color = vec4(mixOklab(from_.piece[type], to_.piece[type], wipeMix(p)), 1);
         b.params = vec4(kind, flash, glow, 0);
         return b;
     };

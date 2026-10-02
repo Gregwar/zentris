@@ -210,8 +210,8 @@ void App::handleEvents() {
     game_.events().clear();
 }
 
-// Gravity rides the beat. The song section sets the pace in rows per beat (its speed multiplier: x0.4 in a
-// break .. x1.45 in a drop), and the level scales it up gradually to x10 at level 20 (capped at 28 rows/s).
+// Gravity rides the beat. The song section sets the pace in rows per beat (x0.4 in a break .. x1.3 in a
+// drop), and the level scales it up gradually to x10 at level 20 (capped at 28 rows/s).
 void App::updateGravity(double songTime, float dt) {
     const float diff = game_.difficulty();
     gameRate_ = approach(gameRate_, game_.bonusActive() ? BONUS_GAME_SPEED : 1.f, 3.f, dt);
@@ -226,10 +226,9 @@ void App::updateGravity(double songTime, float dt) {
     float tempoMul = 1.f, bpm = an.fp.bpm;
     while (bpm * tempoMul > 130.f) tempoMul *= 0.5f;
     while (bpm * tempoMul < 65.f) tempoMul *= 2.f;
-    // Section pace, in rows per beat: the same speed multiplier as the scene's (structureProfile), from x0.4
-    // (break) to x1.45 (drop), ramping through intros, builds and outros. Eased over ~0.25 s; at most x1 in
-    // the first 20 s of a song.
-    float want = structureProfile(an, songTime + 0.25).speed;
+    // Section pace, in rows per beat (gravityPace: one constant per section, x0.4 in a break .. x1.3 in a
+    // drop). Eased over ~0.25 s; at most x1 in the first 20 s of a song.
+    float want = gravityPace(an, songTime + 0.25);
     if (trackAge_ < 20.f) want = std::min(want, 1.f);
     pace_ = pace_ < 0 ? want : approach(pace_, want, 4.f, dt);
     // Level scaling: x10 at the plateau (level 20), capped at 28 rows per second.

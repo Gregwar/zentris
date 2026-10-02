@@ -1043,9 +1043,9 @@ vec4 shade(int style, vec3 col) {
         vec2 q = floor((uv * 0.5 + 0.5) * 4.0);
         float n = fract(sin(dot(q + floor(vWorld.xy), vec2(12.9898, 78.233))) * 43758.5453);
         rgb = col * (0.35 + 0.55 * n) * (0.6 + 0.4 * lam) + col * edge * 0.2 * em;
-    } else if (style == 18) { // slowly drifting diagonal stripes
-        float st = 0.5 + 0.5 * sin((uv.x + uv.y) * 7.0 - uTime * 0.8);
-        rgb = col * (0.2 + 0.5 * st * em) * (0.6 + 0.4 * lam) + col * edge * 0.3 * em;
+    } else if (style == 18) { // wide, soft diagonal stripes, barely drifting
+        float st = 0.5 + 0.5 * sin((uv.x + uv.y) * 4.5 - uTime * 0.15);
+        rgb = col * (0.4 + 0.22 * st * em) * (0.6 + 0.4 * lam) + col * edge * 0.3 * em;
     } else if (style == 19) { // glowing round core
         float core = 1.0 - smoothstep(0.45 - aa, 0.55 + aa, length(uv));
         rgb = col * (0.12 * lam + core * (0.5 + em * 0.9)) + col * edge * 0.25 * em;

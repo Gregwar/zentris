@@ -73,5 +73,18 @@ StructureProfile structureProfile(const Analysis& an, double t) {
     return p;
 }
 
+float gravityPace(const Analysis& an, double t) {
+    if (an.segments.empty()) return 0.8f;
+    switch (an.segments[an.segmentAt(t)].kind) {
+    case SEG_BREAK: return 0.4f;
+    case SEG_INTRO: case SEG_OUTRO: return 0.5f;
+    case SEG_VERSE: return 0.8f;
+    case SEG_BUILD: return 1.f;
+    case SEG_CHORUS: return 1.2f;
+    case SEG_DROP: return 1.3f;
+    default: return 0.8f;
+    }
+}
+
 float pulseTempoAmp(float bpm) { return 0.35f + 0.65f * smoothstepf(80.f, 128.f, bpm); }
 float hitTempoAmp(float bpm) { return smoothstepf(100.f, 125.f, bpm); }
