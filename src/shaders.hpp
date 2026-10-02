@@ -805,9 +805,11 @@ void main() {
     float inBoard = (1.0 - smoothstep(4.5, 7.0, abs(p.x))) * (1.0 - smoothstep(9.5, 13.0, abs(p.y)));
     a *= 1.0 - uBoardDim * inBoard * smoothstep(-30.0, -8.0, p.z);
 
-    // Enforce a minimum on-screen size: fade instead of shrinking below ~1.5px (no shimmer).
+    // Enforce a minimum on-screen size: fade instead of shrinking below ~1.5px (no shimmer). Detailed shapes
+    // (crescents, stars, outlines...) shimmer and turn into noise when tiny: they fade below ~5px.
     float ndcSize = size * uP11 / max(clip.w, 1e-3);
-    float minNdc = uPixel * 1.6;
+    bool simple = uShape == 0 || uShape == 1 || uShape == 5 || uShape == 6;
+    float minNdc = uPixel * (simple ? 1.6 : 5.0);
     if (ndcSize < minNdc) { a *= (ndcSize / minNdc) * (ndcSize / minNdc); size *= minNdc / ndcSize; }
 
     vec2 offs;

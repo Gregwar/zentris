@@ -119,8 +119,8 @@ blooms, spiral, waves, starfall, frame trace, light sheet); a back-to-back Tetri
 
 Each song is decoded and analyzed in the background (under 1 s):
 
-- **Tempo and beat grid**: gravity steps land on the beat, at 1 row every 2 beats, every beat, or every half beat, depending on the song's energy at that moment.
-- **Levels**: one level per 20 lines, up to a plateau at level 20. Each level speeds up the beat-locked gravity (at the plateau: 5, 10 or 16 rows per beat for calm, mid and peak parts, on musical subdivisions, capped at 28 rows/s) and shortens the lock delay (0.55 s → 0.35 s). Game over resets the level.
+- **Tempo and song sections**: gravity follows the beat, at a pace set by the current section, in rows per beat: break ×0.4, intro ×0.45 → ×0.65, outro ×0.6 → ×0.3, verse ×0.8, build ×0.7 → ×1.5, chorus ×1.2, drop ×1.45 (the same multipliers as the scene's motion; at most ×1 in a song's first 20 s).
+- **Levels**: one level per 20 lines, up to a plateau at level 20. Each level speeds up the beat-locked gravity (×10 at the plateau, capped at 28 rows/s) and shortens the lock delay (0.55 s → 0.35 s). Game over resets the level.
 - **Key**: the base hue follows the circle of fifths.
 - **Brightness, bass/air balance, dynamics, density**: choose the mood (night, dusk or pale), the particle layouts, bloom, how strongly things react, and the camera's motion.
 - **Song structure**: the song is split at bar lines into labelled segments (intro, verse, build, chorus, drop, break, outro), and segments that sound alike are grouped. Each segment eases the scene's density, speed, glow and saturation (builds ramp up, breaks thin out).

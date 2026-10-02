@@ -101,15 +101,12 @@ private:
     double songTime_ = 0, simSongTime_ = 0;
     float trackAge_ = 0, helpTimer_ = 14.f, sceneNameTimer_ = 0, runTime_ = 0;
     // Gravity bookkeeping.
-    double lastGravTick_ = 0;
     // Slow-motion bonus: gravity runs at BONUS_GAME_SPEED (real time) while the music keeps its speed (only a
-    // short tape bend marks the start and the end). Gravity follows its own beat clock: the song's beats,
-    // scaled; back on the song's beat after.
+    // short tape bend marks the start and the end).
     static constexpr float BONUS_GAME_SPEED = 0.25f;
-    double gameBeat_ = 0, lastSongBeat_ = -1;
+    double rowAcc_ = 0, lastSongBeat_ = -1; // gravity rows accumulated, song beat at the last update
     float gameRate_ = 1.f; // gravity speed in real time (eased)
-    float gravRate_ = -1, pace_ = -1, fallbackTimer_ = 0;
-    float intensitySmooth_ = 0.3f;
+    float pace_ = -1, fallbackTimer_ = 0; // section pace (rows per beat before level scaling), eased
     // Autoplay.
     bool planned_ = false;
     int planRot_ = 0, planX_ = 0;
@@ -127,7 +124,8 @@ void App::startTrack(std::shared_ptr<Track> t) {
     trackAge_ = 0;
     lastPhase_ = 0;
     lastSeg_ = 0;
-    gravRate_ = pace_ = -1;
+    pace_ = -1;
+    lastSongBeat_ = -1;
     simSongTime_ = 0;
     std::printf("[app] now playing: %s\n", track_->title.c_str());
     sceneCounter_++;
@@ -212,10 +210,8 @@ void App::handleEvents() {
     game_.events().clear();
 }
 
-// Gravity rides the beat: one row every 2 beats, 1 beat or half beat depending on the music's energy.
-// Gravity rides the beat. The song's energy sets the pace (1 row every 2 beats, every beat, or 2 per
-// beat), and the level scales it up gradually to a plateau at level 20 (1 / 2 / 3 rows per beat), always
-// snapped to musical subdivisions so pieces keep falling in time.
+// Gravity rides the beat. The song section sets the pace in rows per beat (its speed multiplier: x0.4 in a
+// break .. x1.45 in a drop), and the level scales it up gradually to x10 at level 20 (capped at 28 rows/s).
 void App::updateGravity(double songTime, float dt) {
     const float diff = game_.difficulty();
     gameRate_ = approach(gameRate_, game_.bonusActive() ? BONUS_GAME_SPEED : 1.f, 3.f, dt);
@@ -226,54 +222,30 @@ void App::updateGravity(double songTime, float dt) {
         return;
     }
     const Analysis& an = track_->analysis;
-    intensitySmooth_ = approach(intensitySmooth_, an.intensityAt(songTime + 1.5), 0.8f, dt);
     // Normalize the tempo into a comfortable 65..130 BPM band.
     float tempoMul = 1.f, bpm = an.fp.bpm;
     while (bpm * tempoMul > 130.f) tempoMul *= 0.5f;
     while (bpm * tempoMul < 65.f) tempoMul *= 2.f;
-    // Song pace with hysteresis: 0.5 (calm), 1 (mid), 2 (peak) rows per beat.
-    float in = intensitySmooth_;
-    if (pace_ < 0) pace_ = in < 0.4f ? 0.5f : (in < 0.85f ? 1.f : 2.f);
-    else if (pace_ == 0.5f && in > 0.45f) pace_ = 1.f;
-    else if (pace_ == 1.f && in < 0.3f) pace_ = 0.5f;
-    else if (pace_ == 1.f && in > 0.9f) pace_ = 2.f;
-    else if (pace_ == 2.f && in < 0.75f) pace_ = 1.f;
-    float pace = trackAge_ < 20.f ? std::min(pace_, 1.f) : pace_;
-    // Level scaling: x10 at the plateau (x8 for peaks), snapped to musical subdivisions (log-nearest),
-    // and capped at 28 rows per second.
+    // Section pace, in rows per beat: the same speed multiplier as the scene's (structureProfile), from x0.4
+    // (break) to x1.45 (drop), ramping through intros, builds and outros. Eased over ~0.25 s; at most x1 in
+    // the first 20 s of a song.
+    float want = structureProfile(an, songTime + 0.25).speed;
+    if (trackAge_ < 20.f) want = std::min(want, 1.f);
+    pace_ = pace_ < 0 ? want : approach(pace_, want, 4.f, dt);
+    // Level scaling: x10 at the plateau (level 20), capped at 28 rows per second.
     const float MAX_ROWS_PER_SEC = 28.f;
     const float beatsPerSec = bpm * tempoMul / 60.f;
-    float wanted = pace * (1.f + diff * (pace >= 2.f ? 7.f : 9.f));
-    wanted = std::min(wanted, MAX_ROWS_PER_SEC / beatsPerSec);
-    static const float SUB[] = {0.5f, 0.75f, 1.f, 1.25f, 1.5f, 2.f, 2.5f, 3.f, 4.f, 5.f, 6.f, 8.f, 10.f, 12.f, 16.f};
-    float target = SUB[0];
-    for (float v : SUB)
-        if (v * beatsPerSec <= MAX_ROWS_PER_SEC + 0.01f && std::fabs(std::log(v / wanted)) < std::fabs(std::log(target / wanted)))
-            target = v;
-    // Gravity's beat clock: the song's beats, scaled so gravity runs at gameRate_ in real time.
+    const float rowsPerBeat = std::min(pace_ * (1.f + 9.f * diff), MAX_ROWS_PER_SEC / beatsPerSec);
+    // Rows accumulate with the song's beats (scaled during the bonus so gravity runs at gameRate_ in real time).
     const double songBeat = an.beatPosition(songTime);
-    bool resync = false;
-    if (lastSongBeat_ < 0 || songBeat < lastSongBeat_ || songBeat - lastSongBeat_ > 8.0) { // start, seek, new song
-        gameBeat_ = songBeat;
-        resync = true;
-    } else if (gameRate_ >= 1.f) { // normal speed: on the song's beat (re-synced once after a bonus)
-        resync = std::fabs(gameBeat_ - lastSongBeat_) > 1e-6;
-        gameBeat_ = songBeat;
-    } else {
-        gameBeat_ += (songBeat - lastSongBeat_) * std::min(1.f, gameRate_ / std::max(0.05f, audio_.currentSpeed()));
-    }
+    double dBeat = 0;
+    if (lastSongBeat_ < 0 || songBeat < lastSongBeat_ || songBeat - lastSongBeat_ > 8.0) rowAcc_ = 0; // start, seek, new song
+    else dBeat = (songBeat - lastSongBeat_) * std::min(1.f, gameRate_ / std::max(0.05f, audio_.currentSpeed()));
     lastSongBeat_ = songBeat;
-    double tick = std::floor(gameBeat_ * tempoMul * target);
-    if (target != gravRate_ || resync) {
-        gravRate_ = target;
-        lastGravTick_ = tick;
-        return;
-    }
-    if (tick > lastGravTick_) {
-        int steps = (int)std::min(4.0, tick - lastGravTick_);
-        for (int i = 0; i < steps; i++) game_.gravityStep();
-        lastGravTick_ = tick;
-    }
+    rowAcc_ += dBeat * tempoMul * rowsPerBeat;
+    const int steps = (int)std::min(4.0, std::floor(rowAcc_));
+    for (int i = 0; i < steps; i++) game_.gravityStep();
+    rowAcc_ = std::min(rowAcc_ - steps, 1.0); // a long frame doesn't pile up steps
 }
 
 void App::autoplay(float dt) {
@@ -558,7 +530,8 @@ int App::run() {
                 audio_.seek(target);
                 songTime_ = target;
                 simSongTime_ = target;
-                gravRate_ = pace_ = -1; // re-sync the beat-driven gravity
+                pace_ = -1; // re-sync the beat-driven gravity
+                lastSongBeat_ = -1;
                 lastSeg_ = track_->analysis.segmentAt(target);
                 seekToast_ = 1.5f;
             }

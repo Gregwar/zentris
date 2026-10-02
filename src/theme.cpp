@@ -115,6 +115,9 @@ void makeLayer(Rng& r, const Footprint& fp, int, ParticleLayer& L, int style, bo
     L.style = style;
     L.shape = pickShape(r, style);
     L.count = secondary ? r.range(0.12f, 0.35f) : r.range(0.45f, 1.0f) * (0.7f + 0.5f * fp.density);
+    // Detailed shapes (crescents, stars, outlines...) get busy in numbers: fewer of them.
+    const bool detailed = !(L.shape == SH_DOT || L.shape == SH_RING || L.shape == SH_DISC || L.shape == SH_STREAK);
+    if (detailed) L.count *= 0.65f;
     L.size = r.range(0.6f, 1.5f) * (secondary ? 0.8f : 1.f);
     L.speed = r.range(0.6f, 1.4f) * (0.7f + 0.6f * bpmN);
     L.bright = r.range(0.6f, 1.1f) * (secondary ? 0.8f : 1.f);
@@ -340,7 +343,8 @@ Theme generateTheme(const Footprint& fp, uint64_t seed) {
         t.bloom = mood == 0 ? r.range(0.6f, 1.3f) + 0.3f * fp.dynamics : (mood == 1 ? r.range(0.35f, 0.8f) : r.range(0.12f, 0.3f));
         t.bloomThreshold = r.range(0.65f, 1.0f);
         t.vignette = mood == 2 ? r.range(0.05f, 0.25f) : r.range(0.15f, 0.55f);
-        t.chroma = r.chance(0.5f) ? r.range(0.0005f, 0.0028f) : 0.f;
+        // Kept subtle and rare: RGB fringes on many small particles strain the eyes.
+        t.chroma = r.chance(0.35f) ? r.range(0.0003f, 0.0011f) : 0.f;
         t.grain = r.range(0.01f, 0.05f);
         t.exposure = r.range(0.95f, 1.15f);
         t.saturation = r.range(0.88f, 1.15f);
