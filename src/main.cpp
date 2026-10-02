@@ -33,7 +33,7 @@ struct Options {
     int width = 1600, height = 900;
 };
 
-static const char* DEFAULT_PLAYLIST = "https://www.youtube.com/playlist?list=PLWHPu2N_Gb2lbZ8-7sYKSEbDlb3UiAVye";
+static const char* DEFAULT_PLAYLIST = "https://www.youtube.com/playlist?list=PLtvLBa3c9VV4NmuGGbpansfMjs5XFvKgd";
 
 static void usage() {
     std::printf(
