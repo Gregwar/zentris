@@ -669,7 +669,7 @@ vec3 stylePos(vec4 s, float t, out float bright, out float cm, out float sz) {
         float i = float(gl_InstanceID);
         float u = mod(i, N) / (N - 1.0), v = floor(i / N) / (N - 1.0);
         float z = -45.0 + sin(u * 8.0 + t * 0.6) * 3.0 + spec(abs(u - 0.5) * 2.0) * 6.0 * uReact.x;
-        bright = 0.3 + 0.7 * spec(v);
+        bright = 0.12 + 0.28 * spec(v); // faint: a regular grid catches the eye, it must stay in the background
         cm = v;
         sz = 0.8;
         return vec3((u - 0.5) * 150.0, (v - 0.5) * 90.0, z);
