@@ -982,8 +982,9 @@ vec4 shade(int style, vec3 col) {
     } else if (style == 1) { // solid
         rgb = col * (0.3 + 0.7 * lam) * (1.0 - 0.3 * edge) + vec3(spec) * 0.3 + col * 0.12 * em;
     } else if (style == 2) { // wire
-        rgb = col * edgeGlow * em * 1.5 + col * 0.03;
-        a = max(edge, mix(0.1 + 0.1 * uPale, 0.45, uLegible));
+        // On pale themes a dark see-through fill over the light backplate turns gray: tint it instead.
+        rgb = col * edgeGlow * em * 1.5 + col * mix(0.03, 0.8, uPale);
+        a = max(edge, mix(mix(0.1, 0.45, uLegible), 0.6, uPale));
         rgb *= 1.0 + 0.5 * uLegible * (1.0 - uPale); // brighter lines over the darkened backplate
     } else if (style == 3) { // lantern
         float inner = pow(clamp(e, 0.0, 1.0), 1.4);
@@ -1012,13 +1013,13 @@ vec4 shade(int style, vec3 col) {
         rgb = col * mix(0.3, 1.05, g) * (0.5 + 0.5 * lam) + col * edge * 0.25 * em;
     } else if (style == 10) { // double outline
         float ring = (1.0 - smoothstep(uEdgeW * 2.3 - aa, uEdgeW * 2.3 + aa, e)) * smoothstep(uEdgeW * 1.6 - aa, uEdgeW * 1.6 + aa, e);
-        rgb = col * (edge + ring * 0.8) * em * 1.2 + col * 0.06;
-        a = max(max(edge, ring), mix(0.12 + 0.1 * uPale, 0.45, uLegible));
+        rgb = col * (edge + ring * 0.8) * em * 1.2 + col * mix(0.06, 0.8, uPale);
+        a = max(max(edge, ring), mix(mix(0.12, 0.45, uLegible), 0.6, uPale));
         rgb *= 1.0 + 0.5 * uLegible * (1.0 - uPale); // brighter lines over the darkened backplate
     } else if (style == 11) { // neon tube: wide soft glow along the edges, dark core
         float tube = exp(-e / max(uEdgeW, 0.02) * 1.2);
-        rgb = col * (0.04 + tube * em * 1.4);
-        a = max(tube, mix(0.15 + 0.1 * uPale, 0.45, uLegible));
+        rgb = col * (mix(0.04, 0.8, uPale) + tube * em * 1.4);
+        a = max(tube, mix(mix(0.15, 0.45, uLegible), 0.6, uPale));
         rgb *= 1.0 + 0.5 * uLegible * (1.0 - uPale); // brighter lines over the darkened backplate
     } else if (style == 12) { // circuit traces
         vec2 g = abs(fract((uv * 0.5 + 0.5) * 3.0) - 0.5);
