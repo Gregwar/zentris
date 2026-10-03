@@ -13,7 +13,7 @@ const char* PS_NAMES[PS_COUNT] = {"GALAXY", "TUNNEL", "OCEAN", "SPHERE", "DRIFT"
                                   "FIREFLIES", "RAIN", "VORTEX", "WAVEFORM", "STARBURST", "ORBITS", "CONFETTI",
                                   "SNOWGLOBE", "LADDER", "FOUNTAIN", "PETALS", "CONSTELLATION", "TORUS", "WALL",
                                   "COMETS", "SPARKLERS", "BUBBLES", "CUBE", "INFINITY", "BEAT RINGS", "PLASMA",
-                                  "MOIRE", "SWARM", "SPIRALS", "RIBBON", "METEORS", "SKYLINE", "CORONA", "DUNES"};
+                                  "MOIRE", "SWARM", "SPIRALS", "RIBBON", "METEORS", "SKYLINE", "CORONA", "DUNES", "WIND", "FIRE", "SEA"};
 const char* BS_NAMES[BS_COUNT] = {"GLASS", "SOLID", "WIRE", "LANTERN", "INSET", "DOTS", "CRYSTAL", "SPLIT",
                                   "HOLO", "GRADIENT", "DOUBLE", "NEON", "CIRCUIT", "FROSTED", "CHECKER", "RINGS",
                                   "BEVEL", "PIXEL", "STRIPES", "CORE", "HATCH", "BREATH"};
@@ -91,6 +91,9 @@ int pickParticleStyle(Rng& r, const Footprint& fp, int mood, int avoid) {
         0.8f + 0.5f * fp.density,         // skyline
         0.8f + 0.5f * bass,               // corona
         0.7f + 0.6f * bass,               // dunes
+        0.6f + 0.8f * air,                // wind
+        0.6f + 0.6f * bpmN,               // fire
+        0.7f + 0.5f * (1 - bpmN),         // sea
     };
     if (avoid >= 0) w[avoid] = 0;
     return r.weighted(w);
@@ -107,7 +110,10 @@ int pickShape(Rng& r, int style) {
     case PS_PETALS: { float w[SH_COUNT] = {0.5f, 0, 0, 0, 0.5f, 0, 0, 0, 0.5f, 0, 0.5f, 1.2f, 1.2f, 0, 0, 0, 0.5f, 0, 0, 0}; return r.weighted(w); }
     case PS_CONFETTI: { float w[SH_COUNT] = {0, 0, 0, 2, 1.5f, 0, 0, 0.5f, 1, 1, 1, 0.5f, 0, 0.5f, 0, 0.5f, 0.5f, 0, 0.5f, 0}; return r.weighted(w); }
     case PS_SKYLINE: return r.chance(0.5f) ? (int)SH_SQUARE : (int)SH_DOT;
+    case PS_WIND: return (int)SH_STREAK;
+    case PS_FIRE: return r.chance(0.75f) ? (int)SH_DOT : (int)SH_SPARKLE;
     case PS_CORONA:
+    case PS_SEA:
     case PS_DUNES: return (int)SH_DOT;
     case PS_FIREFLIES: return r.chance(0.7f) ? (int)SH_DOT : (int)SH_SPARKLE;
     case PS_LATTICE: { float w[SH_COUNT] = {2, 0.5f, 0.5f, 1.5f, 1, 0, 0, 1.5f, 0.5f, 1, 0.5f, 0, 0, 1, 0.3f, 1, 1, 0.3f, 0.3f, 0.5f}; return r.weighted(w); }

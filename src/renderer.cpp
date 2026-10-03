@@ -1002,10 +1002,13 @@ void Renderer::drawParticleLayer(const ParticleLayer& L, const Theme& owner, flo
     case PS_SKYLINE: mult = 0.4f; break;
     case PS_CORONA: mult = 0.3f; break;
     case PS_DUNES: mult = 0.4f; break;
+    case PS_WIND: mult = 0.12f; break;
+    case PS_FIRE: mult = 0.3f; break;
+    case PS_SEA: mult = 0.4f; break;
     default: mult = 1.f; break;
     }
     int count = (int)(MAX_PARTICLES * L.count * mult);
-    if (L.style == PS_WAVES || L.style == PS_WALL || L.style == PS_PLASMA || L.style == PS_DUNES) {
+    if (L.style == PS_WAVES || L.style == PS_WALL || L.style == PS_PLASMA || L.style == PS_DUNES || L.style == PS_SEA) {
         int n = (int)std::sqrt((float)count);
         n = std::clamp(n, 60, 150);
         count = n * n;

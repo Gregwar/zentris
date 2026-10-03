@@ -805,6 +805,38 @@ vec3 stylePos(vec4 s, float t, out float bright, out float cm, out float sz) {
         cm = sp;
         sz = 0.9;
         return vec3(x, y, z);
+    } else if (uStyle == 41) { // wind: streaks blowing sideways in slow gusts, along gently curving paths
+        float dir = uP.x < 0.5 ? -1.0 : 1.0;
+        float x = mod(s.x * 200.0 + dir * (t * (14.0 + 16.0 * s.w) + 8.0 * sin(t * 0.23 + s.z * 2.0)), 200.0) - 100.0;
+        float y = (s.y - 0.5) * 80.0 + sin(x * 0.035 + t * 0.4 + s.w * 6.0) * (3.0 + 4.0 * uP.y);
+        bright = (1.0 - smoothstep(65.0, 100.0, abs(x))) * (0.2 + 0.35 * s.w);
+        cm = s.w;
+        sz = 0.6;
+        return vec3(x, y, -8.0 - s.z * 80.0);
+    } else if (uStyle == 42) { // fire: embers rising from the bottom, flickering, swaying, fading as they climb
+        float k = fract(s.y + t * (0.08 + 0.1 * s.w));
+        float x = (s.x - 0.5) * 150.0 + sin(k * 7.0 + t * 1.3 + s.w * 20.0) * k * (2.0 + 3.0 * uP.x);
+        float depth = 8.0 + s.z * 70.0;
+        float base = -0.4 * (28.0 + depth);              // just above the bottom of the view at that depth
+        float y = base + k * k * (30.0 + 25.0 * s.w);    // dense at the base, sparse sparks higher up
+        bright = pow(1.0 - k, 1.3) * (0.65 + 0.3 * sin(t * 6.0 + s.z * 40.0)) * (0.7 + 0.3 * s.w);
+        cm = k;
+        sz = 2.2 - 1.7 * k;
+        return vec3(x, y, -depth);
+    } else if (uStyle == 43) { // sea seen through a window: water filling the bottom, its surface waving, its level slowly rising and falling
+        float N = floor(sqrt(uCount));
+        float i = float(gl_InstanceID);
+        // v = 1 at the surface for the first instances: sparse scenes drop deep rows, never the surface.
+        float u = mod(i, N) / (N - 1.0), v = 1.0 - floor(i / N) / (N - 1.0);
+        float x = (u - 0.5) * 170.0 + (s.x - 0.5) * 1.5; // jittered: no visible columns
+        float level = -15.0 + 5.0 * sin(t * 0.06 + uP.x * 6.0) + 3.0 * uP.y;
+        float surf = level + 2.5 * sin(x * 0.05 + t * 0.5) + 1.2 * sin(x * 0.11 - t * 0.37) + 0.6 * sin(x * 0.23 + t * 0.8);
+        float y = mix(-48.0, surf, pow(v, 0.7)); // rows gather toward the surface
+        float top = exp(-(1.0 - v) * 14.0);      // bright crest line
+        bright = 0.12 + 0.2 * v + 0.5 * top;
+        cm = v;
+        sz = 1.1 + 0.5 * top;
+        return vec3(x + sin(y * 0.3 + t * 0.7) * 0.4, y, -35.0);
     } else { // meteors: fast diagonal streaks
         float k = fract(s.y + t * 0.3 * (0.5 + s.w));
         vec3 start = vec3((s.x - 0.2) * 160.0, 50.0, -20.0 - s.z * 50.0);
