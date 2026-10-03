@@ -567,6 +567,42 @@ Analysis analyzeAudio(const std::vector<float>& mono, uint32_t sr) {
                 if (t > 4.0 && t < dur - 4.0 && (kept.empty() || t - kept.back() >= std::max(6.0, 8 * beatLen)))
                     kept.push_back(t);
             bounds = kept;
+
+            // ---- Landing: a section that gets louder is heard where it lands, not where the old one stops.
+            // Before a drop the old texture often stops a bar or two early (a gap, a bass cut, a "shhh"
+            // riser): the new section starts on the first beat where both bass and loudness reach its own
+            // level, and hold there on the next beat.
+            std::vector<float> beatBass(nb, 0.f), beatLoud(nb, 0.f);
+            for (int i = 0; i + 1 < nb; i++) {
+                int a0 = std::clamp((int)(an.beats[i] / an.hop), 0, nFrames - 1);
+                int b1 = std::clamp((int)(an.beats[i + 1] / an.hop), a0 + 1, nFrames);
+                for (int f = a0; f < b1; f++) beatBass[i] += an.frames[f].bass, beatLoud[i] += an.frames[f].loud;
+                beatBass[i] /= b1 - a0;
+                beatLoud[i] /= b1 - a0;
+            }
+            auto beatIntensity = [&](int i0, int i1) {
+                double s = 0;
+                for (int i = i0; i < i1; i++) s += an.intensity[std::clamp((int)(an.beats[i] / an.hop), 0, nFrames - 1)];
+                return s / std::max(1, i1 - i0);
+            };
+            for (size_t k = 0; k < bounds.size(); k++) {
+                const int ib = beatIndex(bounds[k]);
+                const int ip = k > 0 ? beatIndex(bounds[k - 1]) : 0, in = k + 1 < bounds.size() ? beatIndex(bounds[k + 1]) : nb - 1;
+                if (beatIntensity(ib, in) - beatIntensity(ip, ib) < 0.05) continue; // not getting louder
+                // The new section's level, after its first 4 bars (the landing is at most that late).
+                std::vector<float> nBass(beatBass.begin() + std::min(in, ib + 16), beatBass.begin() + std::min(in, ib + 48));
+                std::vector<float> nLoud(beatLoud.begin() + std::min(in, ib + 16), beatLoud.begin() + std::min(in, ib + 48));
+                if (nBass.size() < 8) continue;
+                const float lb = percentile(nBass, 0.5f), ll = percentile(nLoud, 0.5f);
+                for (int i = ib; i <= std::min(ib + 16, in - 8); i++) {
+                    if (beatBass[i] < 0.85f * lb || beatLoud[i] < 0.85f * ll) continue;
+                    if (beatBass[i + 1] < 0.7f * lb || beatLoud[i + 1] < 0.7f * ll) continue;
+                    for (double& e : eventBounds)
+                        if (std::fabs(e - bounds[k]) < 0.05) e = an.beats[i];
+                    bounds[k] = an.beats[i];
+                    break;
+                }
+            }
         }
         bounds.insert(bounds.begin(), 0.0);
         bounds.push_back(dur);
@@ -620,9 +656,10 @@ Analysis analyzeAudio(const std::vector<float>& mono, uint32_t sr) {
             if (c < 0) { c = (int)reps.size(); reps.push_back(i); }
             an.segments[i].cluster = c;
         }
-        // Labels, from energy and structure. Only the song's peak texture (the group(s) with the highest
-        // energy) can be a chorus or a drop: a loud section of another group is still a verse. A peak
-        // section entered by a jump (energy rise, a build before it, or a salient event) is a drop.
+        // Labels, from energy and structure. A drop is the song's most intense material entered by a rise
+        // (its energy near the song's maximum, clearly above the section before it or after a build),
+        // whatever its group. Otherwise only the song's peak texture (the group(s) with the highest
+        // energy) can be a chorus: a loud section of another group is still a verse.
         {
             int nGroups = 0;
             for (const Segment& sg : an.segments) nGroups = std::max(nGroups, sg.cluster + 1);
@@ -637,20 +674,39 @@ Analysis analyzeAudio(const std::vector<float>& mono, uint32_t sr) {
                 maxE = std::max(maxE, gE[g]);
             }
             auto peakGroup = [&](int g) { return gE[g] >= maxE - 0.1 && gE[g] >= 0.65; };
+            float maxSegE = 0;
+            for (const Segment& sg : an.segments) maxSegE = std::max(maxSegE, sg.energy);
             for (int i = 0; i < n; i++) {
                 Segment& sg = an.segments[i];
                 float prevE = i > 0 ? an.segments[i - 1].energy : sg.energy;
                 int prevKind = i > 0 ? an.segments[i - 1].kind : -1;
-                bool prevPeak = i > 0 && peakGroup(an.segments[i - 1].cluster);
+                bool climax = sg.energy >= std::max(0.8f, maxSegE - 0.15f);
                 if (i == 0 && n > 1 && sg.energy < 0.55f) sg.kind = SEG_INTRO;
                 else if (i == n - 1 && n > 1 && sg.energy < 0.5f) sg.kind = SEG_OUTRO;
                 else if (sg.rise > 0.22f && sg.energy < 0.8f) sg.kind = SEG_BUILD;
-                else if (peakGroup(sg.cluster) && sg.energy >= 0.65f)
-                    sg.kind = (sg.energy - prevE > 0.15f || prevKind == SEG_BUILD || (sg.announced && !prevPeak))
-                                  ? SEG_DROP : SEG_CHORUS;
+                else if (i > 0 && climax && (sg.energy - prevE >= 0.08f || prevKind == SEG_BUILD)) sg.kind = SEG_DROP;
+                else if (peakGroup(sg.cluster) && sg.energy >= 0.65f) sg.kind = SEG_CHORUS;
                 else if (sg.energy < 0.4f) sg.kind = SEG_BREAK;
                 else sg.kind = SEG_VERSE;
             }
+        }
+
+        // Calm neighbours with the same label are one section (a break in two parts is still one break).
+        // Loud ones stay apart: their changes are what the scenes follow.
+        {
+            std::vector<Segment> merged;
+            for (const Segment& sg : an.segments) {
+                bool calm = sg.kind == SEG_BREAK || sg.kind == SEG_VERSE;
+                if (merged.empty() || merged.back().kind != sg.kind || !calm) { merged.push_back(sg); continue; }
+                Segment& m = merged.back();
+                double la = m.end - m.start, lb = sg.end - sg.start;
+                m.energy = (float)((m.energy * la + sg.energy * lb) / (la + lb));
+                m.brightness = (float)((m.brightness * la + sg.brightness * lb) / (la + lb));
+                m.end = sg.end;
+                double len = m.end - m.start;
+                m.rise = meanIntensity(m.start + 0.75 * len, m.end) - meanIntensity(m.start, m.start + 0.25 * len);
+            }
+            an.segments.swap(merged);
         }
 
         for (const Segment& sg : an.segments) an.fp.sections.push_back(sg.start);
