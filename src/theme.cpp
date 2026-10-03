@@ -302,7 +302,9 @@ Theme generateTheme(const Footprint& fp, uint64_t seed) {
         for (int i = 0; i < 3; i++) t.clearEffects[i] = pool[i];
     }
 
-    // ---- Energy decorations: an audio equalizer and/or light rays behind the board.
+    // ---- Energy decorations: light rays behind the board. The equalizer bars beside the board are disabled
+    // (they looked pasted on; spectrum-driven particle layouts replace them); their draws are kept so the
+    // rest of each song's scene stays the same.
     {
         float w[4] = {16.f, 1.f, 1.f, 0.8f}; // rare: about 1 scene in 7
         t.eqStyle = r.weighted(w);
@@ -317,6 +319,7 @@ Theme generateTheme(const Footprint& fp, uint64_t seed) {
         t.eqAlpha = r.range(0.35f, 0.6f);
         t.rays = r.chance(0.5f) ? r.range(0.12f, 0.3f) : 0.f;
         t.rayCount = (float)r.irange(5, 14);
+        t.eqStyle = 0;
     }
 
     // ---- Board frame.

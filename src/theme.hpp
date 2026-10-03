@@ -87,7 +87,7 @@ struct Theme {
 
     int clearEffects[3] = {CE_SHRINK, CE_RISE, CE_SWEEP};
     // Audio equalizer decoration.
-    int eqStyle = 0;        // layout: 0 none, 1 beside the board (bottom), 2 along both sides, 3 ring
+    int eqStyle = 0;        // layout (disabled: always 0): 0 none, 1 beside the board (bottom), 2 along both sides, 3 ring
     int eqRender = 0;       // 0 bars, 1 bars + falling peak caps, 2 LED segments, 3 line plot, 4 mirrored, 5 needles
     int eqBars = 16;        // 16, 24, 32 or 48 (interpolated between the analysed bands)
     int eqColor = 0;        // 0 gradient along frequencies, 1 by height, 2 single accent

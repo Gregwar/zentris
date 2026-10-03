@@ -141,8 +141,7 @@ Each song is decoded and analyzed in the background (under 1 s):
 The scene seed combines the song's fingerprint with a random seed for each run, so the same song looks
 different every time. The combinatorial space covers 8 palette schemes × 3 moods, 24 backgrounds,
 38 particle layouts × 20 particle shapes (none, one or two layers), 12 continuous surface layers (smoke, silk, lava, caustics, ink, geometry, aurora, fog, beams, flowing rings, liquid, cloud shades), 22 block materials × a continuous family of
-block shapes (cube → rounded → sphere → gem), 18 board frames, a rare audio equalizer (3 layouts × 6 renderings
-× 4 resolutions × 3 colorings) and light rays, 22 line-clear effects, 25 transition shapes, and a
+block shapes (cube → rounded → sphere → gem), 18 board frames, light rays, 22 line-clear effects, 25 transition shapes, and a
 post-processing grade (bloom, vignette, chromatic aberration, grain, split-toning).
 The scene name is shown in the bottom-left corner.
 
