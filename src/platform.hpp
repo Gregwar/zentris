@@ -22,6 +22,8 @@ int run(const std::string& cmd);
 // Runs a command line and returns a stream on its stdout (stderr discarded); close with closeRead().
 FILE* openRead(const std::string& cmd);
 int closeRead(FILE* f);
+// Runs a command line and returns a stream on its stdin (binary); close with closeRead().
+FILE* openWrite(const std::string& cmd);
 
 // Makes stdout line-buffered where supported (safe on every platform).
 void lineBufferStdout();

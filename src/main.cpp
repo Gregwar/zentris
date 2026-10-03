@@ -31,6 +31,8 @@ struct Options {
     bool phaseShots = false;
     float shotTime = 25.f;
     uint64_t seed = 0;
+    std::string clipPath; // --clip: record a video around the first drop of the first song, then exit
+    float clipBefore = 4.f, clipAfter = 6.f;
     std::string scene; // forced scene code (as shown in the corner), "" = random scenes
     int width = 1600, height = 900;
 };
@@ -49,7 +51,9 @@ static void usage() {
         "  --mute               no sound\n"
         "  --shots PREFIX N     render N screenshots of different scenes then exit (testing)\n"
         "  --shot-time SEC      song position used for screenshots (default 25)\n"
-        "  --phase-shots PREFIX one screenshot per phase of the first song, then exit (testing)\n");
+        "  --phase-shots PREFIX one screenshot per phase of the first song, then exit (testing)\n"
+        "  --clip OUT.mp4       record a video (with sound, needs ffmpeg) around the first drop of the first\n"
+        "                       song, then exit; --clip-before / --clip-after SEC set the span (default 4 / 6)\n");
 }
 
 class App {
@@ -64,6 +68,7 @@ private:
     Theme phaseTheme(int phase) const;
     void makeBaseTheme(const Footprint& fp, uint64_t seed, bool generic);
     std::string sceneCode() const;
+    double firstDropTime() const;
     void printScene() const;
     void handleEvents();
     void updateGravity(double songTime, float dt);
@@ -79,6 +84,7 @@ private:
     Input input_;
     Renderer R_;
     uint64_t runSeed_ = 0;
+    double clipStart_ = -1; // song time where the --clip recording starts
     bool baseGeneric_ = false; // base scene made without a song footprint (the loading scene)
     uint64_t sceneCounter_ = 0;
     std::shared_ptr<Track> track_, nextTrack_;
@@ -181,6 +187,15 @@ void App::printScene() const {
     std::printf("[app] scene: %s\n[app] same scene: zentris --scene %s", baseTheme_.name.c_str(), sceneCode().c_str());
     if (track_) std::printf(" %s", platform::quoteArg(track_->path).c_str());
     std::printf("\n");
+}
+
+// Start of the first drop (else of the first peak scene level, else a third into the song).
+double App::firstDropTime() const {
+    for (const Segment& sg : track_->analysis.segments)
+        if (sg.kind == SEG_DROP) return sg.start;
+    for (const ScenePhase& ph : plan_.phases)
+        if (ph.level == 2) return ph.start;
+    return track_->duration() * 0.3;
 }
 
 std::string App::sceneCode() const {
@@ -288,18 +303,21 @@ void App::updateGravity(double songTime, float dt) {
 void App::autoplay(float dt) {
     if (game_.bonusReady()) game_.activateBonus();
     if (!game_.hasPiece()) { planned_ = false; return; }
+    // Recording a clip: a calm, human pace (a moment to think, unhurried moves, the piece falls visibly).
+    const bool calm = !opt_.clipPath.empty();
     if (!planned_) {
         planned_ = game_.planMove(planRot_, planX_);
-        botTimer_ = 0.25f;
+        botTimer_ = calm ? 0.45f : 0.25f;
         if (!planned_) return;
     }
     botTimer_ -= dt;
     if (botTimer_ > 0) return;
-    botTimer_ = 0.07f;
+    botTimer_ = calm ? 0.13f : 0.07f;
     const Piece& p = game_.piece();
     if (p.rot != planRot_) { if (!game_.rotate(1)) planned_ = false; return; }
     if (p.x < planX_) { if (!game_.move(1)) planned_ = false; return; }
     if (p.x > planX_) { if (!game_.move(-1)) planned_ = false; return; }
+    if (calm && game_.softDrop()) { botTimer_ = 0.035f; return; }
     game_.hardDrop();
     planned_ = false;
 }
@@ -455,7 +473,11 @@ std::vector<HudText> App::buildHud(float dt) {
 int App::run() {
     runSeed_ = opt_.seed ? opt_.seed
                          : (std::random_device{}() ^ (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count());
-    const bool shotMode = !opt_.shotPrefix.empty();
+    const bool clipMode = !opt_.clipPath.empty();
+    const bool shotMode = !opt_.shotPrefix.empty() || clipMode; // offline: fixed time step, no sound
+    if (clipMode) { showHelp_ = false; helpTimer_ = 0; }
+    FILE* clipPipe = nullptr;
+    std::vector<unsigned char> clipPx;
 
     if (!glfwInit()) { std::fprintf(stderr, "glfwInit failed\n"); return 1; }
     Input::loadMappings();
@@ -525,7 +547,17 @@ int App::run() {
             skipToast_ = 0;
             startTrack(std::move(nextTrack_));
         }
-        if (shotMode && track_) {
+        if (clipMode && track_) {
+            if (clipStart_ < 0) {
+                const double drop = firstDropTime();
+                clipStart_ = std::max(0.0, drop - opt_.clipBefore);
+                simSongTime_ = std::max(0.0, clipStart_ - 12.0); // warm-up: the board fills, the scene settles
+                std::printf("[clip] first drop at %.1f s: recording %.1f s .. %.1f s\n", drop, clipStart_,
+                            clipStart_ + opt_.clipBefore + opt_.clipAfter);
+            }
+            simSongTime_ += dt; // real song time: the recorded audio is cut from the same span
+            songTime_ = simSongTime_;
+        } else if (shotMode && track_) {
             if (opt_.phaseShots) {
                 // Settle for 12 s ending 2 s before the next phase change (or the song end).
                 int k = std::min(shotsTaken, (int)plan_.phases.size() - 1);
@@ -739,7 +771,30 @@ int App::run() {
         fade = std::min(1.f, fade + dt * 0.8f);
         if (fbw > 0 && fbh > 0) R_.render(game_, music_, runTime_, dt, paused_ || waiting, buildHud(dt), shotMode ? 1.f : fade);
 
-        if (shotMode && track_) {
+        if (clipMode && track_ && clipStart_ >= 0 && songTime_ >= clipStart_) {
+            int cw, ch;
+            R_.readFrame(clipPx, cw, ch);
+            if (!clipPipe) {
+                std::string ff = std::getenv("ZENTRIS_FFMPEG") ? std::getenv("ZENTRIS_FFMPEG") : platform::findExecutable("ffmpeg");
+                if (ff.empty()) { std::fprintf(stderr, "[clip] ffmpeg not found\n"); break; }
+                char spec[160];
+                std::snprintf(spec, sizeof(spec), " -y -loglevel error -f rawvideo -pix_fmt rgb24 -s %dx%d -r 60 -i - -ss %.3f -t %.3f -i ",
+                              cw, ch, clipStart_, opt_.clipBefore + opt_.clipAfter);
+                std::string cmd = platform::quoteArg(ff) + spec + platform::quoteArg(track_->path) +
+                                  " -map 0:v -map 1:a -vf vflip -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p"
+                                  " -c:a aac -b:a 192k -shortest " + platform::quoteArg(opt_.clipPath);
+                clipPipe = platform::openWrite(cmd);
+                if (!clipPipe) { std::fprintf(stderr, "[clip] could not start ffmpeg\n"); break; }
+            }
+            std::fwrite(clipPx.data(), 1, clipPx.size(), clipPipe);
+            if (songTime_ >= clipStart_ + opt_.clipBefore + opt_.clipAfter) {
+                const int rc = platform::closeRead(clipPipe);
+                clipPipe = nullptr;
+                std::printf("[clip] %s %s (%s)\n", rc == 0 ? "wrote" : "FAILED", opt_.clipPath.c_str(), R_.targetTheme().name.c_str());
+                break;
+            }
+        }
+        if (shotMode && !clipMode && track_) {
             // Test hook: ZEN_FX=slow:N or tetris:N plays that special animation ZEN_FX_AT seconds before each shot.
             static const char* fxEnv = std::getenv("ZEN_FX");
             static const float fxAt = std::getenv("ZEN_FX_AT") ? (float)std::atof(std::getenv("ZEN_FX_AT")) : 6.f;
@@ -819,6 +874,9 @@ int main(int argc, char** argv) {
         else if (a == "--shots" && i + 2 < argc) { o.shotPrefix = argv[++i]; o.shotCount = std::atoi(argv[++i]); }
         else if (a == "--phase-shots" && i + 1 < argc) { o.shotPrefix = argv[++i]; o.shotCount = 99; o.phaseShots = true; }
         else if (a == "--shot-time" && i + 1 < argc) o.shotTime = std::stof(argv[++i]);
+        else if (a == "--clip" && i + 1 < argc) o.clipPath = argv[++i];
+        else if (a == "--clip-before" && i + 1 < argc) o.clipBefore = std::stof(argv[++i]);
+        else if (a == "--clip-after" && i + 1 < argc) o.clipAfter = std::stof(argv[++i]);
         else o.paths.push_back(a);
     }
     // No songs given: the default playlist.

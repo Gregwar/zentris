@@ -129,6 +129,14 @@ FILE* openRead(const std::string& cmd) {
 #endif
 }
 
+FILE* openWrite(const std::string& cmd) {
+#if defined(_WIN32)
+    return _popen(wrap(cmd).c_str(), "wb");
+#else
+    return popen(cmd.c_str(), "w");
+#endif
+}
+
 int closeRead(FILE* f) {
 #if defined(_WIN32)
     return _pclose(f);

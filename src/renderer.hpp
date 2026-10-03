@@ -90,6 +90,8 @@ public:
     // World position (board space) to window pixels.
     vec2 project(const vec3& p) const;
     bool screenshot(const std::string& path);
+    // The frame just rendered, RGB, rows bottom to top.
+    void readFrame(std::vector<unsigned char>& px, int& w, int& h);
 
 private:
     struct Mesh { GLuint vao = 0, vbo = 0, ebo = 0; int count = 0; };

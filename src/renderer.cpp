@@ -1409,6 +1409,15 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
     glDisable(GL_BLEND);
 }
 
+void Renderer::readFrame(std::vector<unsigned char>& px, int& w, int& h) {
+    w = w_;
+    h = h_;
+    px.resize((size_t)w_ * h_ * 3);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, w_, h_, GL_RGB, GL_UNSIGNED_BYTE, px.data());
+}
+
 bool Renderer::screenshot(const std::string& path) {
     std::vector<unsigned char> px((size_t)w_ * h_ * 3), flipped(px.size());
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
