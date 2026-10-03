@@ -18,6 +18,7 @@
 #include <cstring>
 #include <filesystem>
 #include <future>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -888,7 +889,7 @@ int Scope::run(int argc, char** argv) {
     std::string shotPath, song;
     double shotAt = -1;
     notesPath_ = (platform::dataDir() / "zentris" / "annotations.jsonl").string();
-    bool mute = false, hidden = false;
+    bool mute = false, hidden = false, shuffle = false;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         if (a == "--shot" && i + 1 < argc) shotPath = argv[++i];
@@ -896,6 +897,7 @@ int Scope::run(int argc, char** argv) {
         else if (a == "--song" && i + 1 < argc) song = argv[++i];
         else if (a == "--notes" && i + 1 < argc) notesPath_ = argv[++i];
         else if (a == "--mute") mute = true;
+        else if (a == "--shuffle") shuffle = true;
         else if (a == "--hidden") hidden = true;
         else if (a == "-h" || a == "--help") {
             std::printf("usage: zenscope [options] [songs or folders...]\n"
@@ -905,6 +907,7 @@ int Scope::run(int argc, char** argv) {
                         "  --at SEC          start at this time\n"
                         "  --notes FILE      where A writes notes (default: %s)\n"
                         "  --mute            no sound\n"
+                        "  --shuffle         random song order (N / P still step through it)\n"
                         "  --shot FILE.png   render one frame (at --at, default 60 s) then exit\n",
                         notesPath_.c_str());
             return 0;
@@ -915,6 +918,7 @@ int Scope::run(int argc, char** argv) {
     Library lib;
     lib.scan(paths);
     files_ = lib.files();
+    if (shuffle) std::shuffle(files_.begin(), files_.end(), std::mt19937_64(std::random_device{}()));
     const bool shot = !shotPath.empty();
     if (shot && shotAt < 0) shotAt = 60;
     int first = 0;

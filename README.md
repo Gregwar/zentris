@@ -84,7 +84,7 @@ Esc cancels (the song pauses while you type). Notes go to `annotations.jsonl` in
 the text and what the analysis said there (the phase and section, and the whole scene plan and structure).
 They show as cyan flags on the timeline, with their text in the detail view.
 `--song ID|TITLE` starts at a song of the playlist (a YouTube id or part of its title), `--at SEC` at a time, and
-`ytdl:<video id>` plays a single YouTube song. Playlist listings are cached (and refreshed in the background for the
+`ytdl:<video id>` plays a single YouTube song, and `--shuffle` plays the songs in a random order. Playlist listings are cached (and refreshed in the background for the
 next run) and songs stay downloaded in the cache, so reopening an annotated song is instant and works offline.
 
 The game and zenscope share the same analysis and song plan code (`src/songplan.*`), so what you see is what the game uses.
