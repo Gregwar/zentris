@@ -63,6 +63,9 @@ Other options: `--in-order` (play songs in order: folders alphabetically, playli
 `--clip OUT.mp4` (records a video with sound, via ffmpeg, from 4 s before the first drop of the song to 6 s after it,
 with the game played at a calm pace; `--clip-before` / `--clip-after SEC` change the span).
 
+`tools/promo.py [OUT.mp4]` makes a promo video: 5 random songs of the default playlist, each recorded around its
+first drop in a random scene, stitched with crossfades (`--songs N`, `--before`, `--after`, `--fade`, `--size`).
+
 ## zenscope: see what the game hears
 
 `./build/zenscope [songs or folders...]` (the default playlist when no song is given) plays a song and shows the analysis that drives the game:
