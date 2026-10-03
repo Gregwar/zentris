@@ -5,7 +5,7 @@
 #include <vector>
 
 // Songs played when none are given (zentris and zenscope).
-inline constexpr const char* DEFAULT_PLAYLIST = "https://www.youtube.com/playlist?list=PLtvLBa3c9VV4NmuGGbpansfMjs5XFvKgd";
+inline constexpr const char* DEFAULT_PLAYLIST = "https://www.youtube.com/playlist?list=PLa1E0oX0lRB9N1s0k6wK3oVI2WYYJu5HQ";
 
 // True for http(s) URLs.
 bool isUrl(const std::string& s);
