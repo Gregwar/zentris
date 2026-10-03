@@ -975,8 +975,10 @@ vec4 shade(int style, vec3 col) {
     float em = uEmissive, lam = gLam, spec = gSpec, fres = gFres, e = gE, edge = gEdge, edgeGlow = gEdgeGlow, aa = gAA;
     vec2 uv = gUV;
     if (style == 0) { // glass
-        rgb = col * (0.1 + 0.25 * lam) + col * edgeGlow * em * 1.1 + mix(col, vec3(1.0), 0.4) * spec * 0.3;
-        a = mix(uFill, 1.0, edge);
+        // Dark tinted glass glows on dark themes; on pale ones a dark fill over the light backplate turns
+        // gray, so the glass there is a light, saturated tint.
+        rgb = col * mix(0.1 + 0.25 * lam, 0.75 + 0.25 * lam, uPale) + col * edgeGlow * em * 1.1 + mix(col, vec3(1.0), 0.4) * spec * 0.3;
+        a = mix(mix(uFill, max(uFill, 0.6), uPale), 1.0, edge);
     } else if (style == 1) { // solid
         rgb = col * (0.3 + 0.7 * lam) * (1.0 - 0.3 * edge) + vec3(spec) * 0.3 + col * 0.12 * em;
     } else if (style == 2) { // wire

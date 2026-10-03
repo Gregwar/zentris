@@ -145,6 +145,8 @@ void resolvePalette(Theme& t, float hueShift) {
     float hues[7], Ls[7], Cs[7];
     float baseL = mood == 0 ? 0.72f : (mood == 1 ? 0.8f : 0.60f); // glow adds light: keep colors deep enough
     float C = p.chroma * (mood == 1 ? 0.9f : 1.f);
+    // On a pale background low-chroma colors read as gray: keep pale themes clearly colored (calm sections too).
+    if (mood == 2) C = std::min(0.24f, std::max(0.13f, C * 1.3f));
     for (int i = 0; i < 7; i++) {
         float f = (float)i / 6.f;
         float jitter = r.range(-0.04f, 0.04f);
