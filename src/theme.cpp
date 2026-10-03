@@ -19,8 +19,9 @@ const char* BS_NAMES[BS_COUNT] = {"GLASS", "SOLID", "WIRE", "LANTERN", "INSET", 
                                   "BEVEL", "PIXEL", "STRIPES", "CORE", "HATCH", "BREATH"};
 const char* MESH_NAMES[MESH_COUNT] = {"CUBE", "ROUNDED", "ORB", "GEM"};
 const char* MOOD_NAMES[3] = {"NIGHT", "DUSK", "PALE"};
-const char* SURF_NAMES[13] = {"", "SMOKE", "SILK", "LAVA", "CAUSTICS", "INK", "GEOMETRY", "AURORA", "FOG",
-                              "BEAMS", "FLOW RINGS", "LIQUID", "SHADES"};
+const char* SURF_NAMES[18] = {"", "SMOKE", "SILK", "LAVA", "CAUSTICS", "INK", "GEOMETRY", "AURORA", "FOG",
+                              "BEAMS", "FLOW RINGS", "LIQUID", "SHADES", "VORONOI", "WATER", "FACETS", "HEXES",
+                              "SHARDS"};
 
 vec3 ok(float L, float C, float h) { return oklchToLinear(L, C, h); }
 
@@ -272,8 +273,14 @@ Theme generateTheme(const Footprint& fp, uint64_t seed) {
     }
     // Continuous surface layer in about two thirds of the scenes; some of those drop particles entirely.
     if (r.chance(0.65f)) {
-        float sw[13] = {0, 1.3f, 1.1f, 0.9f, mood == 2 ? 0.5f : 1.f, 1.f, 1.f, mood == 2 ? 0.3f : 1.f, 1.1f,
-                        mood == 2 ? 0.3f : 0.9f, 0.9f, 1.f, 1.1f};
+        float sw[18] = {0, 1.3f, 1.1f, 0.9f, mood == 2 ? 0.5f : 1.f, 1.f, 1.f, mood == 2 ? 0.3f : 1.f, 1.1f,
+                        mood == 2 ? 0.3f : 0.9f, 0.9f, 1.f, 1.1f, 1.1f, 1.f, 1.f, 0.9f, 1.f};
+        // Flat tilings (voronoi, facets, hexes) and a second waterline clash with a landscape's floor or horizon.
+        bool landscape = t.bgStyle == BG_HORIZON || t.bgStyle == BG_GRID || t.bgStyle == BG_HILLS ||
+                         t.bgStyle == BG_SEA || t.bgStyle == BG_PEAKS;
+        for (int i = 0; i < t.layerCount; i++) // particle floors too
+            landscape |= t.layers[i].style == PS_WAVES || t.layers[i].style == PS_DUNES || t.layers[i].style == PS_SEA;
+        if (landscape) sw[13] = sw[14] = sw[15] = sw[16] = 0.f;
         t.surfStyle = r.weighted(sw);
         t.surfAmt = mood == 2 ? r.range(0.25f, 0.45f) : r.range(0.3f, 0.6f);
         t.surfScale = r.range(0.7f, 1.5f);
@@ -411,6 +418,10 @@ Theme evolveTheme(const Theme& base, const Footprint& fp, int level, float energ
         int avoid = base.layers[0].style;
         int st = pickParticleStyle(r, fp, mood, avoid);
         if (base.layerCount > 1 && st == base.layers[1].style) st = pickParticleStyle(r, fp, mood, avoid);
+        // No particle floor under a flat tiling surface (voronoi, water, facets, hexes).
+        auto floorStyle = [](int s) { return s == PS_WAVES || s == PS_DUNES || s == PS_SEA; };
+        for (int k = 0; k < 8 && base.surfStyle >= 13 && base.surfStyle <= 16 && floorStyle(st); k++)
+            st = pickParticleStyle(r, fp, mood, avoid);
         const int slot = base.layerCount == 0 ? 0 : 1;
         makeLayer(r, fp, mood, t.layers[slot], st, true);
         t.layers[slot].count = std::min(1.f, t.layers[slot].count * 1.6f);

@@ -15,6 +15,7 @@ void main() {
 
 inline const char* NOISE_GLSL = R"(
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+vec2 hash22(vec2 p) { return vec2(hash12(p), hash12(p + 17.31)); }
 float vnoise(vec2 p) {
     vec2 i = floor(p), f = fract(p);
     vec2 u = f * f * (3.0 - 2.0 * f);
@@ -317,10 +318,83 @@ vec4 surface(vec4 S, vec2 uv) {
         float v = sin(c.x * 2.0 + T * 0.1 + sin(c.y * 3.0 - T * 0.07));
         float n = fbm(c * 0.8 + T * 0.02);
         return vec4(mix(colA, colB, 0.5 + 0.5 * v), (0.4 + 0.6 * n) * amt * 0.55);
-    } else { // passing cloud shadows and light
+    } else if (s == 12) { // passing cloud shadows and light
         float n = fbm(c * 1.0 + vec2(T * 0.04, T * 0.01));
         vec3 col = n > 0.5 ? colA * 1.1 : uBottom * 0.35;
         return vec4(col, abs(n - 0.5) * 2.0 * amt);
+    } else if (s == 13) { // voronoi map: drifting seeds, so borders slide and cells reshape
+        vec2 p = c * 4.0, ip = floor(p), fp = fract(p);
+        float d1 = 8.0, d2 = 8.0;
+        vec2 id = vec2(0.0);
+        for (int j = -1; j <= 1; j++)
+            for (int i = -1; i <= 1; i++) {
+                vec2 g = vec2(float(i), float(j));
+                vec2 h = hash22(ip + g);
+                float d = length(g + 0.5 + 0.42 * sin(T * 0.15 + h * 6.2831853) - fp);
+                if (d < d1) { d2 = d1; d1 = d; id = ip + g; } else if (d < d2) d2 = d;
+            }
+        float edge = 1.0 - smoothstep(0.02, 0.07, d2 - d1);
+        float shade = hash12(id);
+        float pulse = 0.5 + 0.5 * sin(T * 0.3 + shade * 6.2831853);
+        return vec4(mix(colA, colB, shade), (edge * 0.75 + 0.22 * pulse * shade) * amt);
+    } else if (s == 14) { // water seen through a window: a waving surface, its level slowly rising and falling
+        float x = c.x / S.z;
+        float level = 0.38 + 0.08 * sin(T * 0.05 + uP.z * 6.0);
+        float surf = level + 0.025 * sin(x * 3.0 + T * 0.5) + 0.012 * sin(x * 7.0 - T * 0.37) + 0.006 * sin(x * 13.0 + T * 0.8);
+        float below = smoothstep(surf + 0.003, surf - 0.003, uv.y);
+        float depth = clamp((surf - uv.y) / max(surf, 0.05), 0.0, 1.0);
+        vec2 p = vec2(x * 5.0, uv.y * 9.0);
+        p += vec2(sin(p.y + T * 0.4), cos(p.x - T * 0.3)) * 0.5;
+        float rip = pow(0.5 + 0.5 * sin(p.x + p.y), 6.0) * (1.0 - depth); // soft light ripples near the top
+        float crest = exp(-pow((uv.y - surf) * 220.0, 2.0));
+        vec3 col = mix(colA * 0.9, uBottom * 0.35, depth) + colA * rip * 0.6;
+        return vec4(mix(col, colA * 1.4, crest), min(1.0, max(below * (0.55 + 0.3 * depth), crest) * amt * 1.5));
+    } else if (s == 15) { // low-poly facets: a triangle mesh whose vertices rise and fall, each face flat-lit
+        vec2 p = c * 4.5;
+        vec2 q = vec2(p.x - p.y * 0.57735, p.y * 1.1547);
+        vec2 iq = floor(q), f = fract(q);
+        // Split each lattice cell along its short diagonal: equilateral triangles.
+        bool up = f.x + f.y > 1.0;
+        vec2 b = up ? vec2(1.0) : vec2(0.0);
+        vec2 v0 = iq + b, v1 = iq + vec2(1.0, 0.0), v2 = iq + vec2(0.0, 1.0);
+        vec3 A = vec3(v0.x + v0.y * 0.5, v0.y * 0.866, 0.35 * sin(T * 0.25 + hash12(v0) * 6.2831853));
+        vec3 B = vec3(v1.x + v1.y * 0.5, v1.y * 0.866, 0.35 * sin(T * 0.25 + hash12(v1) * 6.2831853));
+        vec3 C = vec3(v2.x + v2.y * 0.5, v2.y * 0.866, 0.35 * sin(T * 0.25 + hash12(v2) * 6.2831853));
+        vec3 n = normalize(cross(B - A, C - A));
+        n *= sign(n.z);
+        float light = clamp(0.5 + 1.2 * dot(n.xy, normalize(vec2(0.6, 0.8))), 0.0, 1.0); // side light: strong face contrast
+        float tint = hash12(iq * 2.0 + b);
+        // Thin edges: distance to the nearest triangle side in lattice space.
+        float de = up ? min(min(1.0 - f.x, 1.0 - f.y), (f.x + f.y - 1.0) * 0.7071) : min(min(f.x, f.y), (1.0 - f.x - f.y) * 0.7071);
+        float edge = 1.0 - smoothstep(0.0, 0.03, de);
+        vec3 col = mix(colB * 0.7, colA * 1.2, light) * (0.85 + 0.3 * tint);
+        return vec4(mix(col, colA * 1.3, edge * 0.6), (0.08 + 0.36 * light + 0.2 * edge) * amt);
+    } else if (s == 16) { // hexagon tiles lighting up as slow waves cross them
+        vec2 p = c * 6.0;
+        vec2 r = vec2(1.0, 1.7320508), h = r * 0.5;
+        vec2 a = mod(p, r) - h, b = mod(p - h, r) - h;
+        vec2 g = dot(a, a) < dot(b, b) ? a : b;
+        vec2 id = p - g;
+        vec2 ag = abs(g);
+        float border = 0.5 - max(dot(ag, vec2(0.5, 0.8660254)), ag.x);
+        float w = 0.5 + 0.5 * sin(length(id) * 0.6 - T * 0.4 + hash12(floor(id * 2.0)) * 1.5);
+        float line = 1.0 - smoothstep(0.0, 0.04, border);
+        float lit = pow(w, 3.0) * smoothstep(0.02, 0.08, border);
+        return vec4(mix(colA, colB * 1.3 + 0.1, lit), (line * 0.16 + lit * 0.55) * amt);
+    } else { // glass shards: large translucent polygons drifting and turning, their overlaps adding up
+        float a = 0.0;
+        vec3 col = vec3(0.0);
+        for (int k = 0; k < 6; k++) {
+            float fk = float(k);
+            vec2 o = vec2(sin(T * 0.03 * (1.0 + fk * 0.21) + fk * 2.4) * 0.8 * uAspect, sin(T * 0.025 * (1.0 + fk * 0.17) + fk * 1.7) * 0.4);
+            float ang = T * 0.05 * (mod(fk, 2.0) * 2.0 - 1.0) + fk;
+            vec2 q = mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * (c / S.z - o);
+            float d = polyDist(q, 3.0 + mod(fk, 3.0)) - (0.12 + 0.05 * mod(fk * 1.7, 3.0));
+            float w = (1.0 - smoothstep(-0.004, 0.004, d)) * 0.32 + exp(-abs(d) * 200.0) * 0.5;
+            a += w;
+            col += mix(colA, colB, fract(fk * 0.37)) * w;
+        }
+        return vec4(col / max(a, 1e-3), min(a, 1.0) * amt);
     }
 }
 
