@@ -767,6 +767,44 @@ vec3 stylePos(vec4 s, float t, out float bright, out float cm, out float sz) {
         bright = (1.0 - abs(s.y - 0.5) * 2.0) * 0.8;
         cm = s.x;
         return vec3(x, y, -30.0 + sin(x * 0.02 + t * 0.2) * 8.0);
+    } else if (uStyle == 38) { // skyline: dotted equalizer columns across the far back (lows at the edges)
+        float R = max(floor(uCount / 64.0), 1.0);
+        uint id = (uint(gl_InstanceID) * 7919u) % uint(64.0 * R); // scrambled: sparse scenes thin out evenly
+        float col = float(id % 64u), row = float(id / 64u);
+        float k = mod(col, 32.0);
+        float side = col < 32.0 ? -1.0 : 1.0;
+        float h = row / R * 60.0;
+        float level = 3.0 + 42.0 * spec(1.0 - k / 31.0) + 1.5 * sin(t * 0.5 + k * 0.7);
+        float lit = 1.0 - smoothstep(level - 2.0, level, h);
+        float cap = exp(-pow((h - level) / 1.2, 2.0));
+        bright = 0.32 * lit * (0.5 + 0.5 * h / max(level, 1.0)) + 0.3 * cap;
+        cm = h / 60.0;
+        sz = 1.1;
+        return vec3(side * (3.0 + (k + 0.5) * 1.8), -32.0 + h, -55.0);
+    } else if (uStyle == 39) { // corona: rays of dots around the board, their length following the spectrum
+        float rays = 72.0 + floor(uP.x * 3.0) * 24.0;
+        float ray = floor(s.x * rays);
+        float ph = (ray + 0.5) / rays;
+        float a = ph * TAU - 0.5 * PI + t * 0.02;
+        float L = 3.0 + 24.0 * spec(1.0 - abs(ph * 2.0 - 1.0)); // lows at the bottom, highs at the top
+        float d = s.y * 30.0;
+        float r = 19.0 + 4.0 * uP.y + d;
+        bright = (1.0 - smoothstep(L - 2.0, L, d)) * (0.12 + 0.3 * d / L);
+        cm = d / 30.0;
+        sz = 0.8;
+        return vec3(cos(a) * r, sin(a) * r, -40.0);
+    } else if (uStyle == 40) { // dunes: a dotted ground whose ridges follow the spectrum, rolling toward the viewer
+        float N = floor(sqrt(uCount));
+        float i = float(gl_InstanceID);
+        float u = mod(i, N) / (N - 1.0), v = floor(i / N) / (N - 1.0);
+        float x = (u - 0.5) * 220.0, z = 5.0 - v * 140.0;
+        float sp = spec(min(abs(u - 0.5) * 2.2, 1.0)); // lows in the middle, highs toward the sides
+        float roll = 0.5 + 0.5 * sin(z * 0.09 + t * 0.9 + sin(x * 0.03) * 1.5);
+        float y = -15.0 - 4.0 * uP.x + 14.0 * sp * roll;
+        bright = (0.1 + 0.4 * roll * sp) * smoothstep(-135.0, -85.0, z);
+        cm = sp;
+        sz = 0.9;
+        return vec3(x, y, z);
     } else { // meteors: fast diagonal streaks
         float k = fract(s.y + t * 0.3 * (0.5 + s.w));
         vec3 start = vec3((s.x - 0.2) * 160.0, 50.0, -20.0 - s.z * 50.0);
