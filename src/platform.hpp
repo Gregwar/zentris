@@ -9,6 +9,7 @@ namespace platform {
 std::filesystem::path executableDir();  // folder of the running binary
 std::filesystem::path homeDir();
 std::filesystem::path cacheDir();       // per-user cache root (XDG / ~/Library/Caches / %LOCALAPPDATA%)
+std::filesystem::path dataDir();        // per-user data root (XDG / ~/Library/Application Support / %APPDATA%)
 
 // Full path of an executable found in PATH, or "" (".exe" is implied on Windows).
 std::string findExecutable(const std::string& name);

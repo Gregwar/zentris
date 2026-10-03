@@ -56,6 +56,18 @@ fs::path cacheDir() {
 #endif
 }
 
+fs::path dataDir() {
+#if defined(_WIN32)
+    if (const char* p = std::getenv("APPDATA")) return p;
+    return homeDir() / "AppData" / "Roaming";
+#elif defined(__APPLE__)
+    return homeDir() / "Library" / "Application Support";
+#else
+    const char* xdg = std::getenv("XDG_DATA_HOME");
+    return xdg && *xdg ? fs::path(xdg) : homeDir() / ".local" / "share";
+#endif
+}
+
 std::string findExecutable(const std::string& name) {
     const char* path = std::getenv("PATH");
     if (!path) return "";

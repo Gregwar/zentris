@@ -1,14 +1,18 @@
 // zenscope: shows what Zentris "hears" in a song — structure (segments, groups), scene levels and
 // changes, pulse zones, spectrum, loudness / intensity / onsets and the beat grid — while playing it.
 //
-//   zenscope [songs or folders...]        (default: ./audio)
+//   zenscope [--song ID|TITLE] [--at SEC] [songs or folders...]   (default: the built-in playlist)
 //   SPACE play/pause, LEFT/RIGHT seek 5 s, UP/DOWN zoom the detail view, N/P next/previous song,
 //   click the overview or the detail view to seek, 1-4 or click a sample button to hear it,
 //   click X0.9 / X0.5 (top right) to slow the song down, ESC quits.
+//   A writes a note at the playhead ("the drop should start earlier here"): ENTER saves it, with what the
+//   analysis says around that time, to annotations.jsonl in the user data folder (--notes FILE to change).
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 
+#include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -67,6 +71,50 @@ std::string mmss(double t) {
     std::snprintf(b, sizeof(b), "%d:%02d", s / 60, s % 60);
     return b;
 }
+
+std::string jsonEscape(const std::string& s) {
+    std::string o;
+    for (unsigned char c : s) {
+        if (c == '"' || c == '\\') o += '\\', o += (char)c;
+        else if (c == '\n') o += "\\n";
+        else if (c < 0x20) {
+            char b[8];
+            std::snprintf(b, sizeof(b), "\\u%04x", c);
+            o += b;
+        } else o += (char)c;
+    }
+    return o;
+}
+
+// Reads the top-level field `key` of a one-line JSON object written by Scope::saveNote (string or number).
+bool jsonField(const std::string& line, const std::string& key, std::string& out) {
+    size_t p = line.find("\"" + key + "\":");
+    if (p == std::string::npos) return false;
+    p += key.size() + 3;
+    out.clear();
+    if (p >= line.size()) return false;
+    if (line[p] != '"') {
+        while (p < line.size() && line[p] != ',' && line[p] != '}') out += line[p++];
+        return true;
+    }
+    for (p++; p < line.size() && line[p] != '"'; p++) {
+        if (line[p] != '\\' || p + 1 >= line.size()) { out += line[p]; continue; }
+        char e = line[++p];
+        if (e == 'n') out += '\n';
+        else if (e == 'u' && p + 4 < line.size()) out += (char)std::strtol(line.substr(p + 1, 4).c_str(), nullptr, 16), p += 4;
+        else out += e;
+    }
+    return true;
+}
+
+void appendUtf8(std::string& s, unsigned cp) {
+    if (cp < 0x80) s += (char)cp;
+    else if (cp < 0x800) s += (char)(0xC0 | cp >> 6), s += (char)(0x80 | (cp & 0x3F));
+    else if (cp < 0x10000) s += (char)(0xE0 | cp >> 12), s += (char)(0x80 | (cp >> 6 & 0x3F)), s += (char)(0x80 | (cp & 0x3F));
+    else s += (char)(0xF0 | cp >> 18), s += (char)(0x80 | (cp >> 12 & 0x3F)), s += (char)(0x80 | (cp >> 6 & 0x3F)), s += (char)(0x80 | (cp & 0x3F));
+}
+
+const Col NOTE = rgb(0.4f, 0.95f, 0.9f);
 
 GLuint compile(const char* vs, const char* fs) {
     auto stage = [](GLenum type, const char* src) {
@@ -231,6 +279,21 @@ private:
     void drawReadout(float L, float R, float y);
     void drawSamples(float L, float R, float y);
     void playSample(int i);
+    // Notes (annotations) on the current song.
+    std::string songKey() const { return files_.empty() ? "" : files_[index_].substr(0, files_[index_].find('\t')); }
+    void loadNotes();
+    void saveNote();
+    void drawNoteEditor(int w, int h);
+    static void onChar(GLFWwindow* w, unsigned cp);
+    static void onKey(GLFWwindow* w, int key, int scancode, int action, int mods);
+    std::string notesPath_;
+    struct Note { double at; std::string text; };
+    std::vector<Note> notes_;
+    bool typing_ = false, pausedBeforeNote_ = false;
+    std::string draft_;
+    double noteAt_ = 0;
+    std::string flash_;
+    double flashUntil_ = 0;
     double now() const { return track_ ? (seekPreview_ >= 0 ? seekPreview_ : audio_.position()) : 0; }
 
     GLFWwindow* win_ = nullptr;
@@ -315,10 +378,114 @@ void Scope::onTrackReady(std::shared_ptr<Track> t) {
     for (const SongSample& sm : samples_)
         std::printf("[zenscope] sample %-4s %s-%s  %d beat(s)  score %.2f  %s\n", sampleName(sm.kind), mmss(sm.start).c_str(),
                     mmss(sm.end).c_str(), sm.beats, sm.score, sm.why.c_str());
+    loadNotes();
     audio_.play(track_);
     audio_.setPaused(paused_);
     std::printf("[zenscope] %s: %zu segments, %zu scene phases, %zu pulse zones\n", t->title.c_str(),
                 an.segments.size(), plan_.phases.size(), plan_.pulseZones.size());
+}
+
+void Scope::loadNotes() {
+    notes_.clear();
+    FILE* f = std::fopen(notesPath_.c_str(), "rb");
+    if (!f) return;
+    const std::string key = songKey();
+    std::string line, song, at, text;
+    for (int c; (c = std::fgetc(f)) != EOF;) {
+        if (c != '\n') { line += (char)c; continue; }
+        if (jsonField(line, "song", song) && song == key && jsonField(line, "at", at) && jsonField(line, "note", text))
+            notes_.push_back({std::atof(at.c_str()), text});
+        line.clear();
+    }
+    std::fclose(f);
+}
+
+// One JSON object per line: the note, where it is, and what the analysis said there (the whole scene plan
+// and structure too, so a note can be checked against the analysis it was written about).
+void Scope::saveNote() {
+    if (!track_ || draft_.empty()) return;
+    const Analysis& an = track_->analysis;
+    const double t = noteAt_;
+    const ScenePhase& ph = plan_.phases[plan_.phaseAt(t)];
+    const Segment sg = an.segments.empty() ? Segment{} : an.segments[an.segmentAt(t)];
+    std::error_code ec;
+    fs::create_directories(fs::path(notesPath_).parent_path(), ec);
+    FILE* f = std::fopen(notesPath_.c_str(), "ab");
+    if (!f) {
+        std::fprintf(stderr, "[zenscope] cannot write %s\n", notesPath_.c_str());
+        return;
+    }
+    char date[32];
+    std::time_t now = std::time(nullptr);
+    std::strftime(date, sizeof(date), "%Y-%m-%dT%H:%M:%S", std::localtime(&now));
+    std::fprintf(f, "{\"song\":\"%s\",\"at\":%.2f,\"note\":\"%s\",\"title\":\"%s\",\"date\":\"%s\",\"bpm\":%.1f,",
+                 jsonEscape(songKey()).c_str(), t, jsonEscape(draft_).c_str(), jsonEscape(track_->title).c_str(), date,
+                 an.fp.bpm);
+    std::fprintf(f, "\"phase\":{\"level\":\"%s\",\"start\":%.2f,\"end\":%.2f},", levelName(ph.level), ph.start, ph.end);
+    std::fprintf(f, "\"segment\":{\"kind\":\"%s\",\"start\":%.2f,\"end\":%.2f,\"group\":%d,\"energy\":%.2f},",
+                 segmentName(sg.kind), sg.start, sg.end, sg.cluster, sg.energy);
+    std::fprintf(f, "\"phases\":[");
+    for (size_t i = 0; i < plan_.phases.size(); i++)
+        std::fprintf(f, "%s[%.2f,%.2f,\"%s\"]", i ? "," : "", plan_.phases[i].start, plan_.phases[i].end,
+                     levelName(plan_.phases[i].level));
+    std::fprintf(f, "],\"segments\":[");
+    for (size_t i = 0; i < an.segments.size(); i++)
+        std::fprintf(f, "%s[%.2f,%.2f,\"%s\",%d]", i ? "," : "", an.segments[i].start, an.segments[i].end,
+                     segmentName(an.segments[i].kind), an.segments[i].cluster);
+    std::fprintf(f, "]}\n");
+    std::fclose(f);
+    notes_.push_back({t, draft_});
+    std::printf("[zenscope] note at %s: %s\n", mmss(t).c_str(), draft_.c_str());
+    flash_ = "NOTE SAVED AT " + mmss(t);
+    flashUntil_ = glfwGetTime() + 2.5;
+}
+
+// The note opens on the typed character "a" (not the key position), so it works with any keyboard layout
+// and the "a" is not typed into the note.
+void Scope::onChar(GLFWwindow* w, unsigned cp) {
+    auto* s = (Scope*)glfwGetWindowUserPointer(w);
+    if (!s->typing_) {
+        if ((cp == 'a' || cp == 'A') && s->track_) {
+            s->typing_ = true;
+            s->draft_.clear();
+            s->noteAt_ = s->audio_.position();
+            s->pausedBeforeNote_ = s->paused_;
+            s->paused_ = true;
+            s->audio_.setPaused(true);
+        }
+        return;
+    }
+    if (cp >= 32 && s->draft_.size() < 400) appendUtf8(s->draft_, cp);
+}
+
+void Scope::onKey(GLFWwindow* w, int key, int, int action, int) {
+    auto* s = (Scope*)glfwGetWindowUserPointer(w);
+    if (!s->typing_ || action == GLFW_RELEASE) return;
+    if (key == GLFW_KEY_BACKSPACE) {
+        while (!s->draft_.empty() && ((unsigned char)s->draft_.back() & 0xC0) == 0x80) s->draft_.pop_back();
+        if (!s->draft_.empty()) s->draft_.pop_back();
+    } else if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER || key == GLFW_KEY_ESCAPE) {
+        if (key != GLFW_KEY_ESCAPE) s->saveNote();
+        s->typing_ = false;
+        s->paused_ = s->pausedBeforeNote_;
+        s->audio_.setPaused(s->paused_);
+    }
+}
+
+void Scope::drawNoteEditor(int w, int h) {
+    const float bw = std::min(1100.f, w - 80.f), bh = 120, x = (w - bw) * 0.5f, y = h * 0.5f - bh * 0.5f;
+    d_.rect(0, 0, (float)w, (float)h, rgb(0, 0, 0, 0.45f));
+    d_.rect(x, y, bw, bh, PANEL);
+    d_.rect(x, y, 6, bh, NOTE);
+    const Analysis& an = track_->analysis;
+    const ScenePhase& ph = plan_.phases[plan_.phaseAt(noteAt_)];
+    const char* seg = an.segments.empty() ? "?" : segmentName(an.segments[an.segmentAt(noteAt_)].kind);
+    d_.text("NOTE AT " + mmss(noteAt_) + "   (SCENE " + levelName(ph.level) + ", " + seg + ")", x + 22, y + 14, 1.5f, NOTE);
+    // Last part of the text if it is too long for the box.
+    std::string shown = asciiFold(draft_);
+    while (!shown.empty() && d_.textWidth(shown + "_", 2.f) > bw - 44) shown.erase(0, 1);
+    d_.text(shown + ((int)(glfwGetTime() * 2) % 2 ? "_" : " "), x + 22, y + 46, 2.f, TEXT);
+    d_.text("ENTER SAVE   ESC CANCEL   (" + asciiFold(notesPath_) + ")", x + 22, y + bh - 24, 1.2f, LABEL);
 }
 
 // Full-song view: structure, scene levels, pulse zones, spectrum, curves, bars.
@@ -433,6 +600,13 @@ void Scope::drawOverview(float L, float R, float y) {
         d_.rect(x - 1, ovTop_ - 6, 2, ovBottom_ - ovTop_ + 12, rgb(1, 1, 1, 0.45f));
     }
     d_.rect(px - 1, ovTop_ - 10, 2, ovBottom_ - ovTop_ + 20, rgb(1, 1, 1, 0.95f));
+
+    // Notes: a flag above the time axis.
+    for (const Note& n : notes_) {
+        float x = X(n.at);
+        d_.rect(x - 1, ovTop_ - 10, 2, ovBottom_ - ovTop_ + 20, withA(NOTE, 0.7f));
+        d_.tri(x - 6, ovTop_ - 18, x + 6, ovTop_ - 18, x, ovTop_ - 8, NOTE);
+    }
 }
 
 // Zoomed view around the playhead at analysis resolution.
@@ -514,6 +688,18 @@ void Scope::drawDetail(float L, float R, float y, float bottom) {
     }
     float px = X(now());
     d_.rect(px - 1, dtTop_ - 6, 2, dtBottom_ - dtTop_ + 12, rgb(1, 1, 1, 0.95f));
+
+    // Notes, with their text.
+    for (const Note& n : notes_) {
+        float x = X(n.at);
+        if (x < L || x > R) continue;
+        d_.rect(x - 1, dtTop_ - 6, 3, dtBottom_ - dtTop_ + 12, NOTE);
+        std::string t = asciiFold(n.text);
+        float tw = d_.textWidth(t, 1.3f);
+        float tx = x + 8 + tw > R ? x - 8 - tw : x + 8;
+        d_.rect(tx - 4, dtTop_ + 26, tw + 8, 20, withA(BG, 0.85f));
+        d_.text(t, tx, dtTop_ + 30, 1.3f, NOTE);
+    }
 }
 
 // What the game is doing right now.
@@ -690,37 +876,66 @@ void Scope::drawFrame(int w, int h) {
     }
     d_.text("WHITE LINES: SCENE CHANGES   YELLOW: INTENSITY   GREY: LOUDNESS   BLUE: ONSETS   TABS: GROUPS", L,
             h - 26.f, 1.2f, DIM);
-    d_.text("SPACE PLAY/PAUSE  LEFT/RIGHT SEEK  UP/DOWN ZOOM  N/P SONG  CLICK SEEK  1-4 SAMPLES  ESC QUIT", R, h - 26.f,
-            1.2f, DIM, 2);
+    d_.text("SPACE PLAY/PAUSE  LEFT/RIGHT SEEK  UP/DOWN ZOOM  N/P SONG  CLICK SEEK  1-4 SAMPLES  A NOTE  ESC QUIT", R,
+            h - 26.f, 1.2f, DIM, 2);
+    if (glfwGetTime() < flashUntil_) d_.text(flash_, R - 340, 52, 1.4f, NOTE, 2); // left of the speed buttons
+    if (typing_) drawNoteEditor(w, h);
     d_.flush();
 }
 
 int Scope::run(int argc, char** argv) {
     std::vector<std::string> paths;
-    std::string shotPath;
-    double shotAt = 60;
+    std::string shotPath, song;
+    double shotAt = -1;
+    notesPath_ = (platform::dataDir() / "zentris" / "annotations.jsonl").string();
     bool mute = false, hidden = false;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         if (a == "--shot" && i + 1 < argc) shotPath = argv[++i];
         else if (a == "--at" && i + 1 < argc) shotAt = std::stod(argv[++i]);
+        else if (a == "--song" && i + 1 < argc) song = argv[++i];
+        else if (a == "--notes" && i + 1 < argc) notesPath_ = argv[++i];
         else if (a == "--mute") mute = true;
         else if (a == "--hidden") hidden = true;
         else if (a == "-h" || a == "--help") {
-            std::printf("usage: zenscope [--mute] [songs or folders...]\n");
+            std::printf("usage: zenscope [options] [songs or folders...]\n"
+                        "  (default: the same built-in YouTube playlist as zentris; ytdl:<video id> plays one\n"
+                        "   YouTube song)\n"
+                        "  --song ID|TITLE   start at this song (YouTube id, or part of the title)\n"
+                        "  --at SEC          start at this time\n"
+                        "  --notes FILE      where A writes notes (default: %s)\n"
+                        "  --mute            no sound\n"
+                        "  --shot FILE.png   render one frame (at --at, default 60 s) then exit\n",
+                        notesPath_.c_str());
             return 0;
         } else paths.push_back(a);
     }
-    if (paths.empty()) {
-        std::error_code ec;
-        fs::path exe = platform::executableDir();
-        for (fs::path p : {fs::path("audio"), exe / "audio", exe.parent_path() / "audio"})
-            if (fs::is_directory(p, ec)) { paths.push_back(p.string()); break; }
-    }
+    // No songs given: the default playlist (same as zentris).
+    if (paths.empty()) paths.push_back(DEFAULT_PLAYLIST);
     Library lib;
     lib.scan(paths);
     files_ = lib.files();
     const bool shot = !shotPath.empty();
+    if (shot && shotAt < 0) shotAt = 60;
+    int first = 0;
+    if (!song.empty()) {
+        std::string q = asciiFold(song);
+        std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+        first = -1;
+        for (size_t i = 0; i < files_.size() && first < 0; i++) {
+            std::string key = files_[i].substr(0, files_[i].find('\t'));
+            std::string title = isYoutubeEntry(files_[i]) ? youtubeEntryTitle(files_[i]) : fs::path(files_[i]).stem().string();
+            title = asciiFold(title);
+            std::transform(title.begin(), title.end(), title.begin(), ::tolower);
+            if (key == song || key == "ytdl:" + song || title.find(q) != std::string::npos) first = (int)i;
+        }
+        if (first < 0) {
+            std::fprintf(stderr, "[zenscope] no song matches \"%s\"; trying it as a YouTube id\n", song.c_str());
+            files_.insert(files_.begin(), youtubeEntryForId(song));
+            first = 0;
+        }
+    }
+    std::printf("[zenscope] notes: %s\n", notesPath_.c_str());
 
     if (!glfwInit()) return 1;
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -739,15 +954,19 @@ int Scope::run(int argc, char** argv) {
 
     audio_.init();
     audio_.setMuted(mute || shot);
-    load(0);
+    glfwSetWindowUserPointer(win_, this);
+    glfwSetCharCallback(win_, onChar);
+    glfwSetKeyCallback(win_, onKey);
+    load(first);
+    bool startSeek = shotAt >= 0;
 
-    bool prevKeys[512] = {};
+    bool prevKeys[512] = {}, typedLastFrame = false;
     bool prevMouse = false;
     while (!glfwWindowShouldClose(win_)) {
         glfwPollEvents();
         if (loading_.valid() && loading_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            onTrackReady(loading_.get());
             index_ = loadingIndex_;
+            onTrackReady(loading_.get());
             if (requested_ != loadingIndex_) load(requested_);
             // Download the neighbours ahead (YouTube) so N/P are quick.
             std::vector<std::string> ahead;
@@ -759,13 +978,20 @@ int Scope::run(int argc, char** argv) {
             if (shot) {
                 seekPreview_ = shotAt;
                 audio_.setPaused(true);
+            } else if (startSeek && track_) {
+                audio_.seek(shotAt);
+                startSeek = false;
             }
         }
+        // While a note is typed (and on the frame it closes), keys only go to the note. pressed() still runs
+        // for every key each frame, so a key held while typing is not seen as a new press afterwards.
+        const bool keysLive = !typing_ && !typedLastFrame;
+        typedLastFrame = typing_;
         auto pressed = [&](int k) {
             bool d = glfwGetKey(win_, k) == GLFW_PRESS;
             bool p = d && !prevKeys[k];
             prevKeys[k] = d;
-            return p;
+            return p && keysLive;
         };
         if (pressed(GLFW_KEY_ESCAPE)) break;
         if (pressed(GLFW_KEY_SPACE)) {

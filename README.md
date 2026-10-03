@@ -63,7 +63,7 @@ Other options: `--in-order` (play songs in order: folders alphabetically, playli
 
 ## zenscope: see what the game hears
 
-`./build/zenscope [songs or folders...]` plays a song and shows the analysis that drives the game:
+`./build/zenscope [songs or folders...]` (the default playlist when no song is given) plays a song and shows the analysis that drives the game:
 - a phase timebar with the scene levels (calm / mid / peak) and where the scene changes happen
 - the detected structure: intro, verse, build, chorus, drop, break, outro, with similar parts grouped
 - pulse zones, a 16-band spectrum, loudness, intensity and onsets, and bar lines
@@ -77,6 +77,16 @@ Space plays/pauses, Left/Right seek 5 s, Up/Down zoom the detail view, N/P chang
 1–4 or a click on a sample button plays that sample (over the song, or alone when paused).
 The SPEED buttons (top right) slow the song down to ×0.9 or ×0.5, tape-style (the pitch drops too);
 click the active one again to go back to normal speed.
+
+**Notes:** press A to write a note at the playhead (e.g. "the drop should start earlier here"); Enter saves it,
+Esc cancels (the song pauses while you type). Notes go to `annotations.jsonl` in the user data folder
+(`~/.local/share/zentris/` on Linux; `--notes FILE` to change it), one JSON object per line with the song, the time,
+the text and what the analysis said there (the phase and section, and the whole scene plan and structure).
+They show as cyan flags on the timeline, with their text in the detail view.
+`--song ID|TITLE` starts at a song of the playlist (a YouTube id or part of its title), `--at SEC` at a time, and
+`ytdl:<video id>` plays a single YouTube song. Playlist listings are cached (and refreshed in the background for the
+next run) and songs stay downloaded in the cache, so reopening an annotated song is instant and works offline.
+
 The game and zenscope share the same analysis and song plan code (`src/songplan.*`), so what you see is what the game uses.
 
 ## Controls
