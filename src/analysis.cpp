@@ -571,7 +571,8 @@ Analysis analyzeAudio(const std::vector<float>& mono, uint32_t sr) {
             // ---- Landing: a section that gets louder is heard where it lands, not where the old one stops.
             // Before a drop the old texture often stops a bar or two early (a gap, a bass cut, a "shhh"
             // riser): the new section starts on the first beat where both bass and loudness reach its own
-            // level, and hold there on the next beat.
+            // level, and hold there on the next beat. Likewise a section that gets quieter (a break) is
+            // heard when the sound drops out, not at the first change of texture.
             std::vector<float> beatBass(nb, 0.f), beatLoud(nb, 0.f);
             for (int i = 0; i + 1 < nb; i++) {
                 int a0 = std::clamp((int)(an.beats[i] / an.hop), 0, nFrames - 1);
@@ -588,7 +589,26 @@ Analysis analyzeAudio(const std::vector<float>& mono, uint32_t sr) {
             for (size_t k = 0; k < bounds.size(); k++) {
                 const int ib = beatIndex(bounds[k]);
                 const int ip = k > 0 ? beatIndex(bounds[k - 1]) : 0, in = k + 1 < bounds.size() ? beatIndex(bounds[k + 1]) : nb - 1;
-                if (beatIntensity(ib, in) - beatIntensity(ip, ib) < 0.05) continue; // not getting louder
+                const double step = beatIntensity(ib, in) - beatIntensity(ip, ib);
+                if (step <= -0.15) {
+                    // Getting quieter: the new section starts where the sound drops out, on the first of two
+                    // beats with the bass cut (below 60% of the old section's) or the loudness down (below
+                    // 75%); a single quiet beat is just a gap.
+                    std::vector<float> oLoud(beatLoud.begin() + std::max(ip, ib - 32), beatLoud.begin() + ib);
+                    std::vector<float> oBass(beatBass.begin() + std::max(ip, ib - 32), beatBass.begin() + ib);
+                    if (oLoud.size() < 8) continue;
+                    const float ol = 0.75f * percentile(oLoud, 0.5f), ob = 0.6f * percentile(oBass, 0.5f);
+                    auto out = [&](int i) { return beatLoud[i] < ol || beatBass[i] < ob; };
+                    for (int i = ib; i <= std::min(ib + 16, in - 8); i++) {
+                        if (!out(i) || !out(i + 1)) continue;
+                        for (double& e : eventBounds)
+                            if (std::fabs(e - bounds[k]) < 0.05) e = an.beats[i];
+                        bounds[k] = an.beats[i];
+                        break;
+                    }
+                    continue;
+                }
+                if (step < 0.05) continue; // not getting louder
                 // The new section's level, after its first 4 bars (the landing is at most that late).
                 std::vector<float> nBass(beatBass.begin() + std::min(in, ib + 16), beatBass.begin() + std::min(in, ib + 48));
                 std::vector<float> nLoud(beatLoud.begin() + std::min(in, ib + 16), beatLoud.begin() + std::min(in, ib + 48));
