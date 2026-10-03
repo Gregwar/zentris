@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -68,18 +69,20 @@ static std::string playlistUrl(const std::string& url) {
     return "https://www.youtube.com/playlist?list=" + id;
 }
 
-std::vector<std::string> resolveYoutube(const std::string& rawUrl) {
+// Runs yt-dlp to list a playlist / video; ok is false when yt-dlp is missing or fails.
+static std::vector<std::string> listYoutube(const std::string& url, bool quiet, bool& ok) {
     std::vector<std::string> out;
-    const std::string url = playlistUrl(rawUrl);
+    ok = false;
     std::string tool = ytdlp();
     if (tool.empty()) {
-        std::fprintf(stderr, "[youtube] yt-dlp not found: install it (e.g. `pipx install yt-dlp`) to play %s\n",
-                     url.c_str());
+        if (!quiet)
+            std::fprintf(stderr, "[youtube] yt-dlp not found: install it (e.g. `pipx install yt-dlp`) to play %s\n",
+                         url.c_str());
         return out;
     }
     std::string cmd = tool + " --flat-playlist --yes-playlist --no-warnings --print " + shellQuote("%(id)s\t%(title)s") +
                       " " + shellQuote(url);
-    std::printf("[youtube] listing %s ...\n", url.c_str());
+    if (!quiet) std::printf("[youtube] listing %s ...\n", url.c_str());
     FILE* p = platform::openRead(cmd);
     if (!p) return out;
     char line[2048];
@@ -93,12 +96,98 @@ std::vector<std::string> resolveYoutube(const std::string& rawUrl) {
         if (title == "[Private video]" || title == "[Deleted video]") continue;
         out.push_back("ytdl:" + id + "\t" + title);
     }
-    platform::closeRead(p);
+    ok = platform::closeRead(p) == 0 && !out.empty();
+    return out;
+}
+
+// Cached listings: <cache>/zentris/youtube/lists/<key>.tsv, one "id<TAB>title" per line.
+static fs::path listsDir() {
+    fs::path dir = fs::path(cacheDir()) / "lists";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    return dir;
+}
+
+// The value of a URL parameter (list=, v=), "" if absent or unsafe.
+static std::string urlParam(const std::string& url, const std::string& name) {
+    size_t p = url.find(name + "=");
+    while (p != std::string::npos && p > 0 && url[p - 1] != '?' && url[p - 1] != '&') p = url.find(name + "=", p + 1);
+    if (p == std::string::npos) return "";
+    std::string v;
+    for (size_t i = p + name.size() + 1; i < url.size() && url[i] != '&' && url[i] != '#'; i++) v += url[i];
+    return safeId(v) ? v : "";
+}
+
+static fs::path listCacheFile(const std::string& url) {
+    std::string key;
+    if (std::string l = urlParam(url, "list"); !l.empty()) key = "list-" + l;
+    else if (std::string v = urlParam(url, "v"); !v.empty()) key = "video-" + v;
+    else {
+        char b[32];
+        std::snprintf(b, sizeof(b), "url-%016llx", (unsigned long long)std::hash<std::string>{}(url));
+        key = b;
+    }
+    return listsDir() / (key + ".tsv");
+}
+
+static std::vector<std::string> readList(const fs::path& file) {
+    std::vector<std::string> out;
+    FILE* f = std::fopen(file.string().c_str(), "rb");
+    if (!f) return out;
+    char line[2048];
+    while (std::fgets(line, sizeof(line), f)) {
+        std::string s(line);
+        while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+        if (safeId(s.substr(0, s.find('\t')))) out.push_back("ytdl:" + s);
+    }
+    std::fclose(f);
+    return out;
+}
+
+// Written to a temporary file then renamed, so an exit mid-write never leaves a truncated list.
+static void writeList(const fs::path& file, const std::vector<std::string>& entries) {
+    fs::path tmp = file;
+    tmp += ".tmp";
+    FILE* f = std::fopen(tmp.string().c_str(), "wb");
+    if (!f) return;
+    for (const auto& e : entries) std::fprintf(f, "%s\n", e.substr(5).c_str());
+    std::fclose(f);
+    std::error_code ec;
+    fs::rename(tmp, file, ec);
+}
+
+std::vector<std::string> resolveYoutube(const std::string& rawUrl) {
+    const std::string url = playlistUrl(rawUrl);
+    const fs::path cached = listCacheFile(url);
+    std::vector<std::string> out = readList(cached);
+    bool ok = false;
+    if (!out.empty()) {
+        // Start at once from the cached listing; refresh it in the background for the next run.
+        std::printf("[youtube] %zu songs (cached list of %s, refreshing it for next time)\n", out.size(), url.c_str());
+        std::thread([url, cached] {
+            bool fresh = false;
+            auto list = listYoutube(url, true, fresh);
+            if (fresh) writeList(cached, list);
+        }).detach();
+        return out;
+    }
+    out = listYoutube(url, false, ok);
+    if (ok) writeList(cached, out);
     std::printf("[youtube] %zu songs\n", out.size());
     if (out.size() == 1 && url.find("list=") == std::string::npos)
         std::printf("[youtube] tip: this link is a single video. For a playlist, pass its list= link and put the URL\n"
                     "          in quotes: an unquoted '&' cuts the URL in the shell.\n");
     return out;
+}
+
+std::string youtubeEntryForId(const std::string& id) {
+    if (!safeId(id)) return "";
+    std::error_code ec;
+    for (auto& f : fs::directory_iterator(listsDir(), ec))
+        if (f.path().extension() == ".tsv")
+            for (auto& e : readList(f.path()))
+                if (e.compare(5, id.size() + 1, id + "\t") == 0) return e;
+    return "ytdl:" + id + "\t" + id;
 }
 
 static std::string entryId(const std::string& entry) {

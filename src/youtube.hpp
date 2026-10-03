@@ -11,8 +11,12 @@ bool isUrl(const std::string& s);
 bool isYoutubeEntry(const std::string& entry);
 std::string youtubeEntryTitle(const std::string& entry);
 
-// Expands a playlist / video URL into library entries (empty on failure; prints why).
+// Expands a playlist / video URL into library entries (empty on failure; prints why). Listings are
+// cached: a known URL starts at once from its cached list, refreshed in the background for the next run.
 std::vector<std::string> resolveYoutube(const std::string& url);
+
+// The library entry of a video id, with its title when a cached listing knows it (no network).
+std::string youtubeEntryForId(const std::string& id);
 
 // True if the entry's audio is already in the cache.
 bool isYoutubeCached(const std::string& entry);
