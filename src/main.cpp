@@ -31,6 +31,7 @@ struct Options {
     bool phaseShots = false;
     float shotTime = 25.f;
     uint64_t seed = 0;
+    std::string scene; // forced scene code (as shown in the corner), "" = random scenes
     int width = 1600, height = 900;
 };
 
@@ -41,7 +42,8 @@ static void usage() {
         "   playlist/video URLs work too)\n"
         "  --fullscreen         start fullscreen\n"
         "  --size WxH           window size (default 1600x900)\n"
-        "  --seed N             fixed scene seed (default: random each run)\n"
+        "  --seed N             fixed run seed (default: random each run)\n"
+        "  --scene CODE         show the scene with this code (shown in the bottom-left corner) for every song\n"
         "  --in-order           play songs in order (default: random order)\n"
         "  --autoplay           let the computer play\n"
         "  --mute               no sound\n"
@@ -60,6 +62,9 @@ private:
     void newScene(float seconds);
     void computePhases();
     Theme phaseTheme(int phase) const;
+    void makeBaseTheme(const Footprint& fp, uint64_t seed, bool generic);
+    std::string sceneCode() const;
+    void printScene() const;
     void handleEvents();
     void updateGravity(double songTime, float dt);
     void autoplay(float dt);
@@ -74,6 +79,7 @@ private:
     Input input_;
     Renderer R_;
     uint64_t runSeed_ = 0;
+    bool baseGeneric_ = false; // base scene made without a song footprint (the loading scene)
     uint64_t sceneCounter_ = 0;
     std::shared_ptr<Track> track_, nextTrack_;
     Theme baseTheme_;
@@ -132,22 +138,55 @@ void App::startTrack(std::shared_ptr<Track> t) {
     if (first) {
         // The scene shown (paused) while the first song loaded becomes its scene: it just starts.
         lastPhase_ = plan_.phaseAt(0.0);
+        if (!opt_.scene.empty()) { // a forced scene needs the song's footprint (unless it is a 'g' code)
+            makeBaseTheme(track_->analysis.fp, 0, false);
+            R_.setTheme(phaseTheme(lastPhase_), 0.01f);
+        }
     } else {
-        baseTheme_ = generateTheme(track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_));
+        makeBaseTheme(track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_), false);
         R_.setTheme(phaseTheme(0), 3.5f, true, 0.f, pickWipe(3));
     }
     sceneNameTimer_ = 8.f;
-    std::printf("[app] scene: %s\n", baseTheme_.name.c_str());
+    printScene();
     lib_.prefetch(runSeed_ + sceneCounter_ * 7919);
 }
 
 void App::newScene(float seconds) {
     sceneCounter_++;
     Footprint fp = track_ ? track_->analysis.fp : Footprint{};
+    // A new random scene, even with --scene (Y is how to leave the forced one).
     baseTheme_ = generateTheme(fp, runSeed_ ^ splitmix64(sceneCounter_ * 0x51ed27ull));
+    baseGeneric_ = !track_;
     R_.setTheme(phaseTheme(lastPhase_), seconds, true, 0.f, pickWipe(3));
     sceneNameTimer_ = 6.f;
-    std::printf("[app] scene: %s\n", baseTheme_.name.c_str());
+    printScene();
+}
+
+// Scenes depend on a seed and on the song's footprint. --scene CODE replaces the seed; a trailing 'g' marks
+// a scene made without a footprint (the loading scene, kept as the first song's scene), so the code always
+// gives back the same scene for the same song.
+void App::makeBaseTheme(const Footprint& fp, uint64_t seed, bool generic) {
+    if (!opt_.scene.empty()) {
+        std::string code = opt_.scene;
+        generic = !code.empty() && (code.back() == 'g' || code.back() == 'G');
+        if (generic) code.pop_back();
+        seed = std::strtoull(code.c_str(), nullptr, 16);
+    }
+    baseGeneric_ = generic;
+    baseTheme_ = generateTheme(generic ? Footprint{} : fp, seed);
+}
+
+// Prints the scene and the command line that shows it again (same scene code, same song).
+void App::printScene() const {
+    std::printf("[app] scene: %s\n[app] same scene: zentris --scene %s", baseTheme_.name.c_str(), sceneCode().c_str());
+    if (track_) std::printf(" %s", platform::quoteArg(track_->path).c_str());
+    std::printf("\n");
+}
+
+std::string App::sceneCode() const {
+    char b[24];
+    std::snprintf(b, sizeof(b), "%llx%s", (unsigned long long)baseTheme_.seed, baseGeneric_ ? "g" : "");
+    return b;
 }
 
 void App::computePhases() {
@@ -288,7 +327,7 @@ std::vector<HudText> App::buildHud(float dt) {
         const Segment& sg = track_->analysis.segments[track_->analysis.segmentAt(songTime_)];
         hud.push_back({segmentName(sg.kind), 28 * s, h - 60.f * s, 1.3f * s, 0.3f, true});
     }
-    hud.push_back({R_.targetTheme().name, 28 * s, h - 40.f * s, 1.3f * s,
+    hud.push_back({R_.targetTheme().name + "  #" + sceneCode(), 28 * s, h - 40.f * s, 1.3f * s,
                    0.12f + 0.4f * smoothstepf(0, 2, sceneNameTimer_)});
 
     // Score panel under the hold slot, labels above previews.
@@ -451,7 +490,7 @@ int App::run() {
 
     game_.reset(runSeed_);
     wipeRng_ = Rng(runSeed_ ^ 0x77195EEDull);
-    baseTheme_ = generateTheme(Footprint{}, runSeed_);
+    makeBaseTheme(Footprint{}, runSeed_, true);
     R_.setTheme(baseTheme_, 0.01f);
 
     double last = glfwGetTime();
@@ -775,6 +814,7 @@ int main(int argc, char** argv) {
         else if (a == "--fullscreen") o.fullscreen = true;
         else if (a == "--hidden") o.hidden = true;
         else if (a == "--seed" && i + 1 < argc) o.seed = std::stoull(argv[++i]);
+        else if (a == "--scene" && i + 1 < argc) o.scene = argv[++i];
         else if (a == "--size" && i + 1 < argc) std::sscanf(argv[++i], "%dx%d", &o.width, &o.height);
         else if (a == "--shots" && i + 2 < argc) { o.shotPrefix = argv[++i]; o.shotCount = std::atoi(argv[++i]); }
         else if (a == "--phase-shots" && i + 1 < argc) { o.shotPrefix = argv[++i]; o.shotCount = 99; o.phaseShots = true; }

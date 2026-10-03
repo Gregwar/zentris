@@ -58,7 +58,7 @@ Node.js, and Node.js is picked up automatically). Songs are downloaded when queu
 ./build/zenscope "https://www.youtube.com/watch?v=..."
 ```
 
-Other options: `--in-order` (play songs in order: folders alphabetically, playlists in their order; the default is a random order), `--seed N` (repeat a scene), `--autoplay`, `--mute`, `--size WxH`,
+Other options: `--in-order` (play songs in order: folders alphabetically, playlists in their order; the default is a random order), `--seed N` (repeat a run), `--scene CODE` (show again the scene whose code is in the bottom-left corner; the terminal prints the full command, with the song), `--autoplay`, `--mute`, `--size WxH`,
 `--shots PREFIX N` (renders N screenshots of different scenes and exits), `--phase-shots PREFIX` (one screenshot per scene level of a song).
 
 ## zenscope: see what the game hears
