@@ -208,7 +208,7 @@ void Game::hardDrop() {
     for (auto& q : c) ev.cells.push_back({q[0], q[1], cur_.type});
     events_.push_back(ev);
     visY_ = (float)cur_.y;
-    lockPiece();
+    lockPiece(true);
 }
 
 void Game::hold() {
@@ -236,13 +236,13 @@ void Game::gravityStep() {
     if (tryPlace(p)) onMoved();
 }
 
-void Game::lockPiece() {
+void Game::lockPiece(bool dropped) {
     int c[4][2];
     pieceCells(cur_, c);
     GameEvent lockEv{GameEvent::Lock};
     float mx = 0;
     for (auto& q : c) {
-        if (q[1] >= 0) board_[q[1]][q[0]] = Cell{(int8_t)cur_.type, 1.f};
+        if (q[1] >= 0) board_[q[1]][q[0]] = Cell{(int8_t)cur_.type, 1.f, dropped};
         lockEv.cells.push_back({q[0], q[1], cur_.type});
         mx += q[0];
     }

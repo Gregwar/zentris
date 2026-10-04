@@ -13,6 +13,7 @@ enum PieceType { I = 0, O, T, S, Z, J, L, PIECE_COUNT };
 struct Cell {
     int8_t type = -1;   // -1 empty, else PieceType
     float flash = 0.f;  // 1 when the cell locks, down to 0 over Game::LOCK_FX_SECONDS (lock effects)
+    bool dropped = false; // locked by a hard drop (an impact), not after resting through the lock delay
 };
 
 struct GameEvent {
@@ -120,7 +121,7 @@ private:
     static constexpr int MAX_RESETS = 15;
 
     void spawn(int type);
-    void lockPiece();
+    void lockPiece(bool dropped = false);
     int drawFromBag();
     void onMoved();
     bool tryPlace(const Piece& p);

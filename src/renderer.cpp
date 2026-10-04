@@ -821,8 +821,8 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
             switch (t.lockEffect) {
             case LE_POP: fl = std::max(0.f, 0.35f - 0.9f * age); sc = vec3(1.f + 0.35f * fl); break; // short flash and pop
             case LE_AFTERGLOW: { float f = fade(3.f); fl = 1.1f * f * f; break; }                // bright, cooling slowly
-            case LE_BOUNCE:                                                                         // lands with small bounces
-                dp.y = 0.32f * std::exp(-6.f * k) * std::fabs(std::sin(k * 16.f)) * (a > 0);
+            case LE_BOUNCE: // lands with small bounces (only from a hard drop: after resting, a bounce looks off)
+                dp.y = 0.32f * std::exp(-6.f * k) * std::fabs(std::sin(k * 16.f)) * (a > 0 && c.dropped);
                 fl = 0.3f * a * a * a;
                 break;
             case LE_SQUASH: { // squashed by the landing, wobbling back
