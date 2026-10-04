@@ -796,9 +796,15 @@ vec3 stylePos(vec4 s, float t, out float bright, out float cm, out float sz) {
         float ring = floor(s.y * 6.0);
         float r = 6.0 + fract(ring / 6.0 + t * 0.15) * 60.0;
         float a = s.x * TAU;
-        bright = (1.0 - smoothstep(20.0, 66.0, r)) * (0.5 + 0.5 * uBeat);
-        cm = r / 66.0;
-        return vec3(cos(a) * r, sin(a) * r * 0.85, -25.0);
+        float ph = ring * 2.17;
+        // Organic rings: a slowly turning wobble, a fuzzy width and a brightness that comes and goes along them.
+        float wob = 1.0 + 0.07 * sin(3.0 * a + ph + t * 0.35) + 0.04 * sin(5.0 * a - ph * 1.3 - t * 0.5);
+        float rr = r * wob + (s.z - 0.5) * (1.0 + r * 0.05) + (s.w - 0.5) * (s.w - 0.5) * 6.0;
+        float along = 0.35 + 0.65 * smoothstep(-0.4, 0.6, sin(2.0 * a + ph * 1.7 + t * 0.25) + 0.5 * sin(7.0 * a - ph));
+        bright = (1.0 - smoothstep(20.0, 66.0, r)) * (0.5 + 0.5 * uBeat) * along * (0.6 + 0.4 * s.z);
+        cm = r / 66.0 + 0.1 * sin(a * 2.0 + ph);
+        vec2 c = vec2(sin(ph), cos(ph * 1.3)) * r * 0.04;
+        return vec3(c.x + cos(a) * rr, c.y + sin(a) * rr * 0.85, -25.0);
     } else if (uStyle == 32) { // plasma field: grid colored by interfering waves
         float N = floor(sqrt(uCount));
         float i = float(gl_InstanceID);
