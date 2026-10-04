@@ -57,7 +57,6 @@ private:
     void randomScene();
     void rebuild(float seconds);
     void change(int row, int dir);
-    void reset(int row);
     void togglePin(int row);
     void toggleEnabled(int row);
     void saveOptions();
@@ -214,12 +213,6 @@ void SceneViewer::saveOptions() {
     std::printf("  saved in %s (rebuild zentris to use it in the game)\n", path.c_str());
     toastText_ = "SAVED: REBUILD THE GAME TO USE IT";
     toast_ = 3.f;
-}
-
-void SceneViewer::reset(int row) {
-    if (row < ROW_FIELDS || ov_.v[row - ROW_FIELDS] < 0) return;
-    ov_.v[row - ROW_FIELDS] = -1;
-    rebuild(0.6f);
 }
 
 // Menu geometry (pixels): title, then one line per row.
@@ -453,7 +446,6 @@ void SceneViewer::onKey(int key, int action, int mods) {
     case GLFW_KEY_RIGHT: change(sel_, 1); break;
     case GLFW_KEY_SPACE: if (action == GLFW_PRESS) togglePin(sel_); break;
     case GLFW_KEY_X: if (action == GLFW_PRESS) toggleEnabled(sel_); break;
-    case GLFW_KEY_BACKSPACE: case GLFW_KEY_DELETE: reset(sel_); break;
     case GLFW_KEY_C:
         if (action == GLFW_PRESS && ov_.any()) { ov_ = SceneOverrides{}; rebuild(0.6f); }
         break;
@@ -528,7 +520,7 @@ void SceneViewer::onMouse(int button, int action) {
     }
     if (button == GLFW_MOUSE_BUTTON_LEFT) change(hover_, 1);
     else if (button == GLFW_MOUSE_BUTTON_RIGHT) change(hover_, -1);
-    else if (button == GLFW_MOUSE_BUTTON_MIDDLE) reset(hover_);
+    else if (button == GLFW_MOUSE_BUTTON_MIDDLE) togglePin(hover_);
 }
 
 void SceneViewer::onScroll(double dy) {
