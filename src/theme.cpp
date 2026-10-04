@@ -428,7 +428,7 @@ void resolvePalette(Theme& t, float hueShift) {
         t.text = ok(0.3f, 0.03f, h);
         t.partA = ok(0.6f, C * 0.9f, avoidMud(h, 0.6f));
         t.partB = ok(0.68f, 0.1f, avoidMud(accentH + 0.5f, 0.6f));
-        t.partC = ok(0.99f, 0.01f, bh);
+        t.partC = ok(0.62f, 0.1f, avoidMud(bh + 0.4f, 0.62f)); // tinted: near-white vanishes into the light background
         t.pale = 1;
     }
     t.shadowTint = ok(0.5f, 0.12f, h + PI + r.range(-0.8f, 0.8f));

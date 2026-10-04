@@ -2375,6 +2375,9 @@ void main() {
         m = (1.0 - smoothstep(0.1, 0.2, bar)) * (1.0 - smoothstep(0.6, 0.8, max(abs(q.x), abs(q.y))));
     }
     float a = clamp(m * vAlpha * uWeight, 0.0, 1.5);
+    // On pale scenes a faint dot darkens a light background far less visibly than it lights a dark one (the eye
+    // is much less sensitive to small steps near white): faint coverage builds up faster, opaque stays opaque.
+    a = mix(a, 1.0 - exp(-3.0 * a), uPale);
     if (a < 0.002) discard;
     // Premultiplied output: alpha = 0 means purely additive (dark themes), pale themes blend normally.
     fragColor = vec4(vCol * a, min(a, 1.0) * uPale);
