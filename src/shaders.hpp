@@ -1154,10 +1154,13 @@ vec4 shade(int style, vec3 col) {
     } else if (style == 7) { // split two-tone
         float tone = smoothstep(-aa, aa, uv.x + uv.y);
         rgb = col * mix(0.4, 0.95, tone) * lam + col * edge * 0.3 * em + vec3(spec) * 0.2;
-    } else if (style == 8) { // holographic scanlines
-        float stripes = 0.5 + 0.5 * sin(vWorld.y * 16.0 - uTime * 2.0);
-        rgb = col * (0.1 + 0.5 * stripes * em) + col * edgeGlow * em * 0.8;
-        a = mix(0.45, 1.0, max(edge, stripes * 0.5));
+    } else if (style == 8) { // holographic foil: two close tones split by soft-edged diagonals drifting across the stack
+        float d = (vWorld.x + vWorld.y) * 0.5 - uTime * 0.1;
+        float f = fract(d), w = fwidth(d) * 1.2;
+        float b = smoothstep(0.5 - w, 0.5 + w, f) * (1.0 - smoothstep(1.0 - w, 1.0, f));
+        rgb = col * mix(0.62, 0.8, b) * (0.7 + 0.3 * lam) * (0.75 + 0.35 * em);
+        rgb += col * edgeGlow * em * 0.5 + vec3(spec) * 0.15;
+        a = mix(0.9, 1.0, edge);
     } else if (style == 9) { // lit gradient (bright top, deep bottom)
         float g = clamp(0.5 + 0.5 * (vWorld.y - floor(vWorld.y + 0.5)) * 2.0, 0.0, 1.0);
         rgb = col * mix(0.3, 1.05, g) * (0.5 + 0.5 * lam) + col * edge * 0.25 * em;
