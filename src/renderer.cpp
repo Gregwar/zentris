@@ -822,7 +822,7 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
         case FR_GRID:
             for (int y = 0; y <= (int)BOARD_H; y++)
                 for (int x = 0; x <= (int)BOARD_W; x++)
-                    bar({x - BOARD_W * 0.5f, y - BOARD_H * 0.5f, -0.58f}, {0.08f, 0.08f, 0.01f}, fc, fa * 0.25f); // faint: only a hint of the cells
+                    bar({x - BOARD_W * 0.5f, y - BOARD_H * 0.5f, -0.58f}, {0.07f, 0.07f, 0.01f}, fc, fa * 0.1f); // faint: only a hint of the cells
             break;
         case FR_PILLARS:
             bar({-halfW, 0, 0}, {th * 0.7f, 90.f, th}, fc, fa * 0.8f);
