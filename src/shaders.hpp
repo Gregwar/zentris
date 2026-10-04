@@ -1251,7 +1251,7 @@ vec3 stylePos(vec4 s, float t, out float bright, out float cm, out float sz) {
         sz = 0.5 + s.w;
         return vec3(x, y, z);
     } else if (uStyle == 5) { // flowing streams
-        float K = 3.0 + floor(uP.x * 6.0);
+        float K = 2.0 + floor(uP.x * 3.0); // 2 to 4 ribbons: more of them cover the whole screen
         float k = floor(s.x * K);
         float u = fract(s.y + t * 0.025 * (0.6 + fract(k * 0.37)));
         float ph = k * 1.7 + uP.y * 6.0;
