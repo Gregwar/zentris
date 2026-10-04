@@ -58,6 +58,12 @@ if(MSVC)
   target_compile_definitions(zencore PUBLIC _CRT_SECURE_NO_WARNINGS NOMINMAX _USE_MATH_DEFINES)
 endif()
 
+# Scene options switched off (src/scene-options.txt, edited with zenscene): built into the binaries as a string.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/scene-options.txt)
+file(READ ${CMAKE_SOURCE_DIR}/src/scene-options.txt ZEN_SCENE_OPTIONS)
+file(WRITE ${CMAKE_BINARY_DIR}/generated/scene_options.inc.tmp "R\"ZENOPT(${ZEN_SCENE_OPTIONS})ZENOPT\"\n")
+configure_file(${CMAKE_BINARY_DIR}/generated/scene_options.inc.tmp ${CMAKE_BINARY_DIR}/generated/scene_options.inc COPYONLY)
+
 # The game.
 add_executable(zentris
   src/main.cpp
@@ -68,6 +74,7 @@ add_executable(zentris
   src/specialfx.cpp
 )
 target_link_libraries(zentris PRIVATE zencore glfw glad)
+target_include_directories(zentris PRIVATE ${CMAKE_BINARY_DIR}/generated)
 # Gamepad mappings (SDL_GameControllerDB): looked up next to the executable, then in the sources.
 target_compile_definitions(zentris PRIVATE ZEN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_custom_command(TARGET zentris POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -77,7 +84,20 @@ add_custom_command(TARGET zentris POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if
 add_executable(zenscope src/zenscope.cpp)
 target_link_libraries(zenscope PRIVATE zencore glfw glad)
 
-foreach(t zencore zentris zenscope)
+# zenscene: a scene viewer; the computer plays while a menu adjusts the scene and picks the song phase.
+add_executable(zenscene
+  src/zenscene.cpp
+  src/game.cpp
+  src/theme.cpp
+  src/renderer.cpp
+  src/specialfx.cpp
+)
+target_link_libraries(zenscene PRIVATE zencore glfw glad)
+target_include_directories(zenscene PRIVATE ${CMAKE_BINARY_DIR}/generated)
+# Its "send to dashboard" runs tools/scenereview.py from the sources.
+target_compile_definitions(zenscene PRIVATE ZEN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+foreach(t zencore zentris zenscope zenscene)
   target_compile_definitions(${t} PRIVATE GLFW_INCLUDE_NONE)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${t} PRIVATE -Wall -Wno-unused-function -Wno-missing-field-initializers)
@@ -86,6 +106,6 @@ endforeach()
 
 # Python wheel (scikit-build-core): the binaries and data go inside the zentris package.
 if(SKBUILD)
-  install(TARGETS zentris zenscope RUNTIME DESTINATION zentris/bin)
+  install(TARGETS zentris zenscope zenscene RUNTIME DESTINATION zentris/bin)
   install(FILES third_party/gamecontrollerdb.txt DESTINATION zentris/bin)
 endif()

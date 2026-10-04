@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 namespace {
 
@@ -42,18 +43,60 @@ float avoidMud(float h, float L) {
 }
 
 
-int pickBackground(Rng& r, const Footprint& fp, int mood) {
+// ---- Pools. Each pool's first items (LEGACY) are drawn from the scene's stream exactly as they always were, so scene
+// codes keep their scenes; items added later come from a separate stream `x` (always the same number of draws), only
+// when enabled. A pick that lands on a disabled item moves on to the next enabled one, without drawing again.
+constexpr int MOOD_LEGACY = 3, SCHEME_LEGACY = 8, BG_LEGACY = 24, PS_LEGACY = 44, SURF_LEGACY = 18, BS_LEGACY = 22,
+              MESH_LEGACY = 4, FR_LEGACY = 18, LE_LEGACY = 11;
+
+// Rng::weighted over the first n weights (the same draw as weighted() on an array of n).
+int weightedPrefix(Rng& r, const float* w, int n) {
+    float sum = 0;
+    for (int i = 0; i < n; i++) sum += std::max(0.f, w[i]);
+    float u = r.uniform() * sum;
+    for (int i = 0; i < n; i++) {
+        u -= std::max(0.f, w[i]);
+        if (u <= 0) return i;
+    }
+    return n - 1;
+}
+
+// v: the legacy pick. offset: menu value of item 0 (1 for particles, whose menu value 0 is "none").
+int poolChoice(int v, Rng& x, const float* w, int n, int legacy, int field, int offset = 0) {
+    auto on = [&](int i) { return w[i] > 0 && sceneOptionEnabled(field, i + offset); };
+    float wo = 0, wn = 0;
+    for (int i = 0; i < n; i++) (i < legacy ? wo : wn) += on(i) ? w[i] : 0.f;
+    const float q = x.uniform(), q2 = x.uniform();
+    if (wn > 0 && q * (wo + wn) < wn) { // one of the later items
+        float u = q2 * wn;
+        for (int i = legacy; i < n; i++)
+            if (on(i) && (u -= w[i]) <= 0) return i;
+    }
+    if (sceneOptionEnabled(field, v + offset)) return v;
+    for (int k = 1; k < n; k++) {
+        const int c = (v + k) % n;
+        if (on(c)) return c;
+    }
+    return v; // everything disabled: keep the pick
+}
+
+template <int N>
+int pickPool(Rng& r, Rng& x, const float (&w)[N], int legacy, int field, int offset = 0) {
+    return poolChoice(weightedPrefix(r, w, legacy), x, w, N, legacy, field, offset);
+}
+
+int pickBackground(Rng& r, Rng& x, const Footprint& fp, int mood) {
     float w[BG_COUNT] = {2.f, 1.8f, mood == 2 ? 0.4f : 1.2f, mood == 2 ? 0.f : 1.5f,
                          1.0f, mood == 2 ? 0.f : 1.0f + fp.airWeight, 1.0f, 1.0f,
                          mood == 2 ? 0.3f : 0.8f + 0.8f * fp.bassWeight, 1.0f, 0.9f, mood == 2 ? 0.f : 1.2f,
                          1.2f, 1.0f, 1.0f, 0.7f, 1.0f, 0.9f, 0.9f, mood == 2 ? 0.4f : 1.0f,
                          mood == 2 ? 0.5f : 1.0f, 0.9f, 1.0f, 1.0f};
-    return r.weighted(w);
+    return pickPool(r, x, w, BG_LEGACY, SF_BG);
 }
 
 float tempoNorm(const Footprint& fp) { return saturate((fp.bpm - 70.f) / 90.f); }
 
-int pickParticleStyle(Rng& r, const Footprint& fp, int mood, int avoid) {
+int pickParticleStyle(Rng& r, Rng& x, const Footprint& fp, int mood, int avoid) {
     const float bass = fp.bassWeight, air = fp.airWeight, bpmN = tempoNorm(fp);
     float w[PS_COUNT] = {
         1.2f + 0.5f * (1 - bpmN),         // galaxy
@@ -102,7 +145,7 @@ int pickParticleStyle(Rng& r, const Footprint& fp, int mood, int avoid) {
         0.7f + 0.5f * (1 - bpmN),         // sea
     };
     if (avoid >= 0) w[avoid] = 0;
-    return r.weighted(w);
+    return pickPool(r, x, w, PS_LEGACY, SF_PART1, 1);
 }
 
 int pickShape(Rng& r, int style) {
@@ -272,8 +315,13 @@ Theme generateTheme(const Footprint& song, uint64_t seed) {
     return generateFrom(sceneFootprint(song), seed ^ splitmix64(song.hash) ^ splitmix64(0), !song.hash);
 }
 
-Theme themeFromCode(const std::string& code, bool* ok) {
-    std::string c = code;
+static bool parseOverrides(const std::string& s, SceneOverrides& o);
+
+Theme themeFromCode(const std::string& code, bool* ok, Footprint* fpOut, SceneOverrides* ovOut) {
+    const size_t us = code.find('_');
+    std::string c = code.substr(0, us);
+    SceneOverrides ov;
+    const bool ovValid = us == std::string::npos || parseOverrides(code.substr(us + 1), ov);
     const bool generic = !c.empty() && (c.back() == 'g' || c.back() == 'G');
     if (generic) c.pop_back();
     const size_t dash = c.find('-');
@@ -300,8 +348,12 @@ Theme themeFromCode(const std::string& code, bool* ok) {
     } else {
         valid = valid && dash == std::string::npos;
     }
-    if (ok) *ok = valid;
-    return generateFrom(fp, seed, generic);
+    if (ok) *ok = valid && ovValid;
+    if (fpOut) *fpOut = fp;
+    if (ovOut) *ovOut = ov;
+    Theme t = generateFrom(fp, seed, generic);
+    if (ov.any()) applyOverrides(t, fp, ov);
+    return t;
 }
 
 static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
@@ -319,6 +371,7 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
         t.code = b;
     }
     Rng r(seed ^ splitmix64(0));
+    Rng x(seed ^ 0xADDED00F5ull); // later pool items (see pickPool)
     const float bpmN = saturate((fp.bpm - 70.f) / 90.f); // 0 slow .. 1 fast
 
     // ---- Palette: key on the circle of fifths gives the base hue (synesthetic mapping).
@@ -326,9 +379,9 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
     t.pal.hue = fifths / 12.f * TAU + r.range(-0.6f, 0.6f);
     float moodW[3] = {0.62f - 0.25f * fp.brightness + (fp.minor ? 0.12f : 0.f),
                       0.2f + 0.2f * fp.brightness, 0.08f + 0.22f * fp.brightness * (1.f - 0.5f * fp.bassWeight)};
-    t.pal.mood = (float)r.weighted(moodW);
+    t.pal.mood = (float)pickPool(r, x, moodW, MOOD_LEGACY, SF_MOOD);
     float schemeW[8] = {3.f, 2.f, 1.2f, 1.3f, 2.6f, 0.8f + fp.brightness, 1.5f, 0.8f + (t.pal.mood == 0 ? 0.6f : 0.f)};
-    t.pal.scheme = r.weighted(schemeW);
+    t.pal.scheme = pickPool(r, x, schemeW, SCHEME_LEGACY, SF_SCHEME);
     t.pal.chroma = r.range(0.11f, 0.2f) * (fp.minor ? 0.9f : 1.f) * (0.9f + 0.2f * fp.dynamics);
     t.pal.spread = r.range(0.15f, 0.5f);
     t.pal.bgHueOffset = r.chance(0.6f) ? r.range(-0.4f, 0.4f) : r.range(2.2f, 4.0f);
@@ -338,11 +391,11 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
     resolvePalette(t, 0);
     const int mood = (int)t.pal.mood;
 
-    t.bgStyle = pickBackground(r, fp, mood);
-    makeLayer(r, fp, mood, t.layers[0], pickParticleStyle(r, fp, mood, -1), false);
+    t.bgStyle = pickBackground(r, x, fp, mood);
+    makeLayer(r, fp, mood, t.layers[0], pickParticleStyle(r, x, fp, mood, -1), false);
     t.layerCount = 1;
     if (r.chance(0.55f)) {
-        makeLayer(r, fp, mood, t.layers[1], pickParticleStyle(r, fp, mood, t.layers[0].style), true);
+        makeLayer(r, fp, mood, t.layers[1], pickParticleStyle(r, x, fp, mood, t.layers[0].style), true);
         t.layerCount = 2;
     }
     // Continuous surface layer in about two thirds of the scenes; some of those drop particles entirely.
@@ -355,7 +408,7 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
         for (int i = 0; i < t.layerCount; i++) // particle floors too
             landscape |= t.layers[i].style == PS_WAVES || t.layers[i].style == PS_DUNES || t.layers[i].style == PS_SEA;
         if (landscape) sw[13] = sw[14] = sw[15] = sw[16] = 0.f;
-        t.surfStyle = r.weighted(sw);
+        t.surfStyle = pickPool(r, x, sw, SURF_LEGACY, SF_SURFACE);
         t.surfAmt = mood == 2 ? r.range(0.25f, 0.45f) : r.range(0.3f, 0.6f);
         t.surfScale = r.range(0.7f, 1.5f);
         if (r.chance(0.3f)) t.layerCount = 0;
@@ -368,13 +421,13 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
                              1.3f, 0.9f, 1.3f, 1.0f, mood == 2 ? 0.4f : 1.1f, 1.1f, 1.0f,
                              mood == 2 ? 0.4f : 1.1f, 0.9f, 1.0f, 0.9f, 0.9f, 1.1f, 0.9f, 0.9f,
                              mood == 2 ? 0.5f : 1.0f, 0.8f, 0.9f};
-        t.blockStyle = r.weighted(w);
+        t.blockStyle = pickPool(r, x, w, BS_LEGACY, SF_BLOCK);
         float mw[MESH_COUNT] = {5.5f, 2.5f, 1.0f, 0.5f}; // gems read less clearly as pieces: rarer
         const int faceStyles[] = {BS_DOTS, BS_INSET, BS_SPLIT, BS_DOUBLE, BS_CIRCUIT, BS_CHECKER, BS_RINGS, BS_PIXEL, BS_HATCH,
                                   BS_STRIPES};
         for (int fsIdx : faceStyles)
             if (t.blockStyle == fsIdx) mw[2] = mw[3] = 0; // face patterns need flat faces
-        t.blockMesh = r.weighted(mw);
+        t.blockMesh = pickPool(r, x, mw, MESH_LEGACY, SF_MESH);
         t.roundness = r.range(3.f, 7.f);
         t.blockScale = r.range(0.8f, 0.96f);
         if (t.blockMesh == MESH_SPHERE) t.blockScale = r.range(0.85f, 1.0f);
@@ -419,7 +472,7 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
     {
         float w[FR_COUNT] = {2.f, 1.5f, 1.5f, 1.2f, 1.0f, 0.8f, 1.0f, 1.0f, 1.0f,
                              1.0f, 1.0f, 1.0f, 1.0f, 0.8f, 0.8f, 1.0f, 1.0f, 0.8f};
-        t.frameStyle = r.weighted(w);
+        t.frameStyle = pickPool(r, x, w, FR_LEGACY, SF_FRAME);
         t.frameAlpha = r.range(0.35f, 0.9f);
     }
 
@@ -456,7 +509,11 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
     }
 
     // ---- Lock effect: from its own random stream, so adding it changed no other choice of existing scenes.
-    t.lockEffect = (int)(Rng(seed ^ 0x10CCEFFEC7ull).next() % LE_COUNT);
+    {
+        float lw[LE_COUNT];
+        for (float& v : lw) v = 1.f;
+        t.lockEffect = poolChoice((int)(Rng(seed ^ 0x10CCEFFEC7ull).next() % LE_LEGACY), x, lw, LE_COUNT, LE_LEGACY, SF_LOCK);
+    }
 
     t.name = themeName(t);
     return t;
@@ -473,6 +530,7 @@ Theme evolveTheme(const Theme& base, const Footprint& fp, int level, float energ
     if (level == 1) return base;
     Theme t = base;
     Rng r(base.seed ^ splitmix64(0xE7011EULL + (uint64_t)level));
+    Rng x(base.seed ^ splitmix64(0xADDE7011EULL + (uint64_t)level));
     const int mood = (int)std::lround(base.pal.mood);
     const float e = saturate(energy);
     if (level <= 0) {
@@ -498,12 +556,12 @@ Theme evolveTheme(const Theme& base, const Footprint& fp, int level, float energ
         t.pal.bgChroma = mood == 2 ? std::min(0.06f, base.pal.bgChroma * 1.3f + 0.01f)
                                    : std::min(0.14f, base.pal.bgChroma * 1.8f + 0.02f);
         int avoid = base.layers[0].style;
-        int st = pickParticleStyle(r, fp, mood, avoid);
-        if (base.layerCount > 1 && st == base.layers[1].style) st = pickParticleStyle(r, fp, mood, avoid);
+        int st = pickParticleStyle(r, x, fp, mood, avoid);
+        if (base.layerCount > 1 && st == base.layers[1].style) st = pickParticleStyle(r, x, fp, mood, avoid);
         // No particle floor under a flat tiling surface (voronoi, water, facets, hexes).
         auto floorStyle = [](int s) { return s == PS_WAVES || s == PS_DUNES || s == PS_SEA; };
         for (int k = 0; k < 8 && base.surfStyle >= 13 && base.surfStyle <= 16 && floorStyle(st); k++)
-            st = pickParticleStyle(r, fp, mood, avoid);
+            st = pickParticleStyle(r, x, fp, mood, avoid);
         const int slot = base.layerCount == 0 ? 0 : 1;
         makeLayer(r, fp, mood, t.layers[slot], st, true);
         t.layers[slot].count = std::min(1.f, t.layers[slot].count * 1.6f);
@@ -572,4 +630,259 @@ Theme blendThemes(const Theme& a, const Theme& b, float t) {
     r.bassReact = L(a.bassReact, b.bassReact);
     r.highReact = L(a.highReact, b.highReact);
     return r;
+}
+
+// ---- Scene adjustments (zenscene). They are applied after generation, so pinning one choice never changes the
+// others: the random draws of the base scene stay the same.
+namespace {
+
+const char SF_KEYS[SF_COUNT] = {'m', 's', 'h', 'g', 'p', 'q', 'f', 'b', 'k', 'r', 'l'};
+const char* SF_NAMES[SF_COUNT] = {"MOOD", "PALETTE", "HUE", "BACKGROUND", "PARTICLES", "PARTICLES 2", "SURFACE",
+                                  "BLOCKS", "SHAPE", "FRAME", "LOCK EFFECT"};
+const char* SCHEME_NAMES[8] = {"ANALOGOUS", "COMPLEMENTARY", "TRIADIC", "MONOCHROME", "DUOTONE", "PASTEL RAINBOW",
+                               "SPLIT COMPLEMENT", "INK + ACCENT"};
+const char* FR_NAMES[FR_COUNT] = {"OUTLINE", "CORNERS", "WELL", "FLOOR", "GRID", "NONE", "PILLARS", "DOUBLE", "DOTTED",
+                                  "GLOW BASE", "TOP + BOTTOM", "TICKS", "SIDE FADE", "UNDERLINE", "CORNER DOTS",
+                                  "RAILS", "DASHED", "DOT PILLARS"};
+constexpr int HUE_STEPS = 24;
+
+// v from the range [a0, a1] to the same position in [b0, b1].
+float remap(float v, float a0, float a1, float b0, float b1) { return b0 + saturate((v - a0) / (a1 - a0)) * (b1 - b0); }
+
+} // namespace
+
+const char* sceneFieldName(int f) { return f >= 0 && f < SF_COUNT ? SF_NAMES[f] : "?"; }
+
+int sceneFieldValues(int f) {
+    switch (f) {
+    case SF_MOOD: return 3;
+    case SF_SCHEME: return 8;
+    case SF_HUE: return HUE_STEPS;
+    case SF_BG: return BG_COUNT;
+    case SF_PART1: case SF_PART2: return PS_COUNT + 1; // 0 = none
+    case SF_SURFACE: return 18;
+    case SF_BLOCK: return BS_COUNT;
+    case SF_MESH: return MESH_COUNT;
+    case SF_FRAME: return FR_COUNT;
+    case SF_LOCK: return LE_COUNT;
+    default: return 0;
+    }
+}
+
+std::string sceneFieldValueName(int f, int v) {
+    if (v < 0 || v >= sceneFieldValues(f)) return "?";
+    switch (f) {
+    case SF_MOOD: return MOOD_NAMES[v];
+    case SF_SCHEME: return SCHEME_NAMES[v];
+    case SF_HUE: return std::to_string(v * 360 / HUE_STEPS);
+    case SF_BG: return BG_NAMES[v];
+    case SF_PART1: case SF_PART2: return v == 0 ? "NONE" : PS_NAMES[v - 1];
+    case SF_SURFACE: return v == 0 ? "NONE" : SURF_NAMES[v];
+    case SF_BLOCK: return BS_NAMES[v];
+    case SF_MESH: return MESH_NAMES[v];
+    case SF_FRAME: return FR_NAMES[v];
+    case SF_LOCK: return LE_NAMES[v];
+    default: return "?";
+    }
+}
+
+int sceneFieldValue(const Theme& t, int f) {
+    switch (f) {
+    case SF_MOOD: return (int)std::lround(t.pal.mood);
+    case SF_SCHEME: return t.pal.scheme;
+    case SF_HUE: {
+        float h = std::fmod(t.pal.hue, TAU);
+        if (h < 0) h += TAU;
+        return (int)std::lround(h / TAU * HUE_STEPS) % HUE_STEPS;
+    }
+    case SF_BG: return t.bgStyle;
+    case SF_PART1: return t.layerCount > 0 ? t.layers[0].style + 1 : 0;
+    case SF_PART2: return t.layerCount > 1 ? t.layers[1].style + 1 : 0;
+    case SF_SURFACE: return t.surfStyle;
+    case SF_BLOCK: return t.blockStyle;
+    case SF_MESH: return t.blockMesh;
+    case SF_FRAME: return t.frameStyle;
+    case SF_LOCK: return t.lockEffect;
+    default: return -1;
+    }
+}
+
+static bool parseOverrides(const std::string& s, SceneOverrides& o) {
+    size_t i = 0;
+    while (i < s.size()) {
+        size_t j = s.find('_', i);
+        if (j == std::string::npos) j = s.size();
+        const std::string tok = s.substr(i, j - i);
+        i = j + 1;
+        if (tok.size() < 2) return false;
+        int f = 0;
+        while (f < SF_COUNT && SF_KEYS[f] != std::tolower((unsigned char)tok[0])) f++;
+        if (f == SF_COUNT) return false;
+        char* end = nullptr;
+        const long v = std::strtol(tok.c_str() + 1, &end, 10);
+        if (*end || v < 0 || v >= sceneFieldValues(f)) return false;
+        o.v[f] = (int)v;
+    }
+    return true;
+}
+
+void applyOverrides(Theme& t, const Footprint& fp, const SceneOverrides& o) {
+    const int oldMood = (int)std::lround(t.pal.mood);
+    const int mood = o.v[SF_MOOD] >= 0 ? o.v[SF_MOOD] : oldMood;
+    if (mood != oldMood) {
+        // The mood-dependent settings keep their place in the new mood's range.
+        auto emi = [](int m, float& a, float& b) { a = m == 2 ? 0.15f : 0.7f; b = m == 2 ? 0.4f : 1.6f; };
+        auto blo = [](int m, float& a, float& b) { a = m == 0 ? 0.6f : (m == 1 ? 0.35f : 0.12f); b = m == 0 ? 1.6f : (m == 1 ? 0.8f : 0.3f); };
+        auto vig = [](int m, float& a, float& b) { a = m == 2 ? 0.05f : 0.15f; b = m == 2 ? 0.25f : 0.55f; };
+        auto srf = [](int m, float& a, float& b) { a = m == 2 ? 0.25f : 0.3f; b = m == 2 ? 0.45f : 0.6f; };
+        auto move = [&](float& v, auto range) {
+            float a0, a1, b0, b1;
+            range(oldMood, a0, a1);
+            range(mood, b0, b1);
+            v = remap(v, a0, a1, b0, b1);
+        };
+        move(t.emissive, emi);
+        move(t.bloom, blo);
+        move(t.vignette, vig);
+        move(t.surfAmt, srf);
+        t.pal.mood = (float)mood;
+    }
+    if (o.v[SF_SCHEME] >= 0) t.pal.scheme = o.v[SF_SCHEME];
+    if (o.v[SF_HUE] >= 0) t.pal.hue = o.v[SF_HUE] * TAU / HUE_STEPS;
+    resolvePalette(t, t.hueShift);
+
+    if (o.v[SF_BG] >= 0) t.bgStyle = o.v[SF_BG];
+    // A pinned particle layout gets its own settings, from its own random stream.
+    auto layer = [&](int slot, int style) {
+        Rng r(t.seed ^ splitmix64(0x9A57ull + (uint64_t)slot * 64 + (uint64_t)style));
+        makeLayer(r, fp, mood, t.layers[slot], style, slot == 1);
+    };
+    if (o.v[SF_PART1] == 0) t.layerCount = 0;
+    else if (o.v[SF_PART1] > 0) {
+        layer(0, o.v[SF_PART1] - 1);
+        t.layerCount = std::max(t.layerCount, 1);
+    }
+    if (t.layerCount > 0) { // a second layout only with a first one
+        if (o.v[SF_PART2] == 0) t.layerCount = 1;
+        else if (o.v[SF_PART2] > 0) {
+            layer(1, o.v[SF_PART2] - 1);
+            t.layerCount = 2;
+        }
+    }
+    if (o.v[SF_SURFACE] >= 0) {
+        if (t.surfStyle == 0 && o.v[SF_SURFACE] > 0) {
+            t.surfAmt = mood == 2 ? 0.35f : 0.45f;
+            t.surfScale = 1.f;
+        }
+        t.surfStyle = o.v[SF_SURFACE];
+    }
+    if (o.v[SF_BLOCK] >= 0) t.blockStyle = o.v[SF_BLOCK];
+    if (o.v[SF_MESH] >= 0 && o.v[SF_MESH] != t.blockMesh) {
+        auto scale = [](int m, float& a, float& b) {
+            a = m == MESH_SPHERE ? 0.85f : (m == MESH_GEM ? 0.95f : 0.8f);
+            b = m == MESH_SPHERE ? 1.f : (m == MESH_GEM ? 1.05f : 0.96f);
+        };
+        float a0, a1, b0, b1;
+        scale(t.blockMesh, a0, a1);
+        scale(o.v[SF_MESH], b0, b1);
+        t.blockScale = remap(t.blockScale, a0, a1, b0, b1);
+        t.blockMesh = o.v[SF_MESH];
+        if (t.blockMesh != MESH_CUBE) t.blockDepth = 1.f;
+        t.meshExp = meshExponent(t.blockMesh, t.roundness);
+    }
+    if (o.v[SF_FRAME] >= 0) t.frameStyle = o.v[SF_FRAME];
+    if (o.v[SF_LOCK] >= 0) t.lockEffect = o.v[SF_LOCK];
+
+    t.name = themeName(t);
+    std::string code = t.code.substr(0, t.code.find('_'));
+    for (int f = 0; f < SF_COUNT; f++)
+        if (o.v[f] >= 0) code += std::string("_") + SF_KEYS[f] + std::to_string(o.v[f]);
+    t.code = code;
+}
+
+// ---- Scene options switched off. The list built into the binary comes from src/scene-options.txt.
+namespace {
+
+const char* const BUILT_IN_OPTIONS =
+#include "scene_options.inc"
+    ;
+
+struct OptionList {
+    std::vector<std::vector<bool>> off; // [field][value]
+    OptionList() {
+        off.resize(SF_COUNT);
+        for (int f = 0; f < SF_COUNT; f++) off[f].assign(sceneFieldValues(f), false);
+    }
+};
+
+OptionList& options() {
+    static OptionList list;
+    static bool loaded = false;
+    if (!loaded) {
+        loaded = true;
+        loadSceneOptions(BUILT_IN_OPTIONS);
+    }
+    return list;
+}
+
+int optionField(int f) { return f == SF_PART2 ? SF_PART1 : f; } // the two particle layers share one pool
+
+} // namespace
+
+bool sceneOptionDisableable(int f, int v) {
+    if (f < 0 || f >= SF_COUNT || f == SF_HUE || v < 0 || v >= sceneFieldValues(f)) return false;
+    return !((f == SF_PART1 || f == SF_PART2 || f == SF_SURFACE) && v == 0); // "none" is not an option
+}
+
+bool sceneOptionEnabled(int f, int v) {
+    return !sceneOptionDisableable(f, v) || !options().off[optionField(f)][v];
+}
+
+void setSceneOptionEnabled(int f, int v, bool on) {
+    if (sceneOptionDisableable(f, v)) options().off[optionField(f)][v] = !on;
+}
+
+void loadSceneOptions(const std::string& text) {
+    OptionList& list = options();
+    list = OptionList();
+    size_t i = 0;
+    while (i < text.size()) {
+        size_t j = text.find('\n', i);
+        if (j == std::string::npos) j = text.size();
+        std::string line = text.substr(i, j - i);
+        i = j + 1;
+        if (const size_t h = line.find('#'); h != std::string::npos) line.resize(h);
+        while (!line.empty() && std::isspace((unsigned char)line.back())) line.pop_back();
+        size_t b = 0;
+        while (b < line.size() && std::isspace((unsigned char)line[b])) b++;
+        line = line.substr(b);
+        if (line.empty()) continue;
+        for (char& c : line) c = (char)std::toupper((unsigned char)c);
+        // The longest field name that starts the line ("LOCK EFFECT", "BACKGROUND"...), then the value's name.
+        bool found = false;
+        for (int f = 0; f < SF_COUNT && !found; f++) {
+            if (f == SF_PART2 || f == SF_HUE) continue;
+            const std::string name = std::string(sceneFieldName(f)) + " ";
+            if (line.compare(0, name.size(), name) != 0) continue;
+            const std::string value = line.substr(name.size());
+            for (int v = 0; v < sceneFieldValues(f); v++)
+                if (sceneOptionDisableable(f, v) && sceneFieldValueName(f, v) == value) {
+                    list.off[f][v] = true;
+                    found = true;
+                }
+        }
+        if (!found) std::fprintf(stderr, "[scene options] unknown option '%s'\n", line.c_str());
+    }
+}
+
+std::string sceneOptionsText() {
+    std::string s =
+        "# Scene options switched off: scenes never pick them (a scene code that pins one still shows it).\n"
+        "# One \"FIELD VALUE\" per line, as zenscene's menu names them (PARTICLES covers both layers).\n"
+        "# Edited with zenscene (X, or the ON/OFF boxes); built into the game: rebuild after a change.\n";
+    for (int f = 0; f < SF_COUNT; f++)
+        for (int v = 0; v < sceneFieldValues(f); v++)
+            if (sceneOptionDisableable(f, v) && f != SF_PART2 && !sceneOptionEnabled(f, v))
+                s += std::string(sceneFieldName(f)) + " " + sceneFieldValueName(f, v) + "\n";
+    return s;
 }

@@ -1192,6 +1192,13 @@ void Renderer::drawText(const std::vector<HudText>& hud) {
     auto toSrgb = [](vec3 c) {
         return vec3(std::pow(saturate(c.x), 1 / 2.2f), std::pow(saturate(c.y), 1 / 2.2f), std::pow(saturate(c.z), 1 / 2.2f));
     };
+    for (const HudRect& r : panels_) {
+        const float q[12] = {r.x, r.y, r.x + r.w, r.y, r.x + r.w, r.y + r.h, r.x, r.y, r.x + r.w, r.y + r.h, r.x, r.y + r.h};
+        glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STREAM_DRAW);
+        vec3 c = r.custom ? r.color : r.accent ? toSrgb(ac) : (cur_.pale > 0.5f ? vec3(0.97f) : vec3(0.02f));
+        glUniform4f(U(progText_, "uColor"), c.x, c.y, c.z, r.alpha);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+    }
     for (const HudText& h : hud) {
         if (h.alpha <= 0.01f || h.text.empty()) continue;
         std::vector<char> txt(h.text.begin(), h.text.end());

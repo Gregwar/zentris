@@ -23,11 +23,14 @@ Commands:
   reply KEY --message TEXT [--no-render] [--image PNG]
       Answers a thread: renders the scene again with the current build (same song, seed, time and level) as the
       "after" snapshot, the previous one being "before", and moves the thread to "to review".
+  add --code CODE --message TEXT [--section VERSE] [--level 1] [--size 1280x720]
+      Opens a thread "to process" on a scene code (zenscene's "send to dashboard"): renders it with zenscene, at
+      that song section and level, into the "zenscene" batch.
 
 Everything lives in the user data folder (~/.local/share/zentris/scene-review/): one folder per batch (snapshots,
 scenes.jsonl with what reproduces each scene), threads.json (the threads and their state) and feedback.jsonl (every
 message, appended, for later processing).
-Needs a built zentris (build/zentris).
+Needs a built zentris (build/zentris), and zenscene (build/zenscene) for the scenes it sends.
 """
 import argparse
 import concurrent.futures
@@ -51,6 +54,7 @@ from urllib.parse import unquote, urlparse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ZENTRIS = os.path.join(ROOT, "build", "zentris")
+ZENSCENE = os.path.join(ROOT, "build", "zenscene")
 DATA = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "zentris", "scene-review")
 CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "zentris", "youtube")
 THREADS = os.path.join(DATA, "threads.json")
@@ -303,6 +307,38 @@ def cmd_reply(args):
     print(f"{args.key} -> to review")
 
 
+def cmd_add(args):
+    if not os.path.exists(ZENSCENE):
+        sys.exit(f"build zenscene first ({ZENSCENE} is missing)")
+    if not args.message.strip():
+        sys.exit("empty comment")
+    folder = os.path.join(DATA, "zenscene")
+    os.makedirs(folder, exist_ok=True)
+    tmp = os.path.join(folder, f"incoming-{os.getpid()}.png")
+    cmd = [ZENSCENE, "--size", args.size, "--review-shot", tmp, "--section", args.section, "--level", str(args.level),
+           args.code]
+    info = run_snapshot(cmd)
+    if not info:
+        sys.exit("could not render the scene")
+    # Numbered under the threads lock (zenscene may send several at once).
+    with threads_locked():
+        jsonl = os.path.join(folder, "scenes.jsonl")
+        sid = sum(1 for line in open(jsonl) if line.strip()) if os.path.exists(jsonl) else 0
+        image = f"scene{sid:03d}.png"
+        os.replace(tmp, os.path.join(folder, image))
+        cmd[cmd.index("--review-shot") + 1] = os.path.join(folder, image)
+        level = info["level"]
+        scene = {"id": sid, "image": image, "code": info["code"], "scene": info["scene"], "level": level,
+                 "level_name": LEVELS.get(level, "?"), "section": info["section"],
+                 "energy": [0.25, 0.55, 0.9][level], "bpm": info["bpm"], "time": 0, "duration": 0, "phase": 0,
+                 "phases": 1, "levels": "", "title": "", "song": "", "video": "", "seed": 0,
+                 "source": "zenscene", "snapshot_cmd": shlex.join(cmd)}
+        with open(jsonl, "a") as f:
+            f.write(json.dumps(scene, ensure_ascii=False) + "\n")
+    user_action(f"zenscene:{sid}", "comment", args.message)
+    print(f"zenscene:{sid} -> to process ({info['scene']}, {info['code']})")
+
+
 # ---------------------------------------------------------------- dashboard
 
 PAGE = r"""<!doctype html>
@@ -404,7 +440,7 @@ function showScene(s, list) {
     ? `<div class="shots pair"><figure><figcaption>before</figcaption><img src="${img(s, change.before || s.image)}"></figure>
        <figure><figcaption>after</figcaption><img src="${img(s, change.after)}"></figure></div>`
     : `<div class="shots"><img src="${img(s, s.image)}"></div>`;
-  const ph = s.levels.split(" ").filter(Boolean).map(p => { const m = p.match(/L(\d)@(\d+)/); return [+m[1], +m[2]]; });
+  const ph = (s.levels || "").split(" ").filter(Boolean).map(p => { const m = p.match(/L(\d)@(\d+)/); return [+m[1], +m[2]]; });
   const strip = ph.map(([l, t0], k) => {
     const end = k + 1 < ph.length ? ph[k + 1][1] : s.duration;
     return `<div style="left:${100 * t0 / s.duration}%;width:${100 * (end - t0) / s.duration}%;background:${LVCOL[l]};opacity:${k === s.phase ? 1 : .5}" title="${LV[l]} from ${fmt(t0)}"></div>`;
@@ -423,12 +459,15 @@ function showScene(s, list) {
   <div class="view"><div>${shots}</div><div class="panel">
     ${list ? `<div class="dim">${pos + 1} of ${list.length} new scenes</div>` : ""}
     <h1>${esc(s.scene)}</h1>
-    <div><span class="level l${s.level}">${LV[s.level]}</span> ${esc(s.section)} · phase ${s.phase + 1} of ${s.phases}</div>
+    ${s.song ? `<div><span class="level l${s.level}">${LV[s.level]}</span> ${esc(s.section)} · phase ${s.phase + 1} of ${s.phases}</div>
     <div class="timeline">${strip}</div>
     <div class="dim" style="font-size:12px">song phases (blue calm, amber mid, red peak); white: the snapshot</div>
     <dl><dt>song</dt><dd>${esc(s.title)}</dd><dt>at</dt><dd>${fmt(s.time)} of ${fmt(s.duration)} · ${s.bpm} BPM</dd>
       <dt>energy</dt><dd>${s.energy.toFixed(2)}</dd><dt>code</dt><dd><code>${esc(s.code)}</code></dd></dl>
-    <div class="dim" style="font-size:12px">same scene: <code>zentris --scene ${esc(s.code)} 'ytdl:${esc(s.video)}'</code></div>
+    <div class="dim" style="font-size:12px">same scene: <code>zentris --scene ${esc(s.code)} 'ytdl:${esc(s.video)}'</code></div>`
+    : `<div><span class="level l${s.level}">${LV[s.level]}</span> ${esc(s.section)} · sent from zenscene</div>
+    <dl><dt>code</dt><dd><code>${esc(s.code)}</code></dd></dl>
+    <div class="dim" style="font-size:12px">same scene: <code>zenscene --section ${esc(s.section.toLowerCase())} --level ${s.level} ${esc(s.code)}</code></div>`}
     <div class="msgs">${msgs}</div>
     <textarea id="comment" placeholder="What is good, what should be reworked..."></textarea>
     <div class="buttons">${actions}</div>
@@ -556,8 +595,15 @@ def main():
     r.add_argument("--message", required=True)
     r.add_argument("--no-render", action="store_true", help="answer without a new snapshot")
     r.add_argument("--image", help="use this PNG as the after snapshot")
+    a = sub.add_parser("add", help="open a thread on a scene code (zenscene)")
+    a.add_argument("--code", required=True)
+    a.add_argument("--message", required=True)
+    a.add_argument("--section", default="VERSE")
+    a.add_argument("--level", type=int, default=1, choices=[0, 1, 2])
+    a.add_argument("--size", default="1280x720")
     args = ap.parse_args()
-    {"generate": generate, "serve": serve, "pending": cmd_pending, "watch": cmd_watch, "reply": cmd_reply}[args.cmd](args)
+    {"generate": generate, "serve": serve, "pending": cmd_pending, "watch": cmd_watch, "reply": cmd_reply,
+     "add": cmd_add}[args.cmd](args)
 
 
 if __name__ == "__main__":

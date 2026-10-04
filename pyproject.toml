@@ -29,6 +29,7 @@ Homepage = "https://github.com/Gregwar/zentris"
 [project.scripts]
 zentris = "zentris._launcher:main"
 zenscope = "zentris._launcher:scope"
+zenscene = "zentris._launcher:scene"
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"

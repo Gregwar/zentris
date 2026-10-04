@@ -60,6 +60,16 @@ struct HudText {
     bool center = false;
 };
 
+// A filled rectangle under the HUD text (pixels, top-left origin): the scene's backdrop tone (dark on dark
+// scenes, light on pale ones), the accent color, or a given color.
+struct HudRect {
+    float x, y, w, h;
+    float alpha;
+    bool accent = false;
+    bool custom = false; // use `color` (sRGB) instead
+    vec3 color{};
+};
+
 class Renderer {
 public:
     bool init(int width, int height);
@@ -84,6 +94,8 @@ public:
     static constexpr int SLOW_ANIMS = 7, TETRIS_ANIMS = 7;
     // Dim the scene (like pause) without freezing it, e.g. behind the game-over screen.
     void setDim(bool d) { dim_ = d; }
+    // Rectangles drawn under the HUD text from the next frame on (zenscene's menu).
+    void setPanels(std::vector<HudRect> p) { panels_ = std::move(p); }
 
     void render(const Game& game, const MusicState& music, double time, float dt, bool paused,
                 const std::vector<HudText>& hud, float fade);
@@ -166,6 +178,7 @@ private:
     float pauseFade_ = 0, settleGlow_ = 0;
     float lockAge_ = 99.f, lockX_ = 0, lockY_ = 0; // last lock: seconds since, mean cell (board coordinates)
     bool dim_ = false;
+    std::vector<HudRect> panels_;
     float govern_ = 1.f;      // automatic exposure reduction when the scene gets too bright
     float bgLum_ = 0.f;       // measured brightness around the board (sides of the screen)
     float legible_ = 0.f;     // 0..1: how much the board needs separating from the scene (eased)

@@ -1,4 +1,4 @@
-"""Console entry points: run the bundled native binaries (zentris, zenscope)."""
+"""Console entry points: run the bundled native binaries (zentris, zenscope, zenscene)."""
 
 import os
 import shutil
@@ -46,3 +46,7 @@ def main() -> None:
 
 def scope() -> None:
     _run("zenscope")
+
+
+def scene() -> None:
+    _run("zenscene")

@@ -22,6 +22,7 @@ Run it directly with [uv](https://docs.astral.sh/uv/), without installing:
 uvx zentris                              # the default playlist
 uvx zentris ~/Music
 uvx --from zentris zenscope ~/Music      # the analysis viewer
+uvx --from zentris zenscene              # the scene viewer
 ```
 
 Or install it with [pipx](https://pipx.pypa.io/) (or `uv tool install zentris`):
@@ -31,6 +32,7 @@ pipx install zentris
 zentris                     # with no argument it plays the default YouTube playlist
 zentris ~/Music             # or any folders, files and YouTube playlist/video URLs
 zenscope ~/Music            # the analysis viewer
+zenscene                    # the scene viewer
 ```
 
 Quote YouTube URLs: `&` is special in the shell. The package brings [yt-dlp](https://github.com/yt-dlp/yt-dlp)
@@ -99,6 +101,20 @@ They show as cyan flags on the timeline, with their text in the detail view.
 next run) and songs stay downloaded in the cache, so reopening an annotated song is instant and works offline.
 
 The game and zenscope share the same analysis and song plan code (`src/songplan.*`), so what you see is what the game uses.
+
+## zenscene: adjust a scene
+
+`./build/zenscene [CODE]` shows a scene (a random one, or the one of a scene code) while the computer plays. The menu
+on the left picks the song phase (section and level: calm, mid, peak) and pins any choice of the scene: mood, palette,
+hue, background, particle layouts, surface, block style and shape, frame, lock effect. Up/Down choose a row,
+Left/Right (or a click / the mouse wheel) change it and pin it, Space pins or unpins it as it is, C unpins
+everything, R shows a new random scene (pinned choices stay) and F fills the board. "Send to dashboard" (or D) asks for a comment
+and opens a thread on the scene in the scene review dashboard (`tools/scenereview.py`, "to process"), with a snapshot
+at the section and level shown.
+
+After each change the terminal prints the scene code, adjustments included (`3e9f5438ed1e91f3g_m2_b8`: the base code,
+then one `_` + letter + value per pinned choice); `zentris --scene CODE` shows that scene in the game. Pinning a
+choice leaves all the others as generated.
 
 ## Controls
 
