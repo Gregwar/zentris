@@ -178,7 +178,7 @@ void resolvePalette(Theme& t, float hueShift) {
         case 3:                                                                               // monochrome
             hues[i] = h + jitter;
             Ls[i] = baseL + (f - 0.5f) * (mood == 2 ? 0.3f : 0.24f);
-            Cs[i] = C * (0.5f + 0.7f * f);
+            Cs[i] = C * (mood == 2 ? 0.85f + 0.4f * f : 0.5f + 0.7f * f); // low chroma reads as gray on pale
             break;
         case 4: hues[i] = h + f * p.spread * 5.f; break;                                     // duotone ramp
         case 5: hues[i] = h + i * TAU / 7.f; Cs[i] = C * 0.62f; break;                      // pastel rainbow
