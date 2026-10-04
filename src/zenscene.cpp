@@ -313,15 +313,14 @@ std::vector<HudText> SceneViewer::buildHud() {
         }
         if (r < ROW_FIELDS || (f == SF_PART2 && base_.layerCount == 0)) continue;
         const int hit = r == hover_ ? boxAt(mx_, my_, s, r) : HIT_NONE;
-        // Pin box: a solid accent square when pinned, a thin outline when not.
-        const float px = (MENU_X + PIN_X) * s, py = y + 1 * s, pw = PIN_W * s, t = std::max(1.f, std::round(s));
-        if (pinned) panels.push_back({px, py, pw, pw, 0.95f, true});
-        else {
-            const float a = hit == HIT_PIN ? 0.9f : 0.4f;
-            panels.push_back({px, py, pw, t, a, true});
-            panels.push_back({px, py + pw - t, pw, t, a, true});
-            panels.push_back({px, py, t, pw, a, true});
-            panels.push_back({px + pw - t, py, t, pw, a, true});
+        // Pin: a small push-pin (head, body, collar, needle), in the accent color when pinned, faint gray when not.
+        const float py = y + 1 * s, pw = PIN_W * s;
+        {
+            const float cx = (MENU_X + PIN_X) * s + pw * 0.5f, a = pinned ? 0.95f : (hit == HIT_PIN ? 0.75f : 0.3f);
+            const float parts[4][4] = {{-4, 0, 8, 5}, {-2.5f, 5, 5, 4}, {-5, 9, 10, 2}, {-0.75f, 11, 1.5f, 5}};
+            for (const auto& q : parts)
+                panels.push_back({cx + q[0] * s, py + q[1] * s, std::max(1.f, q[2] * s), std::max(1.f, q[3] * s), a,
+                                  pinned, !pinned, vec3(0.6f)});
         }
         // ON / OFF box: "ON" in plain dim text, "OFF" on a red tag.
         if (!sceneOptionDisableable(f, v)) continue;
