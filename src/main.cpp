@@ -399,10 +399,12 @@ std::vector<HudText> App::buildHud(float dt) {
     sceneNameTimer_ = std::max(0.f, sceneNameTimer_ - dt);
     if (track_ && !track_->analysis.segments.empty()) {
         const Segment& sg = track_->analysis.segments[track_->analysis.segmentAt(songTime_)];
-        hud.push_back({segmentName(sg.kind), 28 * s, h - 60.f * s, 1.3f * s, 0.42f, true});
+        hud.push_back({segmentName(sg.kind), 28 * s, h - 80.f * s, 1.3f * s, 0.42f, true});
     }
-    hud.push_back({R_.targetTheme().name + "  #" + sceneCode(), 28 * s, h - 40.f * s, 1.3f * s,
-                   0.26f + 0.3f * smoothstepf(0, 2, sceneNameTimer_)});
+    // Scene name, then its code below (on one line they ran under the board).
+    const float sceneA = 0.26f + 0.3f * smoothstepf(0, 2, sceneNameTimer_);
+    hud.push_back({R_.targetTheme().name, 28 * s, h - 60.f * s, 1.3f * s, sceneA});
+    hud.push_back({"#" + sceneCode(), 28 * s, h - 40.f * s, 1.3f * s, sceneA});
 
     // Score panel under the hold slot, labels above previews.
     vec2 hold = R_.project(vec3(-8.6f, 9.4f, 0)), next = R_.project(vec3(8.6f, 9.4f, 0));
