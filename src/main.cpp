@@ -143,7 +143,9 @@ void App::startTrack(std::shared_ptr<Track> t) {
     if (first) {
         // The scene shown (paused) while the first song loaded becomes its scene: it just starts.
         lastPhase_ = plan_.phaseAt(0.0);
-        if (!opt_.scene.empty()) R_.setTheme(phaseTheme(lastPhase_), 0.01f); // the forced scene, at the song's level
+        if (!opt_.reviewPath.empty()) makeBaseTheme(track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_));
+        if (!opt_.scene.empty() || !opt_.reviewPath.empty())
+            R_.setTheme(phaseTheme(lastPhase_), 0.01f); // the forced scene (or a song scene), at the song's level
     } else {
         makeBaseTheme(track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_));
         R_.setTheme(phaseTheme(0), 3.5f, true, 0.f, pickWipe(3));

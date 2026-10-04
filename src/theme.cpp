@@ -166,7 +166,8 @@ void resolvePalette(Theme& t, float hueShift) {
     for (int i = 0; i < 7; i++) {
         float f = (float)i / 6.f;
         float jitter = r.range(-0.04f, 0.04f);
-        Ls[i] = baseL + r.range(-0.05f, 0.05f);
+        // Pieces spread in lightness, so they stand apart even when their hues are close.
+        Ls[i] = baseL + (f - 0.5f) * 0.14f + r.range(-0.03f, 0.03f);
         Cs[i] = C;
         switch (p.scheme) {
         case 0: hues[i] = h + (i - 3) * p.spread * 0.45f; break;                           // analogous
@@ -326,7 +327,7 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
     t.pal.mood = (float)r.weighted(moodW);
     float schemeW[8] = {3.f, 2.f, 1.2f, 1.3f, 2.6f, 0.8f + fp.brightness, 1.5f, 0.8f + (t.pal.mood == 0 ? 0.6f : 0.f)};
     t.pal.scheme = r.weighted(schemeW);
-    t.pal.chroma = r.range(0.08f, 0.18f) * (fp.minor ? 0.85f : 1.f) * (0.85f + 0.3f * fp.dynamics);
+    t.pal.chroma = r.range(0.11f, 0.2f) * (fp.minor ? 0.9f : 1.f) * (0.9f + 0.2f * fp.dynamics);
     t.pal.spread = r.range(0.15f, 0.5f);
     t.pal.bgHueOffset = r.chance(0.6f) ? r.range(-0.4f, 0.4f) : r.range(2.2f, 4.0f);
     t.pal.bgChroma = r.range(0.015f, 0.07f);
@@ -444,7 +445,7 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
         t.chroma = r.chance(0.35f) ? r.range(0.0003f, 0.0011f) : 0.f;
         t.grain = r.range(0.01f, 0.05f);
         t.exposure = r.range(0.95f, 1.15f);
-        t.saturation = r.range(0.88f, 1.15f);
+        t.saturation = r.range(0.95f, 1.15f);
         t.scanlines = r.chance(0.08f) ? r.range(0.03f, 0.07f) : 0.f;
         t.beatPulse = r.range(0.5f, 0.9f) * (0.6f + 0.4f * fp.dynamics);
         t.bassReact = r.range(0.3f, 1.0f);
@@ -468,19 +469,20 @@ Theme evolveTheme(const Theme& base, const Footprint& fp, int level, float energ
     const int mood = (int)std::lround(base.pal.mood);
     const float e = saturate(energy);
     if (level <= 0) {
-        // Calm: sparse, muted, dim.
-        t.pal.chroma = base.pal.chroma * 0.6f;
-        t.pal.bgChroma = base.pal.bgChroma * 0.5f;
+        // Calm: sparse and quiet rather than gray. The blocks keep most of their color; the calm comes from
+        // fewer, dimmer particles, a thinner surface, less glow, a darker edge and a step back.
+        t.pal.chroma = base.pal.chroma * 0.88f;
+        t.pal.bgChroma = base.pal.bgChroma * 0.75f;
         t.layerCount = std::min(1, base.layerCount);
-        t.surfAmt = base.surfAmt * 0.75f;
-        t.layers[0].bright *= 0.65f;
-        t.layers[0].count *= 0.55f;
-        t.bloom = base.bloom * 0.6f;
-        t.saturation = clampf(base.saturation * 0.82f, 0.7f, 1.2f);
-        t.emissive = base.emissive * 0.7f;
-        t.exposure = base.exposure * 0.9f;
-        t.vignette = std::min(0.7f, base.vignette + 0.12f);
-        t.camDist = base.camDist * 1.03f;
+        t.surfAmt = base.surfAmt * 0.65f;
+        t.layers[0].bright *= 0.6f;
+        t.layers[0].count *= 0.45f;
+        t.bloom = base.bloom * 0.55f;
+        t.saturation = clampf(base.saturation * 0.96f, 0.85f, 1.2f);
+        t.emissive = base.emissive * 0.85f;
+        t.exposure = base.exposure * 0.95f;
+        t.vignette = std::min(0.7f, base.vignette + 0.15f);
+        t.camDist = base.camDist * 1.05f;
         resolvePalette(t, -base.hueDrift * 0.8f);
     } else {
         // Peak: always a new particle layer (a style the song has not shown yet), richer color, more glow.
