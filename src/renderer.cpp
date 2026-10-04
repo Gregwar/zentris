@@ -1131,7 +1131,7 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
         const float lum = luminance(plate), cap = lerpf(0.06f, 0.012f, legible_);
         if (lum > cap) plate = plate * (cap / lum);
     }
-    plate = lerp(plate, vec3(1.f), paleW(t));
+    plate = lerp(plate, t.wellTint, paleW(t));
     fx.clear();
     BlockInst pl;
     pl.pos = vec3(0, 0, -0.62f) + base;

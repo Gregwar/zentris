@@ -95,6 +95,7 @@ struct Theme {
     vec3 piece[7];
     vec3 accent, text;
     vec3 partA, partB, partC;
+    vec3 wellTint; // pale scenes' board backing: a light tint of the scene, not the same white everywhere
     vec3 shadowTint, highlightTint;
     float pale = 0;       // 0 = additive glow on dark, 1 = soft pale theme
 

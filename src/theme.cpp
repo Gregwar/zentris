@@ -431,6 +431,15 @@ void resolvePalette(Theme& t, float hueShift) {
         t.partC = ok(0.99f, 0.01f, bh);
         t.pale = 1;
     }
+    {
+        // The board backing of pale scenes: a light tint of the accent's hue (the frame's), so the board reads as a
+        // panel of the scene's colors rather than the same white everywhere. Light yellows and yellow-greens turn
+        // khaki there (the scene's exposure dims the backing): they lean to the nearest of salmon and mint.
+        float wh = std::fmod(accentH, TAU);
+        if (wh < 0) wh += TAU;
+        if (wh > 0.9f && wh < 2.6f) wh = wh < 1.75f ? 0.6f : 2.9f;
+        t.wellTint = ok(0.97f, 0.045f, wh);
+    }
     t.shadowTint = ok(0.5f, 0.12f, h + PI + r.range(-0.8f, 0.8f));
     t.highlightTint = ok(0.8f, 0.1f, h + r.range(-0.5f, 0.5f));
 }
@@ -781,6 +790,7 @@ Theme blendThemes(const Theme& a, const Theme& b, float t) {
     r.partA = C(a.partA, b.partA);
     r.partB = C(a.partB, b.partB);
     r.partC = C(a.partC, b.partC);
+    r.wellTint = C(a.wellTint, b.wellTint);
     r.shadowTint = C(a.shadowTint, b.shadowTint);
     r.highlightTint = C(a.highlightTint, b.highlightTint);
     r.pale = L(a.pale, b.pale);
