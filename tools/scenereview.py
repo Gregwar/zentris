@@ -443,7 +443,7 @@ header .n { display:inline-block; min-width:20px; padding:0 6px; margin-left:6px
             background:var(--line); font-size:12px; color:var(--text); }
 header .n.hot { background:var(--acc); color:#111; }
 main { padding:12px; max-width:1500px; margin:0 auto; }
-.view { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px; align-items:start; }
+.view { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; align-items:start; max-width:1600px; margin:0 auto; }
 .shots img { width:100%; display:block; border-radius:8px; background:#000; }
 .shots.pair { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .shots figure { margin:0; } .shots figcaption { color:var(--dim); font-size:12px; margin:2px 0 6px; }
