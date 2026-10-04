@@ -774,6 +774,16 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
         b.params = vec4(kind, flash, glow, (float)type); // w: piece type (seeds the face patterns of some materials)
         return b;
     };
+    // Turns a block's color around the hue wheel (OKLab, keeping lightness and saturation).
+    auto turnHue = [](BlockInst& b, float h) {
+        vec3 L = toOklab(vec3(b.color.x, b.color.y, b.color.z));
+        const float cs = std::cos(h), sn = std::sin(h);
+        L = vec3(L.x, L.y * cs - L.z * sn, L.y * sn + L.z * cs);
+        b.color = vec4(fromOklab(L), 1);
+    };
+    // HUE SHIFT: pieces in play (falling, ghost, previews) show the turned hue; locked, they turn back slowly.
+    const float HUE_SHIFT = 1.4f;
+    const float playHue = t.lockEffect == LE_HUESHIFT ? HUE_SHIFT : 0.f;
     // Pieces locked recently, found back from their cells (all cells of one lock share the same flash value):
     // their center and extent, for the lock effects that work across the piece.
     struct LockedPiece { float flash, sx = 0, sy = 0, n = 0, minX = 99, maxX = -99, minY = 99, maxY = -99; };
@@ -859,9 +869,9 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
                 fl = 0.35f * a * a;
                 break;
             }
-            case LE_HUESHIFT: { // locks with its hue turned ~80 degrees, slowly turning back over 4 s
+            case LE_HUESHIFT: { // locks in the turned hue it fell with, slowly turning back over 4 s
                 float f = fade(Game::LOCK_FX_SECONDS);
-                hue = 1.4f * f * f * (3.f - 2.f * f);
+                hue = HUE_SHIFT * f * f * (3.f - 2.f * f);
                 fl = 0.25f * f * f;
                 break;
             }
@@ -1005,12 +1015,7 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
             bi.scale = bi.scale * sc;
             if (turn > 1e-3f) bi.params.x = 0.45f * std::min(turn / (0.5f * PI), 1.f); // kind 0, turned (block shader)
             if (bloomW > 0) bi.color = vec4(mixOklab(vec3(bi.color.x, bi.color.y, bi.color.z), bloomCol, 0.45f * bloomW), 1);
-            if (hue > 0) {
-                vec3 L = toOklab(vec3(bi.color.x, bi.color.y, bi.color.z));
-                const float cs = std::cos(hue), sn = std::sin(hue);
-                L = vec3(L.x, L.y * cs - L.z * sn, L.y * sn + L.z * cs);
-                bi.color = vec4(fromOklab(L), 1);
-            }
+            if (hue > 0) turnHue(bi, hue);
             if (tint > 0) bi.color = vec4(mixOklab(vec3(bi.color.x, bi.color.y, bi.color.z), t.accent, tint), 1);
             if (ink > 0) { // darker and desaturated
                 vec3 L = toOklab(vec3(bi.color.x, bi.color.y, bi.color.z));
@@ -1076,13 +1081,19 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
         float glow = 0.12f;
         for (auto& c : cells) {
             if (c[1] < Game::HIDDEN - 1) continue;
-            solid.push_back(block(cellPos(c[0] + dx, c[1] + dy), p.type, 0, 0, glow, 1));
+            BlockInst b = block(cellPos(c[0] + dx, c[1] + dy), p.type, 0, 0, glow, 1);
+            if (playHue > 0) turnHue(b, playHue);
+            solid.push_back(b);
         }
         Piece gp = p;
         gp.y = g.ghostY();
         if (gp.y > p.y) {
             g.pieceCells(gp, cells);
-            for (auto& c : cells) ghost.push_back(block(cellPos((float)c[0], (float)c[1]), p.type, 1, 0, 0, 1));
+            for (auto& c : cells) {
+                BlockInst b = block(cellPos((float)c[0], (float)c[1]), p.type, 1, 0, 0, 1);
+                if (playHue > 0) turnHue(b, playHue);
+                ghost.push_back(b);
+            }
         }
     }
     // Previews: hold on the left, next queue on the right.
@@ -1098,6 +1109,7 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
         for (auto& c : cells) {
             vec3 pos = center + vec3((c[0] - (minx + maxx) * 0.5f) * sc, -(c[1] - (miny + maxy) * 0.5f) * sc, 0);
             BlockInst b = block(pos, type, 3, 0, 0, sc);
+            if (playHue > 0) turnHue(b, playHue);
             if (g.holdUsed() && center.x < 0) b.color = vec4(t.piece[type] * 0.35f, 1);
             solid.push_back(b);
         }
