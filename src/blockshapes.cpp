@@ -1,5 +1,6 @@
 #include "blockshapes.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 
@@ -75,16 +76,52 @@ std::vector<P2> subdivide(const std::vector<P2>& pts, float maxLen) {
     return out;
 }
 
+// Points of a circle (CCW).
+std::vector<P2> circlePts(P2 c, float r, int n) {
+    std::vector<P2> out;
+    for (int i = 0; i < n; i++) out.push_back(c + P2{r * std::cos(TAU * i / n), r * std::sin(TAU * i / n)});
+    return out;
+}
+
+// Convex hull (CCW, monotone chain): round-cornered convex outlines are hulls of circles.
+std::vector<P2> convexHull(std::vector<P2> p) {
+    std::sort(p.begin(), p.end(), [](P2 a, P2 b) { return a.x < b.x || (a.x == b.x && a.y < b.y); });
+    std::vector<P2> h(2 * p.size());
+    int k = 0;
+    for (size_t i = 0; i < p.size(); i++) {
+        while (k >= 2 && cross2(h[k - 1] - h[k - 2], p[i] - h[k - 2]) <= 1e-9f) k--;
+        h[k++] = p[i];
+    }
+    for (int i = (int)p.size() - 2, t = k + 1; i >= 0; i--) {
+        while (k >= t && cross2(h[k - 1] - h[k - 2], p[i] - h[k - 2]) <= 1e-9f) k--;
+        h[k++] = p[i];
+    }
+    h.resize(k - 1);
+    return h;
+}
+
+// Superellipse |x/a|^p + |y/a|^p = 1 sampled at evenly spaced angles from the center (CCW), so that two
+// of them with the same n correspond point by point.
+std::vector<P2> superellipsePts(float a, float p, int n) {
+    std::vector<P2> out;
+    for (int i = 0; i < n; i++) {
+        float t = TAU * i / n, c = std::cos(t), s = std::sin(t);
+        float r = a / std::pow(std::pow(std::fabs(c), p) + std::pow(std::fabs(s), p), 1.f / p);
+        out.push_back({r * c, r * s});
+    }
+    return out;
+}
+
 float rimRound(float d, float b) { // quarter circle: vertical at the outline, flat from d = b
     float u = b - std::min(d, b);
     return std::sqrt(std::max(0.f, b * b - u * u));
 }
 float rimChamfer(float d, float b) { return std::min(d, b); } // 45 degrees
 
-enum RingKind { R_OFFSET, R_SCALE, R_CIRCLE };
+enum RingKind { R_OFFSET, R_SCALE, R_CIRCLE, R_LERP };
 struct Ring {
     int kind;
-    float v;            // offset distance, scale of the last offset ring, or circle radius
+    float v;            // offset distance, scale of the last offset ring, circle radius, or outline -> hole
     bool crease = false; // the height profile has a kink there: two vertex copies, normals from each side
 };
 
@@ -97,6 +134,10 @@ struct Shape {
     std::function<float(float x, float y, float d)> zBack; // when the back is not the front mirrored
     int backRings = 0; // the back (never in view) uses this many outer rings, then the center (0: all)
     float eNormMin = 0.f; // the distance shown as the face center (gE = 1) is at least this
+    // A hole: its outline has as many points as the outline, matched one to one (R_LERP rings go from
+    // one to the other, the last ring being the hole itself).
+    std::vector<P2> hole;
+    bool facetApex = false; // the last ring is a point where flat facets meet: each column takes its facet's normal
 };
 
 void rimRings(Shape& s, float b, bool round, int steps) {
@@ -194,6 +235,135 @@ Shape makeShape(int mesh) {
         s.eNormMin = 0.3f;
         break;
     }
+    case MESH_HEART: { // two round lobes over a rounded point
+        // The right half is the hull of the lobe and the tip, cut at x = 0; the left half mirrors it.
+        std::vector<P2> pts = circlePts({0.2f, 0.12f}, 0.28f, 96), tip = circlePts({0.f, -0.36f}, 0.08f, 32);
+        pts.insert(pts.end(), tip.begin(), tip.end());
+        std::vector<P2> hull = convexHull(pts), half;
+        const int m = (int)hull.size();
+        int start = 0;
+        for (int i = 0; i < m; i++) // where the hull crosses x = 0 going right (at the bottom: CCW)
+            if (hull[i].x < 0 && hull[(i + 1) % m].x >= 0) start = i;
+        for (int k = 0; k < m; k++) {
+            P2 a = hull[(start + k) % m], b = hull[(start + k + 1) % m];
+            if (a.x >= 0 && k) half.push_back(a);
+            if ((a.x >= 0) != (b.x >= 0)) {
+                half.push_back({0.f, (a + (b - a) * (a.x / (a.x - b.x))).y});
+                if (k) break; // back at x = 0, on top
+            }
+        }
+        std::vector<P2> o = half;
+        for (int i = (int)half.size() - 2; i > 0; i--) o.push_back({-half[i].x, half[i].y});
+        s.outline = subdivide(o, 0.04f);
+        prism(s, 0.42f, 0.05f, true);
+        s.eNormMin = 0.3f;
+        break;
+    }
+    case MESH_DROP: { // a teardrop, point up
+        std::vector<P2> pts = circlePts({0.f, -0.11f}, 0.37f, 96), tip = circlePts({0.f, 0.42f}, 0.06f, 24);
+        pts.insert(pts.end(), tip.begin(), tip.end());
+        s.outline = subdivide(convexHull(pts), 0.04f);
+        prism(s, 0.42f, 0.06f, true);
+        break;
+    }
+    case MESH_FLOWER: { // five round petals around a round heart, one pointing up
+        // Along each ray from the center, the farthest of the circles (the union is star-shaped).
+        const int N = 120; // valleys between petals fall on samples
+        const float pd = 0.26f, pr = 0.215f, cr = 0.3f;
+        std::vector<P2> o;
+        for (int i = 0; i < N; i++) {
+            float t = PI / 2 + TAU * i / N, r = cr;
+            P2 u{std::cos(t), std::sin(t)};
+            for (int k = 0; k < 5; k++) {
+                float a = PI / 2 + TAU * k / 5;
+                P2 c{pd * std::cos(a), pd * std::sin(a)};
+                float along = dot2(c, u), off2 = dot2(c, c) - along * along;
+                if (off2 < pr * pr) r = std::max(r, along + std::sqrt(pr * pr - off2));
+            }
+            o.push_back(u * r);
+        }
+        s.outline = o;
+        prism(s, 0.42f, 0.04f, true);
+        s.eNormMin = 0.3f;
+        break;
+    }
+    case MESH_RING: { // a square-ish donut: a rounded band around a hole
+        const int N = 128;
+        s.outline = superellipsePts(0.49f, 4.f, N);
+        s.hole = superellipsePts(0.19f, 3.f, N);
+        const float H = 0.36f, b = 0.1f;
+        s.z = [H, b](float, float, float d) { return H - b + rimRound(d, b); };
+        for (float t : {0.01f, 0.04f, 0.09f, 0.16f, 0.25f, 0.36f, 0.5f, 0.64f, 0.75f, 0.84f, 0.91f, 0.96f, 0.99f, 1.f})
+            s.rings.push_back({R_LERP, t});
+        s.eNormMin = 0.12f;
+        break;
+    }
+    case MESH_PYRAMID: { // a square base rising to a point: four flat sloped faces
+        s.outline = {{h, -h}, {h, h}, {-h, h}, {-h, -h}};
+        s.z = [](float, float, float d) { return 0.06f + 0.8f * d; };
+        for (float d : {0.1f, 0.2f, 0.3f, 0.4f}) s.rings.push_back({R_OFFSET, d});
+        scaleRings(s, {0.f});
+        s.facetApex = true;
+        break;
+    }
+    case MESH_CAPSULE: { // a vertical pill
+        std::vector<P2> pts = circlePts({0.f, 0.19f}, 0.3f, 64), b2 = circlePts({0.f, -0.19f}, 0.3f, 64);
+        pts.insert(pts.end(), b2.begin(), b2.end());
+        s.outline = subdivide(convexHull(pts), 0.04f);
+        prism(s, 0.42f, 0.13f, true);
+        break;
+    }
+    case MESH_SHIELD: { // a heater shield: flat top, straight sides curving to a point
+        std::vector<P2> pts = circlePts({0.39f, 0.4f}, 0.07f, 24), l = circlePts({-0.39f, 0.4f}, 0.07f, 24),
+                        tip = circlePts({0.f, -0.43f}, 0.05f, 24);
+        pts.insert(pts.end(), l.begin(), l.end());
+        pts.insert(pts.end(), tip.begin(), tip.end());
+        for (int i = 0; i <= 24; i++) { // the curved sides
+            float u = (float)i / 24, y = 0.12f - 0.58f * u, x = 0.46f * (1.f - std::pow(u, 1.7f));
+            if (y > -0.4f) pts.push_back({x, y}), pts.push_back({-x, y});
+        }
+        s.outline = subdivide(convexHull(pts), 0.04f);
+        prism(s, 0.42f, 0.05f, true);
+        break;
+    }
+    case MESH_BLOB: { // a soft irregular pebble
+        std::vector<P2> o;
+        for (int i = 0; i < 120; i++) {
+            float t = TAU * i / 120;
+            float r = 0.44f * (1.f + 0.05f * std::sin(2 * t + 0.7f) + 0.04f * std::sin(3 * t + 2.1f) + 0.02f * std::sin(5 * t + 0.4f));
+            o.push_back({r * std::cos(t), r * std::sin(t)});
+        }
+        s.outline = o;
+        const float b = 0.06f; // a round rim, then a face swelling gently toward the middle
+        s.z = [b](float, float, float d) {
+            float u = 1.f - std::min(d / 0.3f, 1.f);
+            return 0.24f - b + rimRound(d, b) + 0.14f * (1.f - u * u);
+        };
+        rimRings(s, b, true, 5);
+        scaleRings(s, {0.85f, 0.7f, 0.55f, 0.4f, 0.25f, 0.1f, 0.f});
+        break;
+    }
+    case MESH_TRIANGLE: { // a rounded triangle, point up
+        s.outline = subdivide(roundedPolygon({{0.5f, -0.43f}, {0.f, 0.5f}, {-0.5f, -0.43f}}, {0.1f, 0.1f, 0.1f}, 10), 0.05f);
+        prism(s, 0.42f, 0.05f, true);
+        break;
+    }
+    case MESH_ZIGGURAT: { // three square tiers, each step a sloped riser (it catches the light, seen from the front)
+        s.outline = {{h, -h}, {h, h}, {-h, h}, {-h, -h}};
+        const float step = 0.15f, rise = 0.11f, b = 0.09f;
+        s.z = [=](float, float, float d) {
+            float z = 0.06f;
+            for (int k = 0; k < 3; k++) z += rise * clampf((d - step * k) / b, 0.f, 1.f);
+            return z;
+        };
+        for (int k = 0; k < 3; k++) {
+            if (k) s.rings.push_back({R_OFFSET, step * k, true});
+            s.rings.push_back({R_OFFSET, step * k + b, true});
+        }
+        s.rings.push_back({R_OFFSET, 0.4f});
+        scaleRings(s, {0.f});
+        break;
+    }
     default: { // MESH_STAR: five rounded points
         std::vector<P2> c;
         for (int i = 0; i < 10; i++) {
@@ -222,6 +392,11 @@ void buildBlockShape(int mesh, std::vector<float>& v, std::vector<unsigned>& idx
         float best = 1e9f;
         for (int i = 0; i < n; i++) {
             P2 a = P[i], b = P[(i + 1) % n], ab = b - a;
+            float t = clampf(dot2(p - a, ab) / std::max(dot2(ab, ab), 1e-12f), 0.f, 1.f);
+            best = std::min(best, len2(p - (a + ab * t)));
+        }
+        for (size_t i = 0; i < S.hole.size(); i++) {
+            P2 a = S.hole[i], b = S.hole[(i + 1) % S.hole.size()], ab = b - a;
             float t = clampf(dot2(p - a, ab) / std::max(dot2(ab, ab), 1e-12f), 0.f, 1.f);
             best = std::min(best, len2(p - (a + ab * t)));
         }
@@ -260,6 +435,7 @@ void buildBlockShape(int mesh, std::vector<float>& v, std::vector<unsigned>& idx
         for (int i = 0; i < n; i++) {
             if (r.kind == R_OFFSET) pts[i] = P[i] + miter[i] * r.v;
             else if (r.kind == R_SCALE) pts[i] = lastOffset[i] * r.v;
+            else if (r.kind == R_LERP) pts[i] = P[i] + (S.hole[i] - P[i]) * r.v;
             else pts[i] = norm2(P[i]) * r.v;
         }
         if (r.kind == R_OFFSET) lastOffset = pts;
@@ -315,7 +491,10 @@ void buildBlockShape(int mesh, std::vector<float>& v, std::vector<unsigned>& idx
                     nn.z *= sz;
                     return push(vec3(p.x, p.y, z), nn, p.x / 0.5f, p.y / 0.5f, e);
                 };
+                const bool last = k + 1 == (int)rings.size();
                 if (k == 0) outer[r][c] = inner[r][c] = at(p + in); // the outline: sampled inside
+                else if (last && !S.hole.empty()) outer[r][c] = inner[r][c] = at(p - in); // the hole's edge: outside it
+                else if (last && S.facetApex) outer[r][c] = inner[r][c] = at(P[i] * 0.02f); // into the column's facet
                 else if (crease[k]) {
                     outer[r][c] = at(p - in);
                     inner[r][c] = at(p + in);
@@ -330,30 +509,44 @@ void buildBlockShape(int mesh, std::vector<float>& v, std::vector<unsigned>& idx
             }
     }
 
-    // Wall along the outline: three rows (front rim, middle, back rim), edges at both rims.
-    float perim = 0;
-    for (int i = 0; i < n; i++) {
-        int j = (i + 1) % n;
-        float zi = F(P[i]), zj = F(P[j]), seg = len2(P[j] - P[i]);
-        if (zi < 1e-4f && zj < 1e-4f) {
-            perim += seg;
-            continue;
-        }
-        unsigned col[2][3];
-        for (int s = 0; s < 2; s++) {
-            int k = s ? j : i;
-            P2 nn2 = sharp[k] ? segN[i] : norm2(segN[(k + n - 1) % n] + segN[k]);
-            vec3 nn(nn2.x, nn2.y, 0.f);
-            float zt = s ? zj : zi, u = (perim + (s ? seg : 0.f)) / 0.5f;
-            for (int row = 0; row < 3; row++) {
-                float z = zt * (1 - row), e = row == 1 ? std::min(1.f, zt / eNorm) : 0.f;
-                col[s][row] = push(vec3(P[k].x, P[k].y, z), nn, u, z / 0.5f, e);
+    // Wall along an outline (the outer one, the hole's): three rows (front rim, middle, back rim), edges at
+    // both rims. Q: the outline, QN: its segments' normals (out of the solid), Qs: its sharp corners.
+    auto wall = [&](const std::vector<P2>& Q, const std::vector<P2>& QN, const std::vector<bool>& Qs) {
+        const int m = (int)Q.size();
+        float perim = 0;
+        for (int i = 0; i < m; i++) {
+            int j = (i + 1) % m;
+            float zi = F(Q[i]), zj = F(Q[j]), seg = len2(Q[j] - Q[i]);
+            if (zi < 1e-4f && zj < 1e-4f) {
+                perim += seg;
+                continue;
             }
+            unsigned col[2][3];
+            for (int s = 0; s < 2; s++) {
+                int k = s ? j : i;
+                P2 nn2 = Qs[k] ? QN[i] : norm2(QN[(k + m - 1) % m] + QN[k]);
+                vec3 nn(nn2.x, nn2.y, 0.f);
+                float zt = s ? zj : zi, u = (perim + (s ? seg : 0.f)) / 0.5f;
+                for (int row = 0; row < 3; row++) {
+                    float z = zt * (1 - row), e = row == 1 ? std::min(1.f, zt / eNorm) : 0.f;
+                    col[s][row] = push(vec3(Q[k].x, Q[k].y, z), nn, u, z / 0.5f, e);
+                }
+            }
+            for (int row = 0; row < 2; row++) {
+                tri(col[0][row], col[1][row], col[1][row + 1]);
+                tri(col[0][row], col[1][row + 1], col[0][row + 1]);
+            }
+            perim += seg;
         }
-        for (int row = 0; row < 2; row++) {
-            tri(col[0][row], col[1][row], col[1][row + 1]);
-            tri(col[0][row], col[1][row + 1], col[0][row + 1]);
+    };
+    wall(P, segN, sharp);
+    if (!S.hole.empty()) { // the hole's wall faces its center
+        const int m = (int)S.hole.size();
+        std::vector<P2> hn(m);
+        for (int i = 0; i < m; i++) {
+            P2 e = norm2(S.hole[(i + 1) % m] - S.hole[i]);
+            hn[i] = {-e.y, e.x};
         }
-        perim += seg;
+        wall(S.hole, hn, std::vector<bool>(m, false));
     }
 }

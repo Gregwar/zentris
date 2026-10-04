@@ -439,6 +439,11 @@ float meshExponent(int mesh, float roundness) {
     case MESH_COIN: case MESH_DOME: return 2.5f;
     case MESH_OCTAGON: case MESH_HEX: return 5.f;
     case MESH_DIAMOND: case MESH_STAR: return 1.35f;
+    case MESH_HEART: case MESH_DROP: case MESH_FLOWER: case MESH_BLOB: return 2.5f;
+    case MESH_CAPSULE: case MESH_TRIANGLE: return 2.f;
+    case MESH_RING: case MESH_SHIELD: return 4.f;
+    case MESH_PYRAMID: return 7.f;
+    case MESH_ZIGGURAT: return 10.f;
     default: return 24.f;
     }
 }
@@ -453,6 +458,12 @@ static bool meshScaleRange(int mesh, float& a, float& b) {
     case MESH_DIAMOND: a = 0.8f, b = 0.87f; return true; // tips nearly meet
     case MESH_CROSS: a = 0.86f, b = 0.98f; return true; // arms nearly meet
     case MESH_STAR: a = 0.86f, b = 0.94f; return true; // side points stay clear of the neighbours'
+    case MESH_HEART: case MESH_FLOWER: a = 0.86f, b = 0.96f; return true;
+    case MESH_DROP: case MESH_BLOB: a = 0.86f, b = 0.96f; return true;
+    case MESH_CAPSULE: a = 0.86f, b = 0.94f; return true; // ends stay clear of the cells above and below
+    case MESH_TRIANGLE: a = 0.84f, b = 0.92f; return true; // bottom corners stay clear of the neighbours'
+    case MESH_RING: case MESH_SHIELD: a = 0.8f, b = 0.92f; return true;
+    case MESH_PYRAMID: case MESH_ZIGGURAT: a = 0.8f, b = 0.88f; return true; // square bases: a clear gap
     default: return false;
     }
 }
@@ -553,8 +564,11 @@ SceneId pickIdentity(const Footprint& fp, uint64_t seed) {
                               BS_STRIPES, BS_KINTSUGI, BS_TERRAZZO, BS_ENAMEL, BS_SCALES, BS_WAFFLE, BS_STAINED,
                               BS_PAPER, BS_BRUSHED, BS_MARBLE, BS_WOOD, BS_STITCH, BS_STUDS, BS_CARBON, BS_LED};
     for (int fsIdx : faceStyles)
-        if (block == fsIdx) // face patterns need flat faces (and wide ones: a star's points cut them)
+        if (block == fsIdx) { // face patterns need flat faces (and wide ones: a star's points cut them)
             mw[MESH_SPHERE] = mw[MESH_GEM] = mw[MESH_PILLOW] = mw[MESH_DOME] = mw[MESH_STAR] = 0;
+            mw[MESH_FLOWER] = mw[MESH_RING] = mw[MESH_PYRAMID] = mw[MESH_CAPSULE] = mw[MESH_BLOB] = mw[MESH_TRIANGLE] =
+                mw[MESH_ZIGGURAT] = 0;
+        }
     id.v[SF_MESH] = pickEnabled(r, mw, SF_MESH);
     float fw[FR_COUNT] = {2.f, 1.5f, 1.5f, 1.2f, 1.0f, 0.8f, 1.0f, 1.0f, 1.0f,
                           1.0f, 1.0f, 1.0f, 1.0f, 0.8f, 0.8f, 1.0f, 1.0f, 0.8f,
