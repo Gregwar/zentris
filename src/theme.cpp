@@ -680,7 +680,9 @@ Theme buildTheme(const SceneId& id) {
         int pool[CE_COUNT];
         for (int i = 0; i < CE_COUNT; i++) pool[i] = i;
         for (int i = CE_COUNT - 1; i > 0; i--) std::swap(pool[i], pool[r.next() % (i + 1)]);
-        for (int i = 0; i < 3; i++) t.clearEffects[i] = pool[i];
+        // ZIP (the whole row sliding off to one side) is off.
+        for (int i = 0, n = 0; n < 3; i++)
+            if (pool[i] != CE_ZIP) t.clearEffects[n++] = pool[i];
     }
 
     // ---- Light rays behind the board in half the scenes (the equalizer decoration stays off).
