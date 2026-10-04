@@ -236,7 +236,8 @@ void resolvePalette(Theme& t, float hueShift) {
         Ls[i] = baseL + (f - 0.5f) * 0.14f + r.range(-0.03f, 0.03f);
         Cs[i] = C;
         switch (p.scheme) {
-        case 0: hues[i] = h + (i - 3) * p.spread * 0.45f; break;                           // analogous
+        // Analogous: neighbouring hues over 90 .. 110 degrees (any narrower and the seven pieces read as one color).
+        case 0: hues[i] = h + (i - 3) * (0.26f + 0.15f * (p.spread - 0.15f)); break;
         case 1: hues[i] = h + (i % 2 ? PI : 0.f) + (i / 2) * 0.12f - 0.18f; break;        // complementary
         case 2: hues[i] = h + (i % 3) * TAU / 3.f + (i / 3) * 0.14f; break;                 // triadic
         case 3:                                                                               // monochrome
