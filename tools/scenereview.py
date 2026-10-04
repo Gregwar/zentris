@@ -605,8 +605,6 @@ def lan_ip():
 
 
 def serve(args):
-    if not batches():
-        sys.exit("no batch yet: run tools/scenereview.py generate first")
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
