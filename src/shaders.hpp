@@ -2468,8 +2468,9 @@ vec4 shade(int style, vec3 col) {
     if (style == 0) { // glass
         // Dark tinted glass glows on dark themes; on pale ones a dark fill over the light backplate turns
         // gray, so the glass there is a light, saturated tint.
-        rgb = col * mix(0.1 + 0.25 * lam, 0.75 + 0.25 * lam, uPale) + col * edgeGlow * em * 1.1 + mix(col, vec3(1.0), 0.4) * spec * 0.3;
-        a = mix(mix(uFill, max(uFill, 0.82), uPale), 1.0, edge);
+        // The body keeps the piece color on dark themes too (a near-black tint read as an empty outline).
+        rgb = col * mix(0.4 + 0.3 * lam, 0.75 + 0.25 * lam, uPale) + col * edgeGlow * em * 1.1 + mix(col, vec3(1.0), 0.4) * spec * 0.3;
+        a = mix(mix(max(uFill, 0.45), max(uFill, 0.82), uPale), 1.0, edge);
     } else if (style == 1) { // solid
         rgb = col * (0.3 + 0.7 * lam) * (1.0 - 0.3 * edge) + vec3(spec) * 0.3 + col * 0.12 * em;
     } else if (style == 2) { // wire
@@ -2490,8 +2491,10 @@ vec4 shade(int style, vec3 col) {
         rgb = col * (0.1 * lam + dotm * (0.45 + em * 0.9));
         a = mix(0.55, 1.0, dotm);
     } else if (style == 6) { // crystal (fresnel)
-        rgb = col * (0.08 + fres * em * 2.0) + mix(col, vec3(1.0), 0.4) * spec * 0.4 + col * lam * 0.12 + col * edge * 0.3 * em;
-        a = mix(uFill * 0.7, 1.0, max(fres, edge));
+        // Like glass: a colored body on dark themes, and a light saturated tint on pale ones (a dark fill over
+        // the light backplate turned gray).
+        rgb = col * (mix(0.32, 0.7, uPale) + fres * em * 2.0) + mix(col, vec3(1.0), 0.4) * spec * 0.4 + col * lam * 0.12 + col * edge * 0.3 * em;
+        a = mix(mix(max(uFill * 0.7, 0.4), max(uFill, 0.8), uPale), 1.0, max(fres, edge));
     } else if (style == 7) { // split two-tone
         float tone = smoothstep(-aa, aa, uv.x + uv.y);
         rgb = col * mix(0.4, 0.95, tone) * lam + col * edge * 0.3 * em + vec3(spec) * 0.2;
