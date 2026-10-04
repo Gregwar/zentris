@@ -178,6 +178,13 @@ private:
     static constexpr float WIPE_W = 0.35f;
     float pauseFade_ = 0, settleGlow_ = 0;
     float lockAge_ = 99.f, lockX_ = 0, lockY_ = 0; // last lock: seconds since, mean cell (board coordinates)
+    // Lock effects with small bodies of their own (splash droplets, petals, confetti): simulated with the bursts,
+    // drawn as soft sprites (shape 0) or thin emissive tiles (confetti, which tumble).
+    struct LockBit { vec3 pos, vel, color; float life, maxLife, size, grav, drag, phase; int kind; };
+    enum { LB_DROP, LB_PETAL, LB_CONFETTI };
+    std::vector<LockBit> lockBits_;
+    struct LockSprite { vec3 pos, color; float size, alpha; };
+    std::vector<LockSprite> lockSprites_; // rebuilt by collectBoard every frame, drawn with the bursts
     bool dim_ = false;
     std::vector<HudRect> panels_;
     float govern_ = 1.f;      // automatic exposure reduction when the scene gets too bright

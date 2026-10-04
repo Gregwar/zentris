@@ -493,6 +493,49 @@ void Renderer::onEvent(const GameEvent& ev, const Game&) {
                     }
                 }
             }
+            if (t.lockEffect == LE_SPLASH || t.lockEffect == LE_PETALS || t.lockEffect == LE_CONFETTI) {
+                const float pw = paleW(t);
+                int minX = 99, maxX = -99, minY = 99, maxY = -99;
+                for (auto& c : ev.cells)
+                    minX = std::min(minX, c.x), maxX = std::max(maxX, c.x), minY = std::min(minY, c.y), maxY = std::max(maxY, c.y);
+                auto bit = [&](int kind, vec3 pos, vec3 vel, vec3 col, float life, float size, float grav, float drag) {
+                    if (lockBits_.size() >= 400) return;
+                    lockBits_.push_back(LockBit{pos, vel, col, life, life, size, grav, drag, rng_.range(0.f, TAU), kind});
+                };
+                if (t.lockEffect == LE_SPLASH) { // droplets thrown sideways from the piece's lowest corners, then falling
+                    for (int side = -1; side <= 1; side += 2) {
+                        const GameEvent::CellInfo* e = nullptr; // the outermost cell of the bottom row on this side
+                        for (auto& c : ev.cells)
+                            if (c.y == maxY && (!e || (side < 0 ? c.x < e->x : c.x > e->x))) e = &c;
+                        vec3 base = cellPos((float)e->x, (float)e->y) + vec3(side * 0.45f, -0.42f, 0.4f);
+                        vec3 col = lerp(t.piece[e->type], lerp(vec3(1.f), t.piece[e->type] * 0.7f, pw), 0.12f);
+                        for (int i = 0; i < 3; i++)
+                            bit(LB_DROP, base + vec3(0, rng_.range(0.f, 0.12f), 0),
+                                vec3(side * rng_.range(1.6f, 3.f), rng_.range(2.2f, 3.4f), rng_.range(0.f, 0.3f)), col,
+                                rng_.range(0.8f, 1.f), rng_.range(0.26f, 0.3f) * (i == 0 ? 1.2f : 1.f), 10.f, 0.4f);
+                    }
+                } else if (t.lockEffect == LE_PETALS) { // a few soft petals let go from the piece and drift down
+                    for (int i = 0; i < 4; i++) {
+                        const auto& c = ev.cells[rng_.next() % ev.cells.size()];
+                        vec3 col = mixOklab(t.piece[c.type], vec3(1.f), lerpf(0.2f, 0.4f, pw));
+                        float side = (i % 2) ? 1.f : -1.f;
+                        bit(LB_PETAL, cellPos((float)c.x, (float)c.y) + vec3(rng_.range(-0.4f, 0.4f), rng_.range(-0.3f, 0.3f), 0.7f),
+                            vec3(side * rng_.range(0.6f, 1.4f), rng_.range(0.6f, 1.2f), 0.f), col, rng_.range(2.2f, 2.8f),
+                            rng_.range(0.4f, 0.48f), 2.6f, 1.6f);
+                    }
+                } else { // confetti: a small pop of squares in the piece's color and the scene's accent
+                    vec3 center = cellPos((minX + maxX) * 0.5f, (float)minY) + vec3(0, 0.3f, 0.7f);
+                    for (int i = 0; i < 10; i++) {
+                        const auto& c = ev.cells[i % ev.cells.size()];
+                        vec3 col = i % 3 == 2 ? lerp(t.accent, t.piece[c.type], 0.3f) : t.piece[c.type];
+                        if (i % 3 == 1) col = lerp(col, lerp(vec3(1.f), col * 0.6f, pw), 0.4f);
+                        float a = PI * (0.5f + rng_.range(-0.42f, 0.42f));
+                        bit(LB_CONFETTI, center + vec3(rng_.range(-0.6f, 0.6f), 0, 0),
+                            vec3(std::cos(a) * 4.f, std::sin(a) * rng_.range(5.f, 6.5f), rng_.range(0.f, 0.4f)), col,
+                            rng_.range(1.3f, 1.7f), rng_.range(0.2f, 0.26f), 7.f, 1.3f);
+                    }
+                }
+            }
         }
         break;
     case GameEvent::Clear: {
@@ -735,11 +778,17 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
     // their center and extent, for the lock effects that work across the piece.
     struct LockedPiece { float flash, sx = 0, sy = 0, n = 0, minX = 99, maxX = -99, minY = 99, maxY = -99; };
     std::vector<LockedPiece> pieces;
-    if (t.lockEffect == LE_MAGNET || t.lockEffect == LE_FLIP || t.lockEffect == LE_INK || t.lockEffect == LE_SHIMMER)
+    // The cells of those pieces (lock effects drawn around a piece's outline or between pieces).
+    struct LockedCell { float flash; int x, y, type; };
+    std::vector<LockedCell> lockedCells;
+    const bool outlineFx = t.lockEffect == LE_STAMP || t.lockEffect == LE_BLOOM || t.lockEffect == LE_ROWWAVE ||
+                           t.lockEffect == LE_SPIN || t.lockEffect == LE_DRIP || t.lockEffect == LE_ECHO || t.lockEffect == LE_AURA;
+    if (t.lockEffect == LE_MAGNET || t.lockEffect == LE_FLIP || t.lockEffect == LE_INK || t.lockEffect == LE_SHIMMER || outlineFx)
         for (int y = Game::HIDDEN; y < Game::H; y++)
             for (int x = 0; x < Game::W; x++) {
                 const Cell& c = g.cell(x, y);
                 if (c.type < 0 || c.flash <= 0.f) continue;
+                if (outlineFx) lockedCells.push_back(LockedCell{c.flash, x, y, c.type});
                 LockedPiece* lp = nullptr;
                 for (auto& q : pieces)
                     if (q.flash == c.flash) lp = &q;
@@ -771,6 +820,8 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
             auto fade = [&](float dur) { return std::max(0.f, 1.f - age / dur); };
             float fl = 0, gl = 0, tint = 0, hue = 0, ink = 0, frost = 0;
             vec3 dp(0, 0, 0), sc(1, 1, 1);
+            float turn = 0, bloomW = 0; // in-plane turn (radians); color bloomed in from a neighbouring piece
+            vec3 bloomCol(0, 0, 0);
             switch (t.lockEffect) {
             case LE_POP: fl = std::max(0.f, 0.35f - 0.9f * age); sc = vec3(1.f + 0.35f * fl); break; // short flash and pop
             case LE_AFTERGLOW: { float f = fade(3.f); fl = 1.1f * f * f; break; }                // bright, cooling slowly
@@ -892,9 +943,72 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
                 fl = 0.25f * p;
                 break;
             }
+            case LE_SPLASH: fl = 0.3f * a * a * a; break;   // the droplets are spawned at the lock
+            case LE_PETALS: fl = 0.2f * a * a * a; break;   // the petals are spawned at the lock
+            case LE_CONFETTI: fl = 0.3f * a * a * a; break; // the confetti is spawned at the lock
+            case LE_STAMP: { // pressed in like a rubber stamp (its ink ring is drawn with the helpers)
+                float p = age < 0.07f ? smoothstepf(0.f, 0.07f, age) : std::exp(-(age - 0.07f) * 7.f);
+                dp.z = -0.35f * p;
+                sc = vec3(1.f + 0.05f * p, 1.f + 0.05f * p, 1.f - 0.25f * p);
+                fl = 0.25f * a * a * a;
+                break;
+            }
+            case LE_BLOOM: { // its color blooms out into the neighbouring blocks as a soft glow, fading slowly
+                for (auto& q : pieces) {
+                    const float qa = (1.f - q.flash) * Game::LOCK_FX_SECONDS;
+                    float f = std::max(0.f, 1.f - qa / 3.6f);
+                    f = f * f * (3.f - 2.f * f);
+                    if (q.flash == c.flash) { gl = std::max(gl, 0.3f * f * smoothstepf(0.f, 0.3f, qa)); continue; }
+                    float d = 99.f;
+                    int qt = 0;
+                    for (auto& o : lockedCells)
+                        if (o.flash == q.flash) {
+                            float dd = std::hypot((float)(x - o.x), (float)(y - o.y));
+                            if (dd < d) d = dd, qt = o.type;
+                        }
+                    if (d > 3.5f) continue;
+                    const float r = 0.5f + 2.3f * (1.f - std::exp(-qa * 2.2f));
+                    float w = smoothstepf(r + 0.8f, r - 0.4f, d) * std::exp(-(d - 1.f) * 0.55f) * f;
+                    if (w > bloomW) bloomW = w, bloomCol = t.piece[qt];
+                }
+                gl += 0.28f * bloomW;
+                fl = 0.2f * a * a * a;
+                break;
+            }
+            case LE_ROWWAVE: { // a gentle crest running along the rows the piece landed in, both ways
+                for (auto& q : pieces) {
+                    const float qa = (1.f - q.flash) * Game::LOCK_FX_SECONDS;
+                    if (qa > 1.6f || y < q.minY || y > q.maxY) continue;
+                    float dx = std::fabs(x - q.sx / q.n), r = qa * 10.f;
+                    float b = std::exp(-(dx - r) * (dx - r) * 0.6f) * (1.f - qa / 1.6f);
+                    dp.y += 0.17f * b;
+                    gl += 0.15f * b;
+                }
+                fl = 0.25f * a * a * a;
+                break;
+            }
+            case LE_SPIN: { // each cell turns a quarter in the board plane, staggered, settling square
+                const LockedPiece* lp = pieceOf(c.flash);
+                float delay = lp ? ((x - lp->minX) + (y - lp->minY) * 0.6f) * 0.06f : 0.f;
+                float p = saturate((age - delay) / 0.38f), q = 1.f - (1.f - p) * (1.f - p) * (1.f - p);
+                turn = 0.5f * PI * (1.f - q);
+                sc = vec3(1.f - 0.15f * std::sin(PI * q));
+                fl = 0.15f * std::sin(PI * q) + 0.2f * a * a * a;
+                break;
+            }
+            case LE_DRIP: fl = 0.25f * a * a * a; break; // the drip is drawn with the helpers
+            case LE_ECHO: fl = 0.3f * a * a * a; break;  // the outlines are drawn with the helpers
+            case LE_AURA: { // a soft halo (drawn behind the board), the piece glowing faintly with it
+                float h = smoothstepf(0.f, 0.5f, age) * (1.f - smoothstepf(0.6f, 3.2f, age));
+                gl = 0.15f * h * (0.8f + 0.2f * std::sin(PI * saturate(age / 1.8f)));
+                fl = 0.15f * a * a * a;
+                break;
+            }
             }
             BlockInst bi = block(cellPos((float)x, y - g.rowOffset(y)) + dp, c.type, 0, fl, settleGlow_ + waveGlow + gl, 1.f);
             bi.scale = bi.scale * sc;
+            if (turn > 1e-3f) bi.params.x = 0.45f * std::min(turn / (0.5f * PI), 1.f); // kind 0, turned (block shader)
+            if (bloomW > 0) bi.color = vec4(mixOklab(vec3(bi.color.x, bi.color.y, bi.color.z), bloomCol, 0.45f * bloomW), 1);
             if (hue > 0) {
                 vec3 L = toOklab(vec3(bi.color.x, bi.color.y, bi.color.z));
                 const float cs = std::cos(hue), sn = std::sin(hue);
@@ -1041,6 +1155,126 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
             }
         }
     };
+    // Lock effects drawn as helpers around the pieces (behind-the-board halos, outlines, drips) and their small bodies.
+    lockSprites_.clear();
+    {
+        const float front = 0.5f * s * t.blockDepth + 0.04f;
+        auto fxBox = [&](vec3 c, vec3 sz, vec3 col, float a, float normalBlend) {
+            if (a <= 0.002f) return;
+            BlockInst b;
+            b.pos = c + base;
+            b.scale = sz;
+            b.color = vec4(col, a);
+            b.params = vec4(2, 0, 0, normalBlend);
+            fx.push_back(b);
+        };
+        auto inPiece = [&](float flash, int x, int y) {
+            for (auto& o : lockedCells)
+                if (o.flash == flash && o.x == x && o.y == y) return true;
+            return false;
+        };
+        // The piece's outline, scaled by f around its center and pushed out by `out`, as thin bars.
+        auto outline = [&](const LockedPiece& q, float f, float out, float th, float z, float alpha, float nb, auto colorOf) {
+            const int dx[4] = {1, -1, 0, 0}, dy[4] = {0, 0, 1, -1};
+            const vec3 cen = cellPos(q.sx / q.n, q.sy / q.n);
+            for (auto& o : lockedCells) {
+                if (o.flash != q.flash) continue;
+                const vec3 p = cellPos((float)o.x, o.y - g.rowOffset(o.y));
+                for (int d = 0; d < 4; d++) {
+                    if (inPiece(q.flash, o.x + dx[d], o.y + dy[d])) continue;
+                    const vec3 dir((float)dx[d], (float)-dy[d], 0.f);
+                    vec3 e = cen + (p + dir * 0.5f - cen) * f + dir * out;
+                    e.z = z;
+                    const float len = f + 2.f * out;
+                    fxBox(e, dx[d] ? vec3(th, len, th) : vec3(len, th, th), colorOf(o.type), alpha, nb);
+                }
+            }
+        };
+        for (auto& q : pieces) {
+            const float age = (1.f - q.flash) * Game::LOCK_FX_SECONDS;
+            int qt = 0;
+            for (auto& o : lockedCells)
+                if (o.flash == q.flash) qt = o.type;
+            const vec3 pc = t.piece[qt];
+            switch (t.lockEffect) {
+            case LE_STAMP: { // a brief dark ink ring pressed out around the piece
+                if (age > 1.4f) break;
+                float e = 1.f - age / 1.4f, al = lerpf(0.8f, 0.55f, pw) * e * e * smoothstepf(0.f, 0.06f, age);
+                vec3 inkCol = mixOklab(pc, vec3(0.004f), lerpf(0.9f, 0.7f, pw));
+                outline(q, 1.f, 0.03f + 0.09f * (1.f - std::exp(-age * 6.f)), 0.12f, front - 0.02f, al, 1.f,
+                        [&](int) { return inkCol; });
+                break;
+            }
+            case LE_ECHO: // two faint outlines of the piece, expanding and fading
+                for (int k = 0; k < 2; k++) {
+                    float p = (age - 0.05f - 0.3f * k) / 0.95f;
+                    if (p <= 0.f || p >= 1.f) continue;
+                    float f = 1.f + 0.75f * (1.f - (1.f - p) * (1.f - p));
+                    float al = (k ? 0.32f : 0.45f) * (1.f - p) * (1.f - p) * smoothstepf(0.f, 0.08f, p) * lerpf(1.f, 1.3f, pw);
+                    outline(q, f, 0.04f, 0.07f, front, al, 0.f, [&](int ty) { return t.piece[ty]; });
+                }
+                break;
+            case LE_DRIP: { // a short glossy drip of the piece's color sliding down from one of its bottom cells
+                if (age > 2.2f) break;
+                std::vector<const LockedCell*> bottom;
+                for (auto& o : lockedCells)
+                    if (o.flash == q.flash && !inPiece(q.flash, o.x, o.y + 1)) bottom.push_back(&o);
+                if (bottom.empty()) break;
+                const LockedCell& o = *bottom[(qt + (int)q.minX) % bottom.size()];
+                const vec3 p = cellPos((float)o.x, o.y - g.rowOffset(o.y)) + vec3(0.12f * ((qt % 3) - 1), 0, 0);
+                float m = smoothstepf(0.05f, 1.1f, age);
+                float len = 0.12f + 0.95f * m, al = lerpf(0.8f, 0.9f, pw) * (1.f - smoothstepf(1.f, 2.2f, age));
+                float top = p.y - 0.5f * s + 0.08f;
+                vec3 col = lerp(pc, pc * 0.85f, pw);
+                fxBox(vec3(p.x, top - len * 0.5f, front), vec3(0.2f, len, 0.05f), col, al, 1.f); // paint: blended over, never added
+                fxBox(vec3(p.x - 0.04f, top - len * 0.45f, front + 0.03f), vec3(0.045f, len * 0.7f, 0.02f),
+                      lerp(col, vec3(1.f), 0.5f), al * 0.4f, pw); // gloss
+                fxBox(vec3(p.x, top - len, front + 0.01f), vec3(0.26f, 0.24f, 0.05f), col, al, 1.f); // the drop at its end
+                break;
+            }
+            case LE_AURA: case LE_BLOOM: { // soft glow behind the piece: breathing once (aura), or spreading (bloom)
+                float size, al;
+                if (t.lockEffect == LE_AURA) {
+                    float br = std::sin(PI * saturate(age / 1.8f));
+                    size = 2.2f + 0.7f * br;
+                    al = 0.17f * smoothstepf(0.f, 0.5f, age) * (1.f - smoothstepf(0.6f, 3.2f, age)) * (0.75f + 0.25f * br);
+                } else {
+                    size = 2.2f + 2.6f * (1.f - std::exp(-age * 2.2f));
+                    float f = std::max(0.f, 1.f - age / 3.6f);
+                    al = 0.11f * f * f * smoothstepf(0.f, 0.3f, age);
+                }
+                al *= lerpf(1.f, 1.6f, pw);
+                if (al <= 0.003f) break;
+                for (auto& o : lockedCells)
+                    if (o.flash == q.flash) {
+                        vec3 p = cellPos((float)o.x, o.y - g.rowOffset(o.y));
+                        p.z = -0.58f;
+                        lockSprites_.push_back({p + base, t.piece[o.type], size, al});
+                    }
+                break;
+            }
+            default: break;
+            }
+        }
+        for (const LockBit& b : lockBits_) {
+            const float k = b.life / b.maxLife, age = b.maxLife - b.life;
+            switch (b.kind) {
+            case LB_DROP: lockSprites_.push_back({b.pos + base, b.color, b.size, lerpf(0.95f, 1.2f, pw) * std::sqrt(k)}); break;
+            case LB_PETAL: { // fluttering: swaying side to side, its size breathing a little
+                vec3 p = b.pos + vec3(0.28f * std::sin(b.phase + age * 2.3f), 0.f, 0.f);
+                float al = lerpf(0.6f, 1.f, pw) * smoothstepf(0.f, 0.3f, age) * k * (2.f - k);
+                lockSprites_.push_back({p + base, b.color, b.size * (1.f + 0.12f * std::sin(b.phase * 1.7f + age * 4.f)), al});
+                break;
+            }
+            default: { // confetti: thin tiles tumbling as they fall
+                float w = std::fabs(std::cos(b.phase + age * 6.f));
+                fxBox(b.pos, vec3(b.size * (0.15f + 0.85f * w), b.size, 0.02f), b.color * (0.75f + 0.25f * w),
+                      0.95f * smoothstepf(0.f, 0.35f, b.life), pw);
+                break;
+            }
+            }
+        }
+    }
     auto frame = [&](int style, float fa) {
         switch (style) {
         case FR_OUTLINE:
@@ -1706,7 +1940,7 @@ void Renderer::drawBlocks(const std::vector<BlockInst>& inst, bool depthWrite) {
 }
 
 void Renderer::drawBursts() {
-    if (bursts_.empty() && glints_.empty()) return;
+    if (bursts_.empty() && glints_.empty() && lockSprites_.empty()) return;
     const float pw = paleW(cur_);
     std::vector<float> burstData, glintData;
     burstData.reserve(bursts_.size() * 8);
@@ -1716,6 +1950,12 @@ void Renderer::drawBursts() {
         vec3 c = lerp(lerp(b.color, vec3(1.f), 0.25f), b.color * 0.9f, pw);
         float d[8] = {b.pos.x, b.pos.y, b.pos.z, b.size * (0.5f + 0.5f * k), c.x, c.y, c.z, a};
         burstData.insert(burstData.end(), d, d + 8);
+    }
+    for (auto& g : lockSprites_) {
+        if (g.alpha <= 0.003f) continue;
+        vec3 c = lerp(lerp(g.color, vec3(1.f), 0.1f), g.color * 0.9f, pw);
+        float d[8] = {g.pos.x, g.pos.y, g.pos.z, g.size, c.x, c.y, c.z, g.alpha * lerpf(1.f, 0.85f, pw)};
+        glintData.insert(glintData.end(), d, d + 8);
     }
     for (auto& g : glints_) {
         if (g.alpha <= 0.003f) continue;
@@ -1843,6 +2083,14 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
             b.life -= wdt;
             if (b.life <= 0) { b = bursts_.back(); bursts_.pop_back(); continue; }
             b.vel = b.vel * std::exp(-1.2f * wdt) + vec3(0, 0.25f, 0) * wdt;
+            b.pos += b.vel * wdt;
+            i++;
+        }
+        for (size_t i = 0; i < lockBits_.size();) {
+            LockBit& b = lockBits_[i];
+            b.life -= wdt;
+            if (b.life <= 0) { b = lockBits_.back(); lockBits_.pop_back(); continue; }
+            b.vel = b.vel * std::exp(-b.drag * wdt) - vec3(0, b.grav, 0) * wdt;
             b.pos += b.vel * wdt;
             i++;
         }

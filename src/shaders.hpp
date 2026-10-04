@@ -1838,8 +1838,14 @@ out vec4 vPar;
 void main() {
     vec3 sc = iScale;
     if (iParams.x < 1.5 || iParams.x > 2.5) sc.z *= uDepth;
-    vec3 wp = iPos + aPos * sc;
+    vec3 lp = aPos * sc;
     vN = normalize(aNormal / sc);
+    if (iParams.x > 0.001 && iParams.x < 0.5) { // a block turned in the board plane (spin lock effect)
+        float an = iParams.x / 0.45 * 1.5707963, c = cos(an), s = sin(an);
+        lp.xy = mat2(c, s, -s, c) * lp.xy;
+        vN.xy = mat2(c, s, -s, c) * vN.xy;
+    }
+    vec3 wp = iPos + lp;
     vWorld = wp;
     vEdge = aEdge;
     vCol = iColor;
