@@ -646,6 +646,11 @@ Theme buildTheme(const SceneId& id) {
     // Flat tilings (voronoi, facets, hexes) cover the whole screen evenly with cells about a piece's size: at the
     // amount of a soft layer (smoke, fog...) they read as a second grid competing with the board. Keep them faint.
     if (t.surfStyle == 13 || t.surfStyle == 15 || t.surfStyle == 16) t.surfAmt *= 0.4f;
+    // Crisp line art (ink, geometry, rings, contours, arcs, weave, lace, cracks, traces) reads as a second
+    // background over the real one: a faint pattern only.
+    switch (t.surfStyle) {
+    case 5: case 6: case 10: case 19: case 21: case 22: case 23: case 29: case 30: case 33: case 36: t.surfAmt *= 0.25f;
+    }
     t.surfScale = r.range(0.7f, 1.5f);
 
     // ---- Blocks.
