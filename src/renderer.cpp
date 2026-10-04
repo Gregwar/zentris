@@ -23,7 +23,7 @@ static float seeThrough(const Theme& t) {
     case BS_FRESNEL: return 1.f - 0.7f * t.fillAlpha;
     case BS_FROSTED: case BS_DOTS: return 0.35f;
     case BS_STAINED: return 0.25f;
-    case BS_CANDY: return 0.1f;
+    case BS_CANDY: case BS_GUMMY: return 0.1f;
     default: return 0.f;
     }
 }

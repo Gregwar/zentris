@@ -551,7 +551,7 @@ SceneId pickIdentity(const Footprint& fp, uint64_t seed) {
                             1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f};
     const int faceStyles[] = {BS_DOTS, BS_INSET, BS_SPLIT, BS_DOUBLE, BS_CIRCUIT, BS_CHECKER, BS_RINGS, BS_PIXEL, BS_HATCH,
                               BS_STRIPES, BS_KINTSUGI, BS_TERRAZZO, BS_ENAMEL, BS_SCALES, BS_WAFFLE, BS_STAINED,
-                              BS_PAPER};
+                              BS_PAPER, BS_BRUSHED, BS_MARBLE, BS_WOOD, BS_STITCH, BS_STUDS, BS_CARBON, BS_LED};
     for (int fsIdx : faceStyles)
         if (block == fsIdx) // face patterns need flat faces (and wide ones: a star's points cut them)
             mw[MESH_SPHERE] = mw[MESH_GEM] = mw[MESH_PILLOW] = mw[MESH_DOME] = mw[MESH_STAR] = 0;
