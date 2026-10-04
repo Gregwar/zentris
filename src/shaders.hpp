@@ -2851,7 +2851,10 @@ void main() {
         vec3 rgb = col * (gEdgeGlow * 0.9 * max(uEmissive, 0.5) + 0.06);
         float gmx = max(rgb.r, max(rgb.g, rgb.b));
         if (gmx > 1e-4) rgb *= 1.1 * (1.0 - exp(-gmx / 1.1)) / gmx; // same soft ceiling as blocks
-        float a = uGhost * (gEdge * 0.8 + 0.25);
+        // On a light well a faint glow reads as nothing: pale scenes draw the outline in the piece's own
+        // color, more opaque, so the landing spot shows as a tinted outline like the dark scenes' glowing one.
+        rgb = mix(rgb, col, uPale);
+        float a = uGhost * (gEdge * mix(0.8, 3.2, uPale) + 0.25);
         fragColor = vec4(clamp(rgb, 0.0, 64.0), clamp(a, 0.0, 1.0));
         return;
     }
