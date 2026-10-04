@@ -1182,8 +1182,10 @@ vec4 shade(int style, vec3 col) {
     } else if (style == 13) { // frosted glass
         vec2 q = floor((uv * 0.5 + 0.5) * 24.0);
         float n = fract(sin(dot(q, vec2(12.9898, 78.233))) * 43758.5453);
-        rgb = col * (0.2 + 0.25 * lam + 0.15 * n) + col * edgeGlow * em * 0.7 + mix(col, vec3(1.0), 0.3) * spec * 0.2;
-        a = mix(0.55, 1.0, edge);
+        // On pale themes a thin dark frost over the light backplate looks washed out: a denser, colored frost.
+        rgb = col * mix(0.2 + 0.25 * lam + 0.15 * n, 0.7 + 0.25 * lam + 0.12 * n, uPale) + col * edgeGlow * em * 0.7
+            + mix(col, vec3(1.0), 0.3) * spec * 0.2;
+        a = mix(mix(0.55, 0.88, uPale), 1.0, edge);
     } else if (style == 14) { // checker
         vec2 c = floor((uv * 0.5 + 0.5) * 2.0);
         float t = mod(c.x + c.y, 2.0);

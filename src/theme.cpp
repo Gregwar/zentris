@@ -487,7 +487,9 @@ Theme evolveTheme(const Theme& base, const Footprint& fp, int level, float energ
     } else {
         // Peak: always a new particle layer (a style the song has not shown yet), richer color, more glow.
         t.pal.chroma = std::min(0.24f, base.pal.chroma * (1.3f + 0.2f * e));
-        t.pal.bgChroma = std::min(0.14f, base.pal.bgChroma * 1.8f + (mood == 2 ? 0.04f : 0.02f));
+        // Pale backgrounds stay soft at peaks: a vivid light background outshines the blocks.
+        t.pal.bgChroma = mood == 2 ? std::min(0.06f, base.pal.bgChroma * 1.3f + 0.01f)
+                                   : std::min(0.14f, base.pal.bgChroma * 1.8f + 0.02f);
         int avoid = base.layers[0].style;
         int st = pickParticleStyle(r, fp, mood, avoid);
         if (base.layerCount > 1 && st == base.layers[1].style) st = pickParticleStyle(r, fp, mood, avoid);
