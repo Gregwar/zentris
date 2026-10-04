@@ -289,7 +289,18 @@ int App::pickWipe(int kind) {
     case 2: { float v[WIPE_COUNT] = {1, 1.5f, 0.8f, 1.2f, 1.2f, 0.6f, 1.2f, 0, 1.2f, 0.8f, 0.8f, 1.2f, 1, 1, 1, 0.6f, 0.6f, 0.6f, 0.4f, 0.8f, 1, 0, 2, 1.5f, 0}; std::copy(v, v + WIPE_COUNT, w); break; }
     default: { float v[WIPE_COUNT] = {1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.5f, 2.5f, 2.5f, 2.5f}; std::copy(v, v + WIPE_COUNT, w); break; }
     }
-    return wipeRng_.weighted(w);
+    // Patterned shapes are off: they read as a graphic effect rather than a change of scene.
+    for (int p : {WIPE_SPIRAL, WIPE_DIAMOND, WIPE_RISE_WAVE, WIPE_FALL_WAVE, WIPE_BLINDS, WIPE_COLUMNS, WIPE_PETALS,
+                  WIPE_CROSS, WIPE_SALTIRE, WIPE_CHECKER})
+        w[p] = 0.f;
+    const int shape = wipeRng_.weighted(w);
+    // DEBUG (to remove): which transition plays.
+    static const char* names[WIPE_COUNT] = {"RADIAL", "RISE", "FALL", "LEFT", "RIGHT", "INWARD", "CURTAINS",
+        "DISSOLVE", "DIAGONAL", "SPIRAL", "DIAMOND", "RISE WAVE", "FALL WAVE", "BLINDS", "COLUMNS", "PETALS",
+        "CROSS", "SALTIRE", "CHECKER", "CORNER", "SPLIT", "GRAIN", "CLOUD RISE", "CLOUD OPEN", "SMOKE"};
+    static const char* kinds[4] = {"rising", "falling", "refresh", "scene change"};
+    std::printf("[debug] transition: %s (%s)\n", names[shape], kinds[std::clamp(kind, 0, 3)]);
+    return shape;
 }
 
 void App::toggleFullscreen() {
