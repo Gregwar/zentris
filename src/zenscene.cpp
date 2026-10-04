@@ -47,6 +47,17 @@ struct Options {
     bool showDisabled = false; // --disabled: the menu also offers the options switched off
 };
 
+// The options list of the sources (it may be newer than the one built in).
+void loadSourceOptions() {
+    if (FILE* in = std::fopen((std::string(ZEN_SOURCE_DIR) + "/src/scene-options.txt").c_str(), "r")) {
+        std::string text;
+        char buf[4096];
+        for (size_t n; (n = std::fread(buf, 1, sizeof(buf), in)) > 0;) text.append(buf, n);
+        std::fclose(in);
+        loadSceneOptions(text);
+    }
+}
+
 class SceneViewer {
 public:
     explicit SceneViewer(Options o) : opt_(std::move(o)) {}
@@ -564,14 +575,7 @@ int SceneViewer::run() {
     s_ = std::max(1.f, fbh / 900.f);
     sel_ = std::clamp(opt_.select, 0, ROWS - 1);
 
-    // The options list of the sources (it may be newer than the one built in).
-    if (FILE* in = std::fopen((std::string(ZEN_SOURCE_DIR) + "/src/scene-options.txt").c_str(), "r")) {
-        std::string text;
-        char buf[4096];
-        for (size_t n; (n = std::fread(buf, 1, sizeof(buf), in)) > 0;) text.append(buf, n);
-        std::fclose(in);
-        loadSceneOptions(text);
-    }
+    loadSourceOptions();
     game_.reset(rng_());
     game_.debugFillBoard(rng_()); // blocks right away
     if (opt_.section >= 0) {
@@ -669,6 +673,7 @@ void usage() {
         "  --level N         scene level shown: 0 calm, 1 mid, 2 peak (default: the section's usual one)\n"
         "  --review-shot OUT.png  a screenshot without the menu and with a filled board, prints a [review] line\n"
         "  --select N        menu row selected at start\n"
+        "  --random-codes N  print N random scene codes (options switched on only) and exit\n"
         "  --disabled        the menu also offers the options switched off (X switches the shown one on / off)\n");
 }
 
@@ -696,6 +701,13 @@ int main(int argc, char** argv) {
             if (o.section < 0) { std::fprintf(stderr, "unknown section '%s'\n", v.c_str()); return 1; }
         }
         else if (a == "--scene") o.code = next();
+        else if (a == "--random-codes") { // prints N random scene codes (options switched on only), then exits
+            const int n = std::atoi(next().c_str());
+            loadSourceOptions();
+            std::mt19937_64 rng{std::random_device{}() ^ (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count()};
+            for (int k = 0; k < n; k++) std::printf("%s\n", sceneCode(pickIdentity(Footprint{}, rng())).c_str());
+            return 0;
+        }
         else if (!a.empty() && a[0] == '-') { usage(); return 1; }
         else o.code = a;
     }

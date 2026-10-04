@@ -7,7 +7,10 @@ Dashboard tabs:
   skipped     scenes skipped without a comment (they can still be commented)
   to process  commented scenes, waiting for Claude
   to review   Claude's changes, with before/after snapshots: accept (-> done) or comment again (-> to process)
-  done        accepted threads
+  suggestions Claude's own proposals, each on its own local branch (suggest/...), not in main: before (main) / after
+              (the branch) snapshots; accept (-> merged by Claude), dismiss (-> branch dropped) or comment (-> to
+              process; Claude's answer comes back here)
+  done        accepted threads, accepted or dismissed suggestions
 
 Commands:
   generate [--count 100] [--jobs 3] [--size 1280x720]
@@ -26,6 +29,13 @@ Commands:
   add --code CODE --message TEXT [--section VERSE] [--level 1] [--size 1280x720]
       Opens a thread "to process" on a scene code (zenscene's "send to dashboard"): renders it with zenscene, at
       that song section and level, into the "zenscene" batch.
+  suggest --code CODE --branch BRANCH --after-bin ZENSCENE --title TEXT --message TEXT [--section --level --size]
+      Opens a suggestion: the scene rendered with main's build/zenscene (before) and with the branch's zenscene
+      (after). Replies to it re-render "after" with the branch's binary and bring it back to "suggestions".
+  suggestions
+      Prints the open suggestions (key, status, branch, title), to avoid proposing the same thing twice.
+  resolve KEY
+      Closes an accepted (merged) or dismissed (branch dropped) suggestion: -> done.
 
 Everything lives in the user data folder (~/.local/share/zentris/scene-review/): one folder per batch (snapshots,
 scenes.jsonl with what reproduces each scene), threads.json (the threads and their state) and feedback.jsonl (every
@@ -214,7 +224,13 @@ def user_action(key, action, text=""):
             t["status"] = "skipped"
         elif action == "accept":
             msg = {"from": "user", "at": now(), "kind": "accept", "text": text}
-            t["status"] = "done"
+            # An accepted suggestion still has to be merged by Claude.
+            t["status"] = "accepted" if scene.get("branch") else "done"
+            t["handed"] = False
+        elif action == "dismiss":
+            msg = {"from": "user", "at": now(), "kind": "dismiss", "text": text}
+            t["status"] = "dismissed"
+            t["handed"] = False
         else:
             if not text.strip():
                 raise ValueError("empty comment")
@@ -261,7 +277,8 @@ def cmd_watch(args):
     scenes = None
     while True:
         with threads_locked() as threads:
-            new = [t for t in threads.values() if t["status"] == "process" and (args.all or not t.get("handed"))]
+            new = [t for t in threads.values()
+                   if t["status"] in ("process", "accepted", "dismissed") and (args.all or not t.get("handed"))]
             for t in new:
                 t["handed"] = True
         if new:
@@ -279,7 +296,9 @@ def cmd_reply(args):
     s = scenes[args.key]
     folder = os.path.join(DATA, s["batch"])
     t = threads[args.key]
-    before = next((m["after"] for m in reversed(t["messages"]) if m.get("after")), s["image"])
+    suggestion = bool(s.get("branch"))
+    # A suggestion always compares main (the original snapshot) with its branch.
+    before = s["image"] if suggestion else next((m["after"] for m in reversed(t["messages"]) if m.get("after")), s["image"])
     after = None
     if args.image:
         after = f"scene{s['id']:03d}-r{len(t['messages'])}.png"
@@ -292,6 +311,8 @@ def cmd_reply(args):
         os.makedirs(os.path.join(folder, "after"), exist_ok=True)
         cmd = shlex.split(s["snapshot_cmd"])
         cmd[cmd.index("--review-shot") + 1] = os.path.join(folder, after)
+        if suggestion:
+            cmd[0] = s["after_bin"]
         info = run_snapshot(cmd)
         if not info:
             sys.exit("could not render the scene again")
@@ -299,12 +320,69 @@ def cmd_reply(args):
     msg = {"from": "claude", "at": now(), "kind": "change", "text": args.message, "before": before, "after": after}
     if after is None:
         msg.pop("before")
+    status = "suggest" if suggestion else "review"
     with threads_locked() as threads:
         th = threads[args.key]
         th["messages"].append(msg)
-        th["status"] = "review"
-    log_feedback(s, msg, "review")
-    print(f"{args.key} -> to review")
+        th["status"] = status
+    log_feedback(s, msg, status)
+    print(f"{args.key} -> {'suggestions' if suggestion else 'to review'}")
+
+
+def cmd_suggest(args):
+    for b in (ZENSCENE, args.after_bin):
+        if not os.path.exists(b):
+            sys.exit(f"missing {b}")
+    folder = os.path.join(DATA, "suggestions")
+    os.makedirs(os.path.join(folder, "after"), exist_ok=True)
+    tag = f"{os.getpid()}-{int(time.time() * 1000)}"
+    tmp_before, tmp_after = os.path.join(folder, f"in-{tag}-a.png"), os.path.join(folder, f"in-{tag}-b.png")
+    cmd = [ZENSCENE, "--size", args.size, "--review-shot", tmp_before, "--section", args.section, "--level",
+           str(args.level), args.code]
+    info = run_snapshot(cmd)
+    after_cmd = [args.after_bin] + cmd[1:]
+    after_cmd[after_cmd.index("--review-shot") + 1] = tmp_after
+    info_after = run_snapshot(after_cmd)
+    if not info or not info_after:
+        sys.exit("could not render the scene")
+    with threads_locked() as threads:
+        jsonl = os.path.join(folder, "scenes.jsonl")
+        sid = sum(1 for line in open(jsonl) if line.strip()) if os.path.exists(jsonl) else 0
+        image, after = f"scene{sid:03d}.png", f"after/scene{sid:03d}-r0.png"
+        os.replace(tmp_before, os.path.join(folder, image))
+        os.replace(tmp_after, os.path.join(folder, after))
+        cmd[cmd.index("--review-shot") + 1] = os.path.join(folder, image)
+        level = info["level"]
+        scene = {"id": sid, "image": image, "code": info["code"], "scene": info["scene"], "level": level,
+                 "level_name": LEVELS.get(level, "?"), "section": info["section"],
+                 "energy": [0.25, 0.55, 0.9][level], "bpm": info["bpm"], "time": 0, "duration": 0, "phase": 0,
+                 "phases": 1, "levels": "", "title": args.title, "song": "", "video": "", "seed": 0,
+                 "source": "suggestion", "branch": args.branch, "after_bin": os.path.abspath(args.after_bin),
+                 "snapshot_cmd": shlex.join(cmd)}
+        with open(jsonl, "a") as f:
+            f.write(json.dumps(scene, ensure_ascii=False) + "\n")
+        key = f"suggestions:{sid}"
+        msg = {"from": "claude", "at": now(), "kind": "suggest", "text": args.message, "before": image, "after": after}
+        threads[key] = {"key": key, "status": "suggest", "messages": [msg], "handed": True}
+    scene["key"], scene["batch"] = key, "suggestions"
+    log_feedback(scene, msg, "suggest")
+    print(f"{key} -> suggestions ({args.title}, branch {args.branch})")
+
+
+def cmd_suggestions(args):
+    scenes, threads = all_scenes(), read_threads()
+    for k, t in threads.items():
+        s = scenes.get(k)
+        if s and s.get("branch"):
+            print(f"{k}\t{t['status']}\t{s['branch']}\t{s.get('title', '')}")
+
+
+def cmd_resolve(args):
+    with threads_locked() as threads:
+        if args.key not in threads:
+            sys.exit(f"no thread {args.key}")
+        threads[args.key]["status"] = "done"
+    print(f"{args.key} -> done")
 
 
 def cmd_add(args):
@@ -395,15 +473,17 @@ button.b { border:0; border-radius:6px; padding:11px 9px; font:inherit; font-wei
 <header id="tabs"></header>
 <main id="main"></main>
 <script>
-const TABS = [["scenes", "Scenes"], ["skipped", "Skipped"], ["process", "To process"], ["review", "To review"], ["done", "Done"]];
+const TABS = [["scenes", "Scenes"], ["skipped", "Skipped"], ["process", "To process"], ["review", "To review"],
+              ["suggest", "Suggestions"], ["done", "Done"]];
 const LV = ["calm", "mid", "peak"], LVCOL = ["#24415a", "#4a3d1f", "#5a2430"];
 let scenes = [], threads = {}, tab = "scenes", open = null, pos = 0;
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const fmt = t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
-const status = s => (threads[s.key] || {}).status || "scenes";
+const status = s => (threads[s.key] || {}).status || (s.branch ? "suggest" : "scenes");
+const tabOf = st => ["accepted", "dismissed"].includes(st) ? "done" : st;
 const img = (s, f) => `img/${encodeURIComponent(s.batch)}/${f.split("/").map(encodeURIComponent).join("/")}`;
-const inTab = t => scenes.filter(s => status(s) === t);
+const inTab = t => scenes.filter(s => tabOf(status(s)) === t);
 
 async function load() {
   const r = await (await fetch("api/state")).json();
@@ -411,7 +491,7 @@ async function load() {
 }
 function render() {
   $("tabs").innerHTML = TABS.map(([k, l]) => {
-    const n = inTab(k).length, hot = (k === "review" || k === "scenes") && n;
+    const n = inTab(k).length, hot = (k === "review" || k === "scenes" || k === "suggest") && n;
     return `<button class="${k === tab ? "on" : ""}" data-t="${k}">${l}<span class="n ${hot ? "hot" : ""}">${n}</span></button>`;
   }).join("");
   document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => { tab = b.dataset.t; open = null; pos = 0; render(); });
@@ -422,7 +502,7 @@ function render() {
   $("main").innerHTML = `<div class="grid">${list.map(s => {
     const t = threads[s.key], last = t && [...t.messages].reverse().find(m => m.text);
     return `<div class="card" data-k="${s.key}"><img loading="lazy" src="${img(s, latest(s))}">
-      <div><span class="level l${s.level}">${LV[s.level]}</span> ${esc(s.scene)}</div>
+      <div><span class="level l${s.level}">${LV[s.level]}</span> ${esc(s.title || s.scene)}</div>
       <div class="last">${last ? esc((last.from === "claude" ? "Claude: " : "") + last.text) : "&nbsp;"}</div></div>`;
   }).join("")}</div>`;
   document.querySelectorAll(".card").forEach(c => c.onclick = () => { open = c.dataset.k; render(); scrollTo(0, 0); });
@@ -447,25 +527,30 @@ function showScene(s, list) {
   }).join("") + `<div class="mark" style="left:${100 * s.time / s.duration}%"></div>`;
   const msgs = t.messages.map(m => m.kind === "skip" ? `<div class="msg meta">skipped</div>`
     : m.kind === "accept" ? `<div class="msg meta">accepted${m.text ? ": " + esc(m.text) : ""}</div>`
+    : m.kind === "dismiss" ? `<div class="msg meta">dismissed</div>`
     : `<div class="msg ${m.from}"><div class="who">${m.from === "claude" ? "Claude" : "you"} · ${m.at.replace("T", " ")}</div>${esc(m.text)}</div>`).join("");
   let actions;
   if (st === "scenes") actions = `<button class="b b-go" id="send">Comment</button><button class="b b-nav" id="skip">Skip</button>`;
   else if (st === "review") actions = `<button class="b b-good" id="accept">Accept</button><button class="b b-go" id="send">Comment again</button>`;
+  else if (st === "suggest") actions = `<button class="b b-good" id="accept">Accept</button><button class="b b-go" id="send">Comment</button><button class="b b-nav" id="dismiss">Dismiss</button>`;
+  else if (st === "accepted" || st === "dismissed") actions = "";
   else actions = `<button class="b b-go" id="send">${st === "process" ? "Add to the comment" : "Comment"}</button>`;
   const hint = { scenes: "Skip moves it to Skipped; a comment sends it to Claude (To process).",
                  skipped: "A comment sends it to Claude.", process: "Waiting for Claude.",
-                 review: "Accept, or comment to send it back to Claude.", done: "Accepted. A comment reopens it." }[st];
+                 review: "Accept, or comment to send it back to Claude.", done: "Accepted. A comment reopens it.",
+                 suggest: "Claude's proposal (branch " + esc(s.branch || "") + ", not in main): accept to merge it, dismiss to drop it, or comment.",
+                 accepted: "Accepted: Claude merges the branch.", dismissed: "Dismissed: Claude drops the branch." }[st];
   $("main").innerHTML = `${list ? "" : `<button class="b b-nav back" id="back">← ${TABS.find(x => x[0] === tab)[1]}</button>`}
   <div class="view"><div>${shots}</div><div class="panel">
     ${list ? `<div class="dim">${pos + 1} of ${list.length} new scenes</div>` : ""}
-    <h1>${esc(s.scene)}</h1>
+    <h1>${esc(s.title || s.scene)}</h1>${s.title ? `<div class="dim">${esc(s.scene)}</div>` : ""}
     ${s.song ? `<div><span class="level l${s.level}">${LV[s.level]}</span> ${esc(s.section)} · phase ${s.phase + 1} of ${s.phases}</div>
     <div class="timeline">${strip}</div>
     <div class="dim" style="font-size:12px">song phases (blue calm, amber mid, red peak); white: the snapshot</div>
     <dl><dt>song</dt><dd>${esc(s.title)}</dd><dt>at</dt><dd>${fmt(s.time)} of ${fmt(s.duration)} · ${s.bpm} BPM</dd>
       <dt>energy</dt><dd>${s.energy.toFixed(2)}</dd><dt>code</dt><dd><code>${esc(s.code)}</code></dd></dl>
     <div class="dim" style="font-size:12px">same scene: <code>zentris --scene ${esc(s.code)} 'ytdl:${esc(s.video)}'</code></div>`
-    : `<div><span class="level l${s.level}">${LV[s.level]}</span> ${esc(s.section)} · sent from zenscene</div>
+    : `<div><span class="level l${s.level}">${LV[s.level]}</span> ${esc(s.section)} · ${s.branch ? "suggestion, branch <code>" + esc(s.branch) + "</code>" : "sent from zenscene"}</div>
     <dl><dt>code</dt><dd><code>${esc(s.code)}</code></dd></dl>
     <div class="dim" style="font-size:12px">same scene: <code>zenscene --section ${esc(s.section.toLowerCase())} --level ${s.level} ${esc(s.code)}</code></div>`}
     <div class="msgs">${msgs}</div>
@@ -473,16 +558,17 @@ function showScene(s, list) {
     <div class="buttons">${actions}</div>
     <div class="dim" style="font-size:12px;margin-top:6px">${hint}</div>
     ${list ? `<div class="buttons"><button class="b b-nav" id="prev">Previous</button><button class="b b-nav" id="next">Next</button></div>` : ""}
-    <div class="keys"><kbd>Ctrl+Enter</kbd> comment &nbsp; <kbd>Ctrl+→</kbd> ${st === "review" ? "accept" : "skip"} &nbsp; <kbd>Ctrl+←</kbd> previous</div>
+    <div class="keys"><kbd>Ctrl+Enter</kbd> comment &nbsp; <kbd>Ctrl+→</kbd> ${st === "review" || st === "suggest" ? "accept" : "skip"} &nbsp; <kbd>Ctrl+←</kbd> previous</div>
   </div></div>`;
   const on = (id, f) => $(id) && ($(id).onclick = f);
   on("send", () => act(s, "comment")); on("skip", () => act(s, "skip")); on("accept", () => act(s, "accept"));
+  on("dismiss", () => act(s, "dismiss"));
   on("back", () => { open = null; render(); });
   on("prev", () => { pos = Math.max(0, pos - 1); render(); }); on("next", () => { pos = Math.min(list.length - 1, pos + 1); render(); });
   window.onkeydown = e => {
     if (!e.ctrlKey) return;
     if (e.key === "Enter") { e.preventDefault(); act(s, "comment"); }
-    else if (e.key === "ArrowRight") { e.preventDefault(); act(s, st === "review" ? "accept" : "skip"); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); act(s, st === "review" || st === "suggest" ? "accept" : "skip"); }
     else if (e.key === "ArrowLeft" && list) { e.preventDefault(); pos = Math.max(0, pos - 1); render(); }
   };
 }
@@ -595,6 +681,18 @@ def main():
     r.add_argument("--message", required=True)
     r.add_argument("--no-render", action="store_true", help="answer without a new snapshot")
     r.add_argument("--image", help="use this PNG as the after snapshot")
+    sg = sub.add_parser("suggest", help="open a suggestion (a branch's change, before/after)")
+    sg.add_argument("--code", required=True)
+    sg.add_argument("--branch", required=True)
+    sg.add_argument("--after-bin", required=True, help="the branch's zenscene binary")
+    sg.add_argument("--title", required=True)
+    sg.add_argument("--message", required=True)
+    sg.add_argument("--section", default="VERSE")
+    sg.add_argument("--level", type=int, default=1, choices=[0, 1, 2])
+    sg.add_argument("--size", default="1280x720")
+    sub.add_parser("suggestions", help="list the suggestions")
+    rs = sub.add_parser("resolve", help="close a merged or dropped suggestion")
+    rs.add_argument("key")
     a = sub.add_parser("add", help="open a thread on a scene code (zenscene)")
     a.add_argument("--code", required=True)
     a.add_argument("--message", required=True)
@@ -603,7 +701,7 @@ def main():
     a.add_argument("--size", default="1280x720")
     args = ap.parse_args()
     {"generate": generate, "serve": serve, "pending": cmd_pending, "watch": cmd_watch, "reply": cmd_reply,
-     "add": cmd_add}[args.cmd](args)
+     "add": cmd_add, "suggest": cmd_suggest, "suggestions": cmd_suggestions, "resolve": cmd_resolve}[args.cmd](args)
 
 
 if __name__ == "__main__":
