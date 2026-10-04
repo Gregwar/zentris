@@ -365,6 +365,16 @@ float polyDist(vec2 q, float sides) {
     float a = atan(q.y, q.x), seg = 6.2831853 / sides;
     return cos(floor(0.5 + a / seg) * seg - a) * length(q);
 }
+vec3 hueTurn(vec3 col, float a) { // rotate a color around the gray axis
+    const vec3 k = vec3(0.57735);
+    return col * cos(a) + cross(k, col) * sin(a) + k * dot(k, col) * (1.0 - cos(a));
+}
+float smoothNoise(vec2 p) { // three octaves only: rounder shapes than fbm
+    return 0.55 * vnoise(p) + 0.3 * vnoise(p * 2.1 + vec2(3.7, 1.9)) + 0.15 * vnoise(p * 4.3 + vec2(8.1, 5.3));
+}
+vec4 paleInk(vec3 col, float a) { // on pale scenes a light pattern vanishes into the light background: give it more coverage
+    return vec4(col, a * mix(1.0, 2.2, uPale));
+}
 vec4 surface(vec4 S, vec2 uv) {
     int s = int(S.x + 0.5);
     if (s == 0 || S.y <= 0.001) return vec4(0.0);
@@ -513,6 +523,122 @@ vec4 surface(vec4 S, vec2 uv) {
         float line = 1.0 - smoothstep(0.0, 0.04, border);
         float lit = pow(w, 3.0) * smoothstep(0.02, 0.08, border);
         return vec4(mix(colA, colB * 1.3 + 0.1, lit), (line * 0.16 + lit * 0.55) * amt);
+    } else if (s == 18) { // marble: soft clouded stone with thin veins slowly shifting
+        vec2 p = c * 1.2;
+        vec2 wq = vec2(fbm(p * 0.9 + T * 0.01), fbm(p * 0.9 + vec2(5.2, 1.3) - T * 0.008));
+        float r1 = 1.0 - abs(smoothNoise(p * 1.3 + wq * 2.2) - 0.5) * 2.0; // ridges of warped noise: a vein network
+        float r2 = 1.0 - abs(smoothNoise(p * 2.8 + wq * 2.8 + 7.0) - 0.5) * 2.0;
+        float vein = pow(r1, 24.0) * 0.8 + 0.35 * pow(r2, 30.0) + 0.25 * pow(r1, 5.0);
+        float cloud = smoothstep(0.35, 0.75, fbm(p * 0.7 + wq + 2.0));
+        return paleInk(mix(mix(colB * 0.7, colA, cloud * 0.5), colA * 1.15, min(vein, 1.0)), (0.08 + 0.16 * cloud + 0.4 * vein) * amt);
+    } else if (s == 19) { // topography: contour lines of a slowly evolving height map
+        vec2 p = c * 1.3;
+        float h = smoothNoise(p + vec2(T * 0.01, 0.0)) + 0.4 * smoothNoise(p * 2.0 + vec2(4.0, 1.0) - vec2(0.0, T * 0.013));
+        float v = h * 12.0, fw = max(fwidth(v), 1e-4);
+        float line = 1.0 - smoothstep(fw * 0.4, fw * 1.6, 0.5 - abs(fract(v) - 0.5));
+        float major = mod(floor(v + 0.5), 5.0) < 0.5 ? 1.0 : 0.55;
+        return paleInk(mix(colA, colB, fract(h * 2.0)), line * major * amt * 0.6);
+    } else if (s == 20) { // kaleidoscope: a soft mirrored pattern slowly turning
+        // Repeated mirror folds, each followed by a slowly turning rotation: symmetry all over the screen.
+        vec2 q = c * 1.4;
+        float ang = 0.6 + T * 0.015;
+        mat2 rot = mat2(cos(ang), sin(ang), -sin(ang), cos(ang));
+        for (int i = 0; i < 5; i++) q = rot * (abs(q) - vec2(0.32, 0.22));
+        float n = smoothNoise(q * 2.0 + 1.3);
+        float w = 0.5 + 0.5 * sin(length(q) * 9.0 + n * 4.0 - T * 0.04), petals = smoothstep(0.4, 0.9, w);
+        float rim = exp(-pow((w - 0.62) * 9.0, 2.0)); // soft outline around each mirrored shape
+        return paleInk(mix(colB, colA * 1.1, max(petals, rim)), (0.06 + 0.14 * petals + 0.22 * rim) * amt);
+    } else if (s == 21) { // rain rings: sparse drops landing on still water, rings spreading and fading
+        vec2 p = c * 4.0, ip = floor(p);
+        float a = 0.0;
+        for (int j = -1; j <= 1; j++)
+            for (int i = -1; i <= 1; i++) {
+                vec2 g = ip + vec2(float(i), float(j));
+                float h = hash12(g);
+                float tt = T * (0.09 + 0.04 * h) + h * 7.0;
+                float cyc = floor(tt), t = fract(tt);
+                if (hash12(g + cyc * 3.7) > 0.45) continue; // this cell stays dry this time
+                vec2 o = g + 0.2 + 0.6 * hash22(g + cyc * 1.3);
+                float d = length(p - o), R = t * 0.85;
+                float ring = exp(-pow((d - R) * 34.0, 2.0)) + 0.5 * exp(-pow((d - R * 0.65) * 40.0, 2.0));
+                a += ring * pow(1.0 - t, 2.0) * smoothstep(0.0, 0.05, t);
+            }
+        return paleInk(colA * 1.1, min(a, 1.0) * amt * 0.55);
+    } else if (s == 22) { // truchet: quarter-circle arcs joining into flowing paths, a faint light travelling along them
+        vec2 p = c * 5.0, ip = floor(p), f = fract(p);
+        bool flip = hash12(ip) > 0.5;
+        if (flip) f.x = 1.0 - f.x;
+        bool first = abs(length(f) - 0.5) < abs(length(f - 1.0) - 0.5);
+        vec2 q = first ? f : 1.0 - f;
+        float d = abs(length(q) - 0.5);
+        float s0 = atan(q.y, q.x) / 1.5707963; // 0..1 along the arc
+        if ((mod(ip.x + ip.y, 2.0) > 0.5) != flip) s0 = 1.0 - s0;
+        if (!first) s0 = 1.0 - s0;
+        float fw = fwidth(p.x);
+        float line = 1.0 - smoothstep(0.03, 0.03 + fw * 1.5, d);
+        float glow = exp(-d * d * 150.0);
+        float shim = pow(0.5 + 0.5 * sin(6.2831853 * (s0 - T * 0.08)), 6.0);
+        return paleInk(mix(colB, colA * 1.2, shim), (line * 0.32 + glow * shim * 0.45) * amt);
+    } else if (s == 23) { // weave: strands going over and under, a faint sheen drifting across
+        vec2 p = c * 9.0, ip = floor(p), f = fract(p);
+        bool hOver = mod(ip.x + ip.y, 2.0) < 0.5;
+        float wh = abs(f.y - 0.5), wv = abs(f.x - 0.5);
+        float inH = 1.0 - smoothstep(0.36, 0.42, wh), inV = 1.0 - smoothstep(0.36, 0.42, wv);
+        // The strand on top is rounded across its width and dips at both ends where it goes under.
+        float topH = inH * (hOver ? 1.0 : 1.0 - inV), topV = inV * (hOver ? 1.0 - inH : 1.0);
+        float shH = sqrt(max(1.0 - pow(wh / 0.42, 2.0), 0.0)) * (hOver ? 0.75 + 0.25 * sin(3.14159 * f.x) : 0.6);
+        float shV = sqrt(max(1.0 - pow(wv / 0.42, 2.0), 0.0)) * (hOver ? 0.6 : 0.75 + 0.25 * sin(3.14159 * f.y));
+        float sh = topH * shH + topV * shV;
+        float cov = max(topH, topV);
+        float sheen = 0.5 + 0.5 * sin(dot(c, vec2(1.0, 0.6)) * 1.3 - T * 0.08);
+        vec3 col = mix(colB * 0.75, colA, topH / max(cov, 1e-3) * 0.5 + 0.25) * (0.55 + 0.45 * sh);
+        return paleInk(col, cov * (0.1 + 0.16 * sh + 0.12 * sheen * sh) * amt);
+    } else if (s == 24) { // halftone: a dot screen whose dots swell and shrink with a slow noise field
+        vec2 r = mat2(0.7071, -0.7071, 0.7071, 0.7071) * c * 16.0;
+        vec2 ip = floor(r), f = fract(r) - 0.5;
+        vec2 cc = mat2(0.7071, 0.7071, -0.7071, 0.7071) * (ip + 0.5) / 16.0;
+        float n = smoothstep(0.25, 0.8, fbm(cc * 1.4 + vec2(T * 0.012, T * 0.007)));
+        float rad = 0.44 * sqrt(n);
+        float d = length(f), fw = fwidth(r.x);
+        float dot1 = 1.0 - smoothstep(rad - fw, rad + fw, d);
+        return paleInk(mix(colB, colA, n), dot1 * amt * 0.36);
+    } else if (s == 25) { // sand: fine wind ripples, gently wavy, slowly creeping
+        vec2 p = c;
+        float v = p.y * 18.0 + fbm(p * 1.2) * 4.0 + sin(p.x * 1.8 + fbm(p * 0.6) * 3.0) * 1.0 - T * 0.05;
+        float s0 = fract(v), aa = clamp(fwidth(v) * 1.5, 0.0, 1.0);
+        float lit = smoothstep(0.0, 0.72, s0) * (1.0 - smoothstep(0.72, 1.0, s0)); // long gentle face rising into the light, short steep face
+        lit = mix(lit, 0.4, aa);
+        float big = smoothstep(0.2, 0.75, fbm(p * 0.9 + vec2(T * 0.004, 0.0)));
+        vec3 col = mix(uBottom * 0.6 + colB * 0.15, colA, lit);
+        return paleInk(col, (0.12 + 0.1 * lit) * (0.6 + 0.4 * big) * amt);
+    } else if (s == 26) { // brush: broad soft painterly strokes slowly appearing and fading away
+        vec3 col = vec3(0.0);
+        float a = 0.0;
+        vec2 cp = c / S.z;
+        for (int k = 0; k < 10; k++) {
+            float fk = float(k);
+            float tt = T * 0.02 + fk * 0.237, cyc = floor(tt), ph = fract(tt);
+            vec2 hh = hash22(vec2(fk * 7.1, cyc));
+            vec2 o = (hh - 0.5) * vec2(0.95 * uAspect, 0.9);
+            float ang = (hash12(vec2(cyc, fk * 3.3)) - 0.5) * 1.6;
+            vec2 q = mat2(cos(ang), sin(ang), -sin(ang), cos(ang)) * (cp - o);
+            float L = 0.3 + 0.3 * hh.y, W = 0.08 + 0.06 * hh.x;
+            float across = q.y + 0.12 * sin(q.x * 2.2 + fk) * L;
+            float wid = W * (1.0 - 0.4 * pow(min(abs(q.x) / L, 1.0), 2.0));
+            float ragged = L * 0.3 * (fbm(vec2(across * 30.0, fk)) - 0.5); // dry, uneven stroke ends
+            float m = (1.0 - smoothstep(wid * 0.7, wid, abs(across))) * (1.0 - smoothstep(L * 0.6, L, abs(q.x) + ragged));
+            float bristle = 0.6 + 0.4 * smoothstep(0.3, 0.7, fbm(vec2(q.x * 1.2 + fk * 5.0, across * 60.0)));
+            float w = m * bristle * pow(sin(3.14159 * ph), 2.0) * 0.45;
+            col += mix(colA, colB, fract(fk * 0.41 + cyc * 0.29)) * w;
+            a += w;
+        }
+        return paleInk(col / max(a, 1e-3), min(a, 1.0) * amt);
+    } else if (s == 27) { // prism: soft dispersion bands, the theme hue fanned out across each band, drifting
+        float v = dot(c, normalize(vec2(1.0, 0.45))) * 1.3 + smoothNoise(c * 0.8 + vec2(T * 0.008, 0.0)) * 1.0 - T * 0.015;
+        float x = fract(v) - 0.5; // position across a band
+        float b = exp(-x * x * 40.0);
+        float env = smoothstep(0.2, 0.7, smoothNoise(c * 0.6 - vec2(0.0, T * 0.006) + 3.0));
+        return paleInk(hueTurn(colA * 1.2, x * 2.4), b * env * amt * 0.42);
     } else { // glass shards: large translucent polygons drifting and turning, their overlaps adding up
         float a = 0.0;
         vec3 col = vec3(0.0);

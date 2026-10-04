@@ -478,6 +478,7 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
         for (int i = 0; i < t.layerCount; i++) // particle floors too
             landscape |= t.layers[i].style == PS_WAVES || t.layers[i].style == PS_DUNES || t.layers[i].style == PS_SEA;
         if (landscape) sw[13] = sw[14] = sw[15] = sw[16] = 0.f;
+        if (landscape) sw[22] = sw[23] = sw[24] = sw[25] = 0.f; // truchet, weave, halftone, sand: flat textures too
         t.surfStyle = pickPool(r, x, sw, SURF_LEGACY, SF_SURFACE);
         t.surfAmt = mood == 2 ? r.range(0.25f, 0.45f) : r.range(0.3f, 0.6f);
         t.surfScale = r.range(0.7f, 1.5f);
