@@ -976,6 +976,159 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
             }
             for (float x = -halfW; x <= halfW + 0.01f; x += 0.5f) bar({x, -halfH, 0}, {0.1f, 0.1f, 0.1f}, fc, fa);
             break;
+        case FR_BRACKETS: // big [ ] embracing the board, serifs over the top and bottom edges
+            for (int sx = -1; sx <= 1; sx += 2) {
+                const float x = sx * (halfW + 0.3f), tw = th * 1.3f, hy = halfH + 0.3f;
+                bar({x, 0, 0}, {tw, 2 * hy + tw, tw}, fc, fa);
+                bar({sx * (halfW - 0.35f), hy, 0}, {1.3f - tw, tw, tw}, fc, fa * 0.75f);
+                bar({sx * (halfW - 0.35f), -hy, 0}, {1.3f - tw, tw, tw}, fc, fa);
+            }
+            break;
+        case FR_ARCH: { // sides rising into a low rounded arch over the top
+            const float rise = 1.15f, ax = halfW, w = th * 0.9f;
+            for (int sx = -1; sx <= 1; sx += 2) bar({sx * ax, 0, 0}, {w, 2 * halfH, w}, fc, fa);
+            bar({0, -halfH, 0}, {2 * ax + w, w, w}, fc, fa * 0.6f);
+            // Half-ellipse from one side top to the other, as overlapping-free beads of the line width.
+            vec3 prev(-ax, halfH, 0);
+            float acc = 0.f;
+            for (int i = 1; i <= 400; i++) {
+                const float a = PI * (1.f - i / 400.f);
+                vec3 p(ax * std::cos(a), halfH + rise * std::sin(a), 0);
+                acc += length(p - prev);
+                prev = p;
+                if (acc >= w * 0.75f) {
+                    acc = 0.f;
+                    bar(p, {w, w, w}, fc, fa * lerpf(0.75f, 1.f, std::fabs(std::cos(a))));
+                }
+            }
+            break;
+        }
+        case FR_RULER: // outer side lines with graduations: half rows, rows, every 5 rows
+            for (int sx = -1; sx <= 1; sx += 2) {
+                const float x = sx * (halfW + 0.12f);
+                bar({x, 0, 0}, {th * 0.7f, 2 * halfH, th}, fc, fa * 0.8f);
+                for (int k = 0; k <= 2 * (int)BOARD_H; k++) {
+                    const float len = k % 10 == 0 ? 0.55f : k % 2 == 0 ? 0.3f : 0.14f;
+                    const float aa = k % 10 == 0 ? 1.f : k % 2 == 0 ? 0.7f : 0.45f;
+                    bar({x + sx * len * 0.5f, k * 0.5f - BOARD_H * 0.5f, 0}, {len, th * 0.6f, th}, fc, fa * aa);
+                }
+            }
+            break;
+        case FR_CHEVRONS: // faint ^ stacked along both sides, fading upward
+            for (int sx = -1; sx <= 1; sx += 2)
+                for (int k = 0; k < (int)BOARD_H; k++) {
+                    const float cx = sx * (halfW + 0.32f), cy = k - BOARD_H * 0.5f + 0.4f;
+                    const float aa = fa * 0.55f * lerpf(1.f, 0.35f, k / (BOARD_H - 1.f));
+                    const float s = 0.06f;
+                    for (int j = 0; j <= 3; j++) {
+                        bar({cx - j * s, cy - j * s, 0}, {s * 1.05f, s * 1.05f, s}, fc, aa);
+                        if (j) bar({cx + j * s, cy - j * s, 0}, {s * 1.05f, s * 1.05f, s}, fc, aa);
+                    }
+                }
+            break;
+        case FR_BEADS: { // a string of beads all around, on a faint thread
+            const float b = 0.17f, step = 0.5f;
+            // Rounded look from two crossed squares: a brighter core, clipped corners.
+            auto bead = [&](vec3 c, float a) {
+                bar(c, {b, b * 0.55f, b * 0.55f}, fc, a * 0.6f);
+                bar(c, {b * 0.55f, b, b * 0.55f}, fc, a * 0.6f);
+            };
+            for (int sx = -1; sx <= 1; sx += 2) bar({sx * halfW, 0, 0}, {th * 0.35f, 2 * halfH, th * 0.35f}, fc, fa * 0.3f);
+            for (int sy = -1; sy <= 1; sy += 2) bar({0, sy * halfH, 0}, {2 * halfW, th * 0.35f, th * 0.35f}, fc, fa * 0.3f);
+            const int ny = (int)std::lround(2 * halfH / step), nx = (int)std::lround(2 * halfW / step);
+            for (int i = 0; i <= ny; i++) {
+                const float y = -halfH + i * (2 * halfH / ny);
+                bead({-halfW, y, 0}, fa);
+                bead({halfW, y, 0}, fa);
+            }
+            for (int i = 1; i < nx; i++) {
+                const float x = -halfW + i * (2 * halfW / nx);
+                bead({x, -halfH, 0}, fa);
+                bead({x, halfH, 0}, fa * 0.6f);
+            }
+            break;
+        }
+        case FR_NEONTUBE: { // thin bright core in a soft, steady halo
+            const vec3 core = lerp(fc, vec3(1.f), 0.45f * (1.f - paleW(t)));
+            const float ws[3] = {0.34f, 0.18f, th * 0.6f};
+            const float as[3] = {0.1f, 0.22f, 1.f};
+            for (int k = 0; k < 3; k++) {
+                const float w = ws[k];
+                const vec3 c = k == 2 ? core : fc;
+                // Horizontals own the corner squares so the additive layers never double up.
+                for (int sx = -1; sx <= 1; sx += 2) bar({sx * halfW, 0, 0}, {w, 2 * halfH - w, w}, c, fa * as[k]);
+                for (int sy = -1; sy <= 1; sy += 2) bar({0, sy * halfH, 0}, {2 * halfW + w, w, w}, c, fa * as[k]);
+            }
+            break;
+        }
+        case FR_ZIGZAG: { // a zigzag running up each side
+            const float w = 0.06f, amp = 0.28f, half = 0.5f;
+            for (int sx = -1; sx <= 1; sx += 2) {
+                const float x0 = sx * halfW, x1 = sx * (halfW + amp);
+                for (int k = 0; k < (int)(2 * halfH / half); k++) {
+                    const float y0 = -halfH + k * half;
+                    const float xa = k % 2 ? x1 : x0, xb = k % 2 ? x0 : x1;
+                    const int n = 6;
+                    for (int j = 0; j < n; j++) {
+                        const float u = (j + 0.5f) / n;
+                        bar({lerpf(xa, xb, u), y0 + u * half, 0}, {w, w, w}, fc, fa * 0.85f);
+                    }
+                }
+            }
+            break;
+        }
+        case FR_LATTICE: { // a trellis band on each side: two crossing diagonal families between two rails
+            const float w = 0.055f, band = 0.5f, period = 1.f;
+            for (int sx = -1; sx <= 1; sx += 2) {
+                const float xi = sx * halfW, xo = sx * (halfW + band);
+                bar({xi, 0, 0}, {th * 0.6f, 2 * halfH, th}, fc, fa * 0.7f);
+                bar({xo, 0, 0}, {th * 0.6f, 2 * halfH, th}, fc, fa * 0.45f);
+                for (int k = 0; k < (int)(2 * halfH / period); k++) {
+                    const float y0 = -halfH + k * period;
+                    const int n = 10;
+                    for (int j = 1; j < n; j++) {
+                        const float u = (float)j / n;
+                        const float x = lerpf(xi, xo, u);
+                        bar({x, y0 + u * period, 0}, {w, w, w}, fc, fa * 0.6f);
+                        if (std::fabs(u - 0.5f) > 0.05f) bar({x, y0 + (1.f - u) * period, 0}, {w, w, w}, fc, fa * 0.6f);
+                    }
+                }
+            }
+            break;
+        }
+        case FR_ORBIT: { // a faint outline with a few dots gliding around it, trailing a short wake
+            for (int sx = -1; sx <= 1; sx += 2) bar({sx * halfW, 0, 0}, {th * 0.5f, 2 * halfH, th * 0.5f}, fc, fa * 0.3f);
+            for (int sy = -1; sy <= 1; sy += 2) bar({0, sy * halfH, 0}, {2 * halfW + th * 0.5f, th * 0.5f, th * 0.5f}, fc, fa * 0.3f);
+            const float per = 4 * (halfW + halfH);
+            auto at = [&](float s) {
+                s = std::fmod(s, per);
+                if (s < 0) s += per;
+                if (s < 2 * halfW) return vec3(-halfW + s, -halfH, 0);
+                s -= 2 * halfW;
+                if (s < 2 * halfH) return vec3(halfW, -halfH + s, 0);
+                s -= 2 * halfH;
+                if (s < 2 * halfW) return vec3(halfW - s, halfH, 0);
+                s -= 2 * halfW;
+                return vec3(-halfW, halfH - s, 0);
+            };
+            const float s0 = (float)std::fmod(time * 0.7, (double)per);
+            for (int i = 0; i < 4; i++) {
+                const float s = s0 + i * per / 4.f;
+                for (int j = 0; j < 8; j++) {
+                    const float f = 1.f - j / 8.f, sz = lerpf(0.07f, 0.17f, f);
+                    bar(at(s - j * 0.16f), {sz, sz, sz}, fc, fa * (j ? 0.45f * f * f : 1.f));
+                }
+            }
+            break;
+        }
+        case FR_PEDESTAL: { // a stepped base of three slabs, widening downward
+            for (int k = 0; k < 3; k++) {
+                const float wdt = 2 * halfW + 0.3f + k * 0.8f, h = 0.2f, y = -halfH - 0.2f - k * 0.3f;
+                bar({0, y, -0.1f}, {wdt, h, 0.2f}, fc, fa * lerpf(0.32f, 0.16f, k / 2.f), 1.f);
+                bar({0, y + h * 0.5f, 0}, {wdt, th * 0.6f, th}, fc, fa * lerpf(1.f, 0.55f, k / 2.f));
+            }
+            break;
+        }
         default: break;
         }
     };
