@@ -526,6 +526,9 @@ Theme buildTheme(const SceneId& id) {
     }
     t.surfStyle = id.v[SF_SURFACE];
     t.surfAmt = mood == 2 ? r.range(0.25f, 0.45f) : r.range(0.3f, 0.6f);
+    // Flat tilings (voronoi, facets, hexes) cover the whole screen evenly with cells about a piece's size: at the
+    // amount of a soft layer (smoke, fog...) they read as a second grid competing with the board. Keep them faint.
+    if (t.surfStyle == 13 || t.surfStyle == 15 || t.surfStyle == 16) t.surfAmt *= 0.4f;
     t.surfScale = r.range(0.7f, 1.5f);
 
     // ---- Blocks.
