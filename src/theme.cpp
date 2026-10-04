@@ -395,10 +395,13 @@ void resolvePalette(Theme& t, float hueShift) {
         // light pieces and variety between scenes.
         // Pop: bright, as saturated as the screen allows (chroma beyond the gamut is clipped to its edge), two hues
         // far apart.
-        const float ch = avoidMud(h + PI + 0.6f * (t.bgP[2] - 0.5f), 0.55f);
+        // The background is a neighbouring hue family of the pieces' (not their opposite: a vivid complement,
+        // red pieces on blue, clashes at this saturation), its two hues turning away from the pieces' one.
+        const float side = p.perm & 1 ? 1.f : -1.f;
+        const float ch = avoidMud(h + side * (0.7f + 0.5f * t.bgP[2]), 0.55f);
         const float bc = 0.3f + p.bgChroma;
         const float lt = 0.52f + t.bgP[0] * 0.12f, lb = 0.4f + t.bgP[1] * 0.12f;
-        const float turn = (p.perm & 1 ? 1.f : -1.f) * (1.0f + 1.2f * t.bgP[3]);
+        const float turn = side * (0.4f + 0.5f * t.bgP[3]);
         t.bgTop = ok(lt, bc, ch);
         t.bgBottom = ok(lb, bc * 1.1f, avoidMud(ch + turn, lb));
         // Glows, clouds and particles are colored, not light: a light glow would haze the whole scene.
