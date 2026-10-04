@@ -2481,6 +2481,10 @@ vec4 shade(int style, vec3 col) {
         // On pale themes a dark see-through fill over the light backplate turns gray: tint it instead.
         rgb = col * edgeGlow * em * 1.5 + col * mix(0.03, 0.8, uPale);
         a = max(edge, mix(mix(0.1, 0.45, uLegible), 0.6, uPale));
+        // Pale: the see-through fill washed the colors to pastel over the light board. A fuller fill and a deeper
+        // ink line along the edge keep the piece's color.
+        rgb = mix(rgb, mix(col * 0.95, col * 0.55, edge), uPale);
+        a = mix(a, max(edge, 0.85), uPale);
         rgb *= 1.0 + 0.5 * uLegible * (1.0 - uPale); // brighter lines over the darkened backplate
     } else if (style == 3) { // lantern
         float inner = pow(clamp(e, 0.0, 1.0), 1.4);
