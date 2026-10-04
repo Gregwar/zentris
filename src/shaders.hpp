@@ -348,6 +348,204 @@ vec3 bgStyle(int s, vec2 uv) {
         float border = 0.5 - max(dot(ag, vec2(0.5, 0.8660254)), ag.x);
         float edge = 1.0 - smoothstep(0.0, 0.025, border);
         return mix(col, mix(uGlow, tint(uBottom, 1.5) * 0.8, uPale), edge * 0.1);
+    } else if (s == 34) { // planet: a large banded planet low on one side, a tilted soft ring, a faint atmosphere glow
+        float sd = uP.y < 0.5 ? -1.0 : 1.0, R = 0.26 + 0.05 * uP.w;
+        vec2 p = c - vec2(sd * (0.5 + 0.14 * uP.x) * uAspect * 0.62, -0.36 + 0.06 * uP.z);
+        float d = length(p), z = sqrt(max(1.0 - d * d / (R * R), 0.0));
+        vec3 col = mix(grad, uGlow, exp(-max(d - R, 0.0) * 10.0) * 0.28 * (1.0 - 0.4 * uPale) * step(R, d));
+        float tl = 0.22 * sd + 0.1 * (uP.z - 0.5);
+        vec2 q = mat2(cos(tl), sin(tl), -sin(tl), cos(tl)) * p;
+        float er = length(q * vec2(1.0, 4.2)) / R;
+        float ring = smoothstep(1.3, 1.38, er) * smoothstep(2.05, 1.9, er) * (0.65 + 0.35 * sin(er * 38.0 + uP.x * 6.0));
+        vec3 rc = mix(mix(uTop, uGlow, 0.6) * 1.1, tint(uGlow, 2.0) * 0.85, uPale);
+        col = mix(col, rc, ring * 0.4 * step(0.0, q.y)); // back half of the ring, hidden by the planet
+        float bands = vnoise(vec2(q.y / R * 7.0 + uP.x * 9.0 + 0.3 * vnoise(q / R * 3.0), uTime * 0.004));
+        vec3 body = mix(mix(uBottom, uTop, 0.5) * 0.95, tint(mix(uBottom, uGlow, 0.35), 1.6) * 0.88, uPale);
+        body = mix(body, mix(body, uGlow, 0.55), bands * 0.5);
+        float lit = clamp(dot(vec3(p / R, z), normalize(vec3(-sd * 0.7, 0.55, 0.55))), 0.0, 1.0);
+        body = body * (0.45 + 0.65 * lit) + uGlow * pow(1.0 - z, 3.0) * 0.35 * (0.3 + lit) * (1.0 - 0.5 * uPale);
+        col = mix(col, body, smoothstep(R, R - 0.004, d) * 0.92);
+        return mix(col, rc, ring * 0.45 * step(q.y, 0.0)); // front half
+    } else if (s == 35) { // desert: layered dunes with lit and shaded slopes under a warm-to-cool sky
+        vec3 col = mix(mix(uBottom, uGlow, 0.35 * (1.0 - 0.5 * uPale)), uTop, smoothstep(0.15, 0.9, uv.y));
+        col += uGlow * exp(-abs(uv.y - 0.33) * 9.0) * 0.12 * (1.0 - 0.5 * uPale);
+        vec3 sand = mix(mix(uBottom, uGlow, 0.5) * 1.05, tint(mix(uBottom, uGlow, 0.4), 1.7) * 0.85, uPale);
+        for (int k = 0; k < 4; k++) {
+            float fk = float(k), f = 1.6 + 0.9 * fk;
+            float x = c.x * f + uP.x * 7.0 + fk * 2.3 + uTime * 0.002 * (1.0 + fk);
+            float u = x + 0.45 * sin(x); // skewed crest: gentle windward slope, steep lee side
+            float hh = 0.33 - 0.075 * fk + (0.045 + 0.01 * fk) * (0.5 + 0.5 * sin(u)) + 0.015 * sin(x * 0.37 + fk);
+            float slope = cos(u) * (1.0 + 0.45 * cos(x)); // sign: windward lit, lee in shade
+            vec3 dune = sand * (0.75 + 0.25 * smoothstep(-0.3, 0.3, slope) + 0.05 * fk);
+            dune = mix(dune, col, 0.4 - 0.12 * fk);
+            col = mix(col, dune, smoothstep(hh + 0.002, hh - 0.002, uv.y));
+        }
+        return col;
+    } else if (s == 36) { // arctic: icebergs and drifting floes on a calm cold sea
+        float hy = 0.3 + 0.04 * uP.z;
+        vec3 sea = mix(mix(uBottom, uTop, 0.3) * 0.75, tint(uBottom, 1.5) * 0.9, uPale);
+        vec3 col = uv.y > hy ? grad : mix(sea, grad, exp(-(hy - uv.y) * 12.0) * 0.6);
+        col = mix(col, uGlow, exp(-abs(uv.y - hy) * 50.0) * 0.18);
+        vec3 ice = mix(mix(uTop, uGlow, 0.5) * 1.25 + 0.04, tint(mix(uTop, uGlow, 0.3), 1.2) * 1.02, uPale);
+        vec3 shade = mix(mix(uTop, uBottom, 0.5) * 0.9, tint(uBottom, 1.8) * 0.85, uPale);
+        float x = c.x / 0.32 + uP.x * 20.0 + uTime * 0.003, id = floor(x), fx = fract(x) - 0.5;
+        float hb = 0.04 + 0.08 * hash12(vec2(id, 3.0)), hw = 0.18 + 0.15 * hash12(vec2(id, 4.0));
+        float on = step(0.35, hash12(vec2(id, 5.0)));
+        float pk = (hash12(vec2(id, 6.0)) - 0.5) * hw * 0.6;
+        float prof = hy + hb * clamp((hw - abs(fx - pk)) / hw * 2.2, 0.0, 1.0) * (0.85 + 0.15 * vnoise(vec2(x * 9.0, id)));
+        float berg = on * smoothstep(prof + 0.002, prof - 0.002, uv.y) * step(hy, uv.y);
+        float refl = on * step(uv.y, hy) * smoothstep(2.0 * hy - prof - 0.002, 2.0 * hy - prof + 0.002, uv.y);
+        vec3 bc = mix(ice, shade, smoothstep(-0.02, 0.06, fx - pk) * 0.6);
+        col = mix(col, bc, berg * 0.85);
+        col = mix(col, bc, refl * 0.25 * (0.7 + 0.3 * sin(uv.y * 400.0 + uTime * 0.3)));
+        for (int k = 0; k < 3; k++) { // floes: flat slabs, larger and lower when nearer
+            float fk = float(k), yb = hy - 0.05 - 0.07 * fk, sc = 1.0 + fk;
+            float gx = (c.x + uTime * 0.004 * sc) / (0.12 * sc) + fk * 7.0 + uP.y * 9.0;
+            float fid = floor(gx), ff = fract(gx) - 0.5;
+            float fw = 0.15 + 0.25 * hash12(vec2(fid, fk)), th = 0.007 * sc;
+            float yy = yb + 0.02 * (hash12(vec2(fid, fk + 9.0)) - 0.5) * sc;
+            float fl = length(vec2(ff / fw, (uv.y - yy) / th));
+            float sh = smoothstep(1.0, 0.85, fl) * step(0.45, hash12(vec2(fid, fk + 2.0))) * step(uv.y, yy + th * 0.5);
+            col = mix(col, mix(ice, shade, smoothstep(yy, yy - th * 0.4, uv.y) * 0.7), sh * (0.55 + 0.1 * fk));
+        }
+        return col;
+    } else if (s == 37) { // volcano: a distant cone with a softly glowing crater and a faint drifting smoke plume
+        float sd = uP.y < 0.5 ? -1.0 : 1.0, vx = sd * (0.42 + 0.12 * uP.x) * uAspect * 0.62;
+        vec3 col = mix(grad, uGlow, exp(-length((c - vec2(vx, -0.04)) * vec2(1.0, 1.6)) * 5.0) * 0.18 * (1.0 - 0.4 * uPale));
+        float dx = c.x - vx, top = 0.47 + 0.04 * uP.z;
+        float cone = top - 0.55 * pow(abs(dx) + 0.02, 0.85) + 0.012 * fbm(vec2(c.x * 6.0, 1.0));
+        float hh = min(cone - 0.012 * smoothstep(0.045, 0.0, abs(dx)), top);
+        float rid = 0.2 + 0.03 * sin(c.x * 3.0 + uP.x * 5.0) + 0.01 * vnoise(vec2(c.x * 10.0, 3.0));
+        vec2 sp = c - vec2(vx, top - 0.5);
+        float sy = sp.y; sp.x -= sy * sy * 1.5 * sd + 0.02 * sin(sy * 8.0 - uTime * 0.05);
+        float plume = fbm(vec2(sp.x * 5.0, sy * 3.0 - uTime * 0.02)) * smoothstep(0.08 + sy * 0.5, 0.0, abs(sp.x)) * smoothstep(0.0, 0.04, sy) * smoothstep(0.5, 0.1, sy);
+        col = mix(col, mix(mix(uTop, uBottom, 0.4) * 1.2, tint(uBottom, 1.4) * 0.85, uPale), smoothstep(0.25, 0.65, plume) * 0.5);
+        vec3 sil = mix(mix(uBottom, uTop, 0.5) * 0.55, tint(uBottom, 1.8) * 0.72, uPale);
+        col = mix(col, mix(sil, grad, 0.35), smoothstep(hh + 0.002, hh - 0.002, uv.y));
+        vec3 lava = mix(uGlow * 1.4, tint(uGlow, 2.5) * 0.9, uPale);
+        col = mix(col, lava, exp(-length((c - vec2(vx, top - 0.495)) * vec2(1.0, 2.5)) * 30.0) * (0.55 + 0.1 * sin(uTime * 0.2)));
+        col = mix(col, lava, smoothstep(0.03, 0.0, abs(dx) - 0.01 - (hh - uv.y) * 0.4) * smoothstep(hh - 0.08, hh, uv.y) * step(uv.y, hh) * 0.25); // glow down the vent
+        return mix(col, mix(sil * 0.85, tint(uBottom, 1.9) * 0.62, uPale), smoothstep(rid + 0.002, rid - 0.002, uv.y));
+    } else if (s == 38) { // rose window: a large, very faint gothic tracery wheel behind the board
+        vec2 p = c - vec2(0.0, 0.04);
+        float r = length(p), a = atan(p.y, p.x) + 0.004 * uTime;
+        float N = 12.0 + 4.0 * floor(uP.x * 2.0), sa = 6.2831853 / N;
+        float as = (fract(a / sa) - 0.5) * sa;
+        vec2 l = r * vec2(cos(as), sin(as)); // one sector, its axis along +x
+        float R = 0.46;
+        float d = min(min(abs(r - R), abs(r - R * 1.04)), abs(r - R * 0.3));
+        d = min(d, abs(r * sin(sa * 0.5 - abs(as))) + step(r, R * 0.3) + step(R, r)); // mullions between the panels
+        d = min(d, abs(length(l - vec2(R * 0.66, 0.0)) - R * 0.14)); // round lancets
+        d = min(d, abs(length(l - vec2(R * 0.92, 0.0)) - R * sin(sa * 0.5) * 0.85) + step(R, r)); // arches at the rim
+        d = min(d, abs(length(l - vec2(R * 0.15, 0.0)) - R * 0.12)); // inner rosette
+        float line = exp(-pow(d * 260.0, 2.0)) + 0.3 * exp(-d * 60.0);
+        vec3 glass = mix(uGlow, mix(uTop, uGlow, 0.5), hash12(vec2(floor(a / sa), floor(r / R * 3.0))));
+        float inside = smoothstep(R * 1.05, R * 1.03, r);
+        vec3 col = mix(grad, mix(glass, tint(uGlow, 2.0) * 0.85, uPale), inside * 0.06 * (0.8 + 0.2 * sin(uTime * 0.05 + a)));
+        return mix(col, mix(uGlow * 1.1, tint(uBottom, 2.0) * 0.7, uPale), line * inside * 0.12);
+    } else if (s == 39) { // temple: colonnades and pediments in fog layers, some columns fallen
+        vec3 col = grad, fog = mix(grad, uGlow, 0.22 * (1.0 - 0.5 * uPale));
+        vec3 dark = mix(mix(uBottom, uTop, 0.5) * 0.55, tint(uBottom, 1.8) * 0.72, uPale);
+        for (int k = 0; k < 3; k++) {
+            float fk = float(k), sc = 1.0 + 0.55 * fk, b = 0.3 - 0.075 * fk;
+            float sp = 0.03 * sc, H = 0.09 * sc, W = sp * 13.0;
+            float tx = c.x + uP.x * 3.0 + fk * 0.7, id = floor(tx / W), lx = tx - (id + 0.5) * W;
+            float hw = sp * (2.0 + floor(4.0 * hash12(vec2(id, fk)))), on = step(0.3, hash12(vec2(id, fk + 1.0)));
+            float ci = floor(lx / sp + 0.5), cf = lx / sp - ci;
+            float ch = H * (hash12(vec2(ci + id * 31.0, fk + 2.0)) < 0.15 ? 0.35 + 0.4 * hash12(vec2(ci, fk)) : 1.0);
+            float hy = (uv.y - b) / H;
+            float colw = 0.2 + 0.07 * smoothstep(0.88, 1.0, hy) + 0.04 * smoothstep(0.08, 0.0, hy);
+            float column = step(abs(cf), colw) * step(uv.y, b + ch) * step(abs(lx), hw);
+            float roofOn = on * step(0.45, hash12(vec2(id, fk + 4.0))), ew = hw + sp * 0.45, et = b + H + 0.014 * sc;
+            float arch = step(abs(lx), ew) * step(b + H, uv.y) * step(uv.y, et);
+            float ped = step(abs(lx), ew) * step(et, uv.y) * step(uv.y, et + (ew - abs(lx)) * 0.32);
+            float steps = step(abs(lx), hw + sp * 0.6 + floor((b - uv.y) / (0.006 * sc)) * 0.008 * sc) * step(b - 0.018 * sc, uv.y) * step(uv.y, b);
+            float ground = step(uv.y, b - 0.018 * sc + 0.006 * sin(c.x * 4.0 + fk * 2.0));
+            col = mix(col, fog, smoothstep(b + 0.14, b - 0.02, uv.y) * 0.45);
+            col = mix(col, mix(dark, fog, 0.62 - 0.2 * fk), max(max(on * max(column, steps), roofOn * max(arch, ped)), ground));
+        }
+        return col;
+    } else if (s == 40) { // jungle: layered big leaves framing the bottom and sides, humid haze
+        vec3 haze = mix(grad, uGlow, 0.22 * (1.0 - 0.5 * uPale));
+        vec3 col = mix(grad, haze, smoothstep(0.6, 0.0, uv.y) * 0.7);
+        vec3 dark = mix(mix(uBottom, uTop, 0.5) * 0.5, tint(mix(uBottom, uGlow, 0.25), 1.8) * 0.68, uPale);
+        float ex = uAspect * 0.5;
+        for (int k = 0; k < 3; k++) {
+            float fk = float(k), g = 0.075 + 0.03 * fk;
+            vec2 off = vec2(fk * 3.7, fk * 1.3) + uP.x * 11.0, p = c / g + off;
+            float leaf = 0.0, rib = 0.0;
+            for (int j = 0; j < 9; j++) {
+                vec2 cell = floor(p) + vec2(float(j % 3) - 1.0, float(j / 3) - 1.0);
+                vec2 h = hash22(cell + fk * 17.0);
+                vec2 o = cell + 0.5 + (h - 0.5) * 0.6, oc = (o - off) * g;
+                float reach = (0.24 - 0.05 * fk) * (0.7 + 0.6 * vnoise(oc * 4.0 + fk));
+                float eb = oc.y + 0.5, es = ex - abs(oc.x);
+                if (min(eb, es) > reach) continue;
+                vec2 dir = normalize(vec2(-sign(oc.x) * (eb > es ? 1.0 : 0.3), 1.0) + (h.yx - 0.5) * 1.4);
+                float sw = 0.04 * sin(uTime * 0.15 + h.x * 30.0);
+                dir = mat2(cos(sw), sin(sw), -sin(sw), cos(sw)) * dir;
+                vec2 lp = p - o;
+                float u = dot(lp, dir) / (1.5 + h.y), v = dot(lp, vec2(-dir.y, dir.x));
+                float wv = 0.38 * sin(3.1416 * clamp(u, 0.0, 1.0)) * (0.8 + 0.4 * h.x);
+                float inl = step(0.0, u) * step(u, 1.0);
+                leaf = max(leaf, smoothstep(wv, wv - 0.04, abs(v)) * inl);
+                rib = max(rib, exp(-pow(v * 25.0, 2.0)) * inl * step(u, 0.9) * step(abs(v), wv));
+            }
+            col = mix(col, haze, smoothstep(0.3, 0.0, uv.y) * 0.2);
+            col = mix(col, mix(mix(dark, haze, 0.58 - 0.22 * fk), haze, rib * 0.25), leaf);
+        }
+        return col;
+    } else if (s == 41) { // paper cut: layered paper hills with soft drop shadows between the sheets
+        vec3 col = grad;
+        vec3 deep = mix(mix(uBottom, uTop, 0.4) * 0.45, tint(mix(uBottom, uGlow, 0.3), 1.9) * 0.62, uPale);
+        vec3 light = mix(mix(uTop, uGlow, 0.45) * 1.15, tint(mix(uTop, uGlow, 0.5), 1.5) * 0.95, uPale);
+        for (int k = 0; k < 5; k++) {
+            float fk = float(k), x = c.x * (1.5 + 0.35 * fk) + uP.x * 8.0 + fk * 1.9 + uTime * 0.003 * (fk - 2.0);
+            float hh = 0.42 - 0.075 * fk + 0.05 * sin(x) + 0.025 * sin(x * 2.3 + fk) + 0.01 * sin(x * 5.1);
+            float sh = smoothstep(hh + 0.035, hh, uv.y) * step(hh, uv.y);
+            col *= 1.0 - sh * sh * mix(0.35, 0.18, uPale);
+            vec3 sheet = mix(light, deep, fk / 4.0) * (1.0 + 0.03 * (vnoise(c * 220.0 + fk * 9.0) - 0.5)); // paper grain
+            col = mix(col, sheet, smoothstep(hh + 0.0015, hh - 0.0015, uv.y));
+        }
+        return col;
+    } else if (s == 42) { // blueprint: a faint technical grid with a few construction lines, circles and arcs
+        vec2 p = c + vec2(uTime * 0.002, 0.0);
+        vec2 g1 = abs(fract(p / 0.025 + 0.5) - 0.5) * 0.025, g2 = abs(fract(p / 0.125 + 0.5) - 0.5) * 0.125;
+        float grid = 0.35 * exp(-pow(min(g1.x, g1.y) * 900.0, 2.0)) + exp(-pow(min(g2.x, g2.y) * 700.0, 2.0));
+        float sd = uP.y < 0.5 ? -1.0 : 1.0;
+        vec2 o1 = vec2(sd * 0.55 * uAspect * 0.62, 0.12 + 0.1 * uP.z), o2 = vec2(-sd * 0.5 * uAspect * 0.62, -0.22);
+        float R1 = 0.15 + 0.05 * uP.x, R2 = 0.09;
+        float d = min(abs(length(c - o1) - R1), abs(length(c - o1) - R1 * 0.55));
+        float a2 = atan(c.y - o2.y, c.x - o2.x);
+        d = min(d, abs(length(c - o2) - R2) + 0.01 * step(0.5 + 0.5 * sin(a2 * 18.0), 0.4)); // dashed circle
+        vec2 n1 = normalize(vec2(0.45, 1.0 + uP.w)), n2 = normalize(vec2(1.0, -0.35));
+        d = min(d, abs(dot(c - o1, n1)) + 0.02 * step(0.8, length(c - o1))); // construction lines through the centers
+        d = min(d, abs(dot(c - o2, n2)));
+        d = min(d, min(abs(c.x - o1.x), abs(c.y - o1.y)) + step(R1 * 1.25, max(abs(c.x - o1.x), abs(c.y - o1.y)))); // center cross
+        d = min(d, abs(length(c - o2 - vec2(0.0, 0.3)) - 0.35) + step(0.0, (c.x - o2.x) * sd) * 0.02); // a sweeping arc
+        vec3 ink = mix(uGlow * 1.1, tint(uBottom, 2.2) * 0.7, uPale);
+        return mix(grad, ink, (grid * 0.07 + exp(-pow(d * 600.0, 2.0)) * 0.18) * (1.0 + 0.4 * uPale));
+    } else if (s == 43) { // lighthouse: a distant lighthouse on a cape, its beam sweeping slowly across the sky
+        float sd = uP.y < 0.5 ? -1.0 : 1.0, hy = 0.27 + 0.03 * uP.z;
+        vec3 sea = mix(mix(uBottom, uTop, 0.3) * 0.7, tint(uBottom, 1.5) * 0.9, uPale);
+        vec3 col = uv.y > hy ? grad : mix(sea, grad, exp(-(hy - uv.y) * 14.0) * 0.5);
+        vec3 sil = mix(mix(uBottom, uTop, 0.5) * 0.5, tint(uBottom, 1.8) * 0.72, uPale);
+        float lx = sd * (0.53 + 0.1 * uP.x) * uAspect * 0.62, cx = (c.x - lx) * sd;
+        float cape = hy + 0.06 * smoothstep(-0.25, 0.02, cx) + 0.01 * vnoise(vec2(c.x * 14.0, 2.0)) - 0.006;
+        float th = 0.1, ty = hy + 0.06; // tower base and height
+        float tw = 0.011 - 0.004 * clamp((uv.y - ty) / th, 0.0, 1.0);
+        float tower = step(abs(c.x - lx), tw) * step(uv.y, ty + th) * step(ty - 0.02, uv.y);
+        float ly = ty + th + 0.008;
+        float phi = uTime * 0.18 + uP.w * 6.28, cp = cos(phi), face = max(sin(phi), 0.0);
+        vec2 q = c - vec2(lx, ly - 0.5), bd = normalize(vec2(sign(cp), 0.04));
+        float along = dot(q, bd), perp = abs(dot(q, vec2(-bd.y, bd.x)));
+        float beam = exp(-pow(perp / (0.008 + along * 0.1), 2.0)) * step(0.0, along) * exp(-along / (0.08 + 1.6 * abs(cp))) * abs(cp);
+        vec3 light = mix(uGlow * 1.3, tint(uGlow, 2.5) * 0.9, uPale);
+        col = mix(col, light, clamp(beam * 0.45 * (1.0 - 0.3 * uPale) + exp(-length(q) * 40.0) * (0.25 + 0.4 * face), 0.0, 1.0));
+        col = mix(col, light, exp(-abs(c.x - lx) * 20.0) * step(uv.y, hy) * smoothstep(0.0, 0.05, hy - uv.y) * 0.12 * (0.3 + face) * (0.6 + 0.4 * sin(uv.y * 500.0)));
+        col = mix(col, sil, max(smoothstep(cape + 0.002, cape - 0.002, uv.y) * step(hy - 0.002, uv.y), tower));
+        float lantern = step(abs(c.x - lx), 0.008) * step(abs(uv.y - ly), 0.008);
+        return mix(col, light, lantern * (0.5 + 0.4 * face));
     } else { // starfield
         vec3 col = grad;
         vec2 cell = floor(uv * vec2(140.0 * uAspect, 140.0));
