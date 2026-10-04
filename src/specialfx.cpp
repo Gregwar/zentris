@@ -299,12 +299,14 @@ void Renderer::addGauge(const Game& game, double time) {
     for (int i = 0; i < N; i++) {
         const float u = (i + 0.5f) / N, ang = PI * 0.5f - TAU * u; // clockwise from 12 o'clock
         const vec3 p = c + vec3(std::cos(ang), std::sin(ang), 0) * GAUGE_R;
-        glints_.push_back({p, cur_.accent, 0.08f, lerpf(0.06f, 0.14f, pw)}); // track
+        // Track: the accent pulled toward the HUD text tone, which is chosen to contrast with the background
+        // (light at night, dark in pale scenes), so the empty ring reads in every mood.
+        glints_.push_back({p, lerp(cur_.accent, cur_.text, lerpf(0.3f, 0.65f, pw)), 0.09f, lerpf(0.1f, 0.3f, pw)});
         const float f = saturate((level - u) * N); // soft end of the filled arc
         if (f <= 0.f) continue;
         vec3 col = active ? lerp(cur_.partB, cur_.accent, 0.35f) : lerp(cur_.partA, cur_.accent, u);
-        col = col * lerpf(0.85f + 0.3f * readyFlash_, 1.f, pw);
-        float a = ready ? 0.3f + 0.12f * breath : active ? 0.35f : 0.28f;
+        col = lerp(col * (0.85f + 0.3f * readyFlash_), lerp(col, cur_.text, 0.35f), pw); // deeper on pale backgrounds
+        float a = (ready ? 0.38f + 0.12f * breath : active ? 0.42f : 0.36f) * lerpf(1.f, 1.35f, pw);
         glints_.push_back({p, col, ready ? 0.13f + 0.02f * breath : 0.12f, a * f});
     }
 }
