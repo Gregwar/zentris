@@ -810,10 +810,6 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
         for (int x = 0; x < Game::W; x++) {
             const Cell& c = g.cell(x, y);
             if (c.type < 0) continue;
-            // Beat wave travelling up the stack in energetic parts, and a small pop when a piece locks.
-            float rowDelay = (Game::H - 1 - y) * 0.035f;
-            float wave = music.beatPhase >= rowDelay ? std::exp(-(music.beatPhase - rowDelay) * 7.f) : 0.f;
-            float waveGlow = 0.3f * music.energy * music.intensity * wave;
             // Lock effect. age: seconds since the cell locked; a: 1 at the lock, 0 ~1.1 s later; k = 1 - a.
             const float age = (1.f - c.flash) * Game::LOCK_FX_SECONDS;
             const float k = std::min(1.f, age * 0.9f), a = 1.f - k;
@@ -1005,7 +1001,7 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
                 break;
             }
             }
-            BlockInst bi = block(cellPos((float)x, y - g.rowOffset(y)) + dp, c.type, 0, fl, settleGlow_ + waveGlow + gl, 1.f);
+            BlockInst bi = block(cellPos((float)x, y - g.rowOffset(y)) + dp, c.type, 0, fl, settleGlow_ + gl, 1.f);
             bi.scale = bi.scale * sc;
             if (turn > 1e-3f) bi.params.x = 0.45f * std::min(turn / (0.5f * PI), 1.f); // kind 0, turned (block shader)
             if (bloomW > 0) bi.color = vec4(mixOklab(vec3(bi.color.x, bi.color.y, bi.color.z), bloomCol, 0.45f * bloomW), 1);
