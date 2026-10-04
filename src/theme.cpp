@@ -33,7 +33,7 @@ const char* LE_NAMES[LE_COUNT] = {"POP", "AFTERGLOW", "BOUNCE", "SQUASH", "GROW"
                                   "HEARTBEAT"};
 const char* MESH_NAMES[MESH_COUNT] = {"CUBE", "ROUNDED", "ORB", "GEM", "CHAMFER", "PILLOW", "TILE", "COIN", "OCTAGON",
                                       "HEX", "DIAMOND", "DOME", "CROSS", "STAR"};
-const char* MOOD_NAMES[3] = {"NIGHT", "DUSK", "PALE"};
+const char* MOOD_NAMES[4] = {"NIGHT", "DUSK", "PALE", "COLORFUL"};
 const char* SURF_NAMES[SURF_COUNT] = {"", "SMOKE", "SILK", "LAVA", "CAUSTICS", "INK", "GEOMETRY", "AURORA", "FOG",
                               "BEAMS", "FLOW RINGS", "LIQUID", "SHADES", "VORONOI", "WATER", "FACETS", "HEXES",
                               "SHARDS", "MARBLE", "TOPOGRAPHY", "KALEIDOSCOPE", "RAIN RINGS", "TRUCHET", "WEAVE",
@@ -235,7 +235,7 @@ void resolvePalette(Theme& t, float hueShift) {
     Rng r(p.perm);
 
     float hues[7], Ls[7], Cs[7];
-    float baseL = mood == 0 ? 0.72f : (mood == 1 ? 0.8f : 0.60f); // glow adds light: keep colors deep enough
+    float baseL = mood == 0 ? 0.72f : (mood == 1 ? 0.8f : (mood == 3 ? 0.84f : 0.60f)); // glow adds light: keep colors deep enough
     float C = p.chroma * (mood == 1 ? 0.9f : 1.f);
     // On a pale background low-chroma colors read as gray: keep pale themes clearly colored (calm sections too).
     if (mood == 2) C = std::min(0.24f, std::max(0.13f, C * 1.3f));
@@ -333,6 +333,21 @@ void resolvePalette(Theme& t, float hueShift) {
         t.partB = ok(0.75f, 0.14f, accentH + 0.5f);
         t.partC = ok(0.84f, 0.09f, bh + 0.4f); // tinted: additive near-white piles up to white
         t.pale = 0;
+    } else if (mood == 3) {
+        // Colorful (added later, disabled until reviewed): a vivid mid-lightness background whose hue is opposite
+        // the pieces', so they stand out; light pieces and particles.
+        const float ch = avoidMud(h + PI + 0.6f * (t.bgP[2] - 0.5f), 0.5f);
+        const float bc = std::min(0.2f, 0.11f + p.bgChroma);
+        float lt = 0.5f + t.bgP[0] * 0.08f, lb = 0.38f + t.bgP[1] * 0.08f;
+        t.bgTop = ok(lt, bc, ch);
+        t.bgBottom = ok(lb, bc * 1.12f, avoidMud(ch + 0.5f, lb));
+        t.bgGlow = ok(0.8f, 0.12f, ch - 0.4f);
+        t.accent = ok(0.93f, 0.07f, accentH);
+        t.text = ok(0.97f, 0.02f, h);
+        t.partA = ok(0.9f, 0.08f, ch);
+        t.partB = ok(0.86f, 0.12f, ch + 0.6f);
+        t.partC = ok(0.95f, 0.05f, ch - 0.6f);
+        t.pale = 0.25f; // dusk's blending (a dark board well); a lower emissive keeps blocks from washing out
     } else if (mood == 1) {
         float lt = 0.26f + t.bgP[0] * 0.1f, lb = 0.42f + t.bgP[1] * 0.14f;
         t.bgTop = ok(lt, p.bgChroma * 1.5f + 0.02f, bh);
@@ -455,8 +470,8 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
     // ---- Palette: key on the circle of fifths gives the base hue (synesthetic mapping).
     int fifths = (fp.key * 7) % 12;
     t.pal.hue = fifths / 12.f * TAU + r.range(-0.6f, 0.6f);
-    float moodW[3] = {0.62f - 0.25f * fp.brightness + (fp.minor ? 0.12f : 0.f),
-                      0.2f + 0.2f * fp.brightness, 0.08f + 0.22f * fp.brightness * (1.f - 0.5f * fp.bassWeight)};
+    float moodW[4] = {0.62f - 0.25f * fp.brightness + (fp.minor ? 0.12f : 0.f),
+                      0.2f + 0.2f * fp.brightness, 0.08f + 0.22f * fp.brightness * (1.f - 0.5f * fp.bassWeight), 0.12f + 0.2f * fp.brightness};
     t.pal.mood = (float)pickPool(r, x, moodW, MOOD_LEGACY, SF_MOOD);
     float schemeW[SCHEME_COUNT] = {3.f, 2.f, 1.2f, 1.3f, 2.6f, 0.8f + fp.brightness, 1.5f, 0.8f + (t.pal.mood == 0 ? 0.6f : 0.f),
                                    1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f};
@@ -517,7 +532,7 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
         if (t.blockMesh == MESH_GEM) t.blockScale = r.range(0.95f, 1.05f); // diamonds leave gaps: draw them larger
         t.blockDepth = (t.blockMesh == MESH_CUBE && r.chance(0.3f)) ? r.range(0.2f, 0.6f) : 1.f;
         t.edgeWidth = r.range(0.04f, 0.14f);
-        t.emissive = mood == 2 ? r.range(0.15f, 0.4f) : r.range(0.7f, 1.6f);
+        t.emissive = mood == 2 ? r.range(0.15f, 0.4f) : (mood == 3 ? r.range(0.35f, 0.8f) : r.range(0.7f, 1.6f));
         t.fillAlpha = r.range(0.25f, 0.65f);
         t.ghostAlpha = r.range(0.15f, 0.35f);
         t.meshExp = meshExponent(t.blockMesh, t.roundness);
@@ -742,7 +757,7 @@ const char* sceneFieldName(int f) { return f >= 0 && f < SF_COUNT ? SF_NAMES[f] 
 
 int sceneFieldValues(int f) {
     switch (f) {
-    case SF_MOOD: return 3;
+    case SF_MOOD: return 4;
     case SF_SCHEME: return SCHEME_COUNT;
     case SF_HUE: return HUE_STEPS;
     case SF_BG: return BG_COUNT;
@@ -818,7 +833,10 @@ void applyOverrides(Theme& t, const Footprint& fp, const SceneOverrides& o) {
     const int mood = o.v[SF_MOOD] >= 0 ? o.v[SF_MOOD] : oldMood;
     if (mood != oldMood) {
         // The mood-dependent settings keep their place in the new mood's range.
-        auto emi = [](int m, float& a, float& b) { a = m == 2 ? 0.15f : 0.7f; b = m == 2 ? 0.4f : 1.6f; };
+        auto emi = [](int m, float& a, float& b) {
+            a = m == 2 ? 0.15f : (m == 3 ? 0.35f : 0.7f);
+            b = m == 2 ? 0.4f : (m == 3 ? 0.8f : 1.6f);
+        };
         auto blo = [](int m, float& a, float& b) { a = m == 0 ? 0.6f : (m == 1 ? 0.35f : 0.12f); b = m == 0 ? 1.6f : (m == 1 ? 0.8f : 0.3f); };
         auto vig = [](int m, float& a, float& b) { a = m == 2 ? 0.05f : 0.15f; b = m == 2 ? 0.25f : 0.55f; };
         auto srf = [](int m, float& a, float& b) { a = m == 2 ? 0.25f : 0.3f; b = m == 2 ? 0.45f : 0.6f; };

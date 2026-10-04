@@ -1,6 +1,7 @@
 # Scene options switched off: scenes never pick them (a scene code that pins one still shows it).
 # One "FIELD VALUE" per line, as zenscene's menu names them (PARTICLES covers both layers).
 # Edited with zenscene (X, or the ON/OFF boxes); built into the game: rebuild after a change.
+MOOD COLORFUL
 PALETTE SUNSET RAMP
 PALETTE JEWEL TONES
 PALETTE NEON PAIR
