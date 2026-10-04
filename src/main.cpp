@@ -487,7 +487,7 @@ std::vector<HudText> App::buildHud(float dt) {
     }
 
         // Input device toast.
-    if (input_.deviceChangedTimer() > 0) {
+    if (input_.deviceChangedTimer() > 0 && opt_.shotPrefix.empty() && opt_.clipPath.empty()) { // not in offline renders
         std::string d = input_.active() == Input::Gamepad ? "GAMEPAD  " + upper(input_.gamepadName()) : "KEYBOARD";
         hud.push_back({d, -28 * s, 70.f * s, 1.5f * s, std::min(1.f, input_.deviceChangedTimer()), true});
     }
@@ -582,7 +582,7 @@ int App::run() {
         last = now;
         runTime_ += dt;
         glfwPollEvents();
-        input_.update(dt);
+        if (!shotMode) input_.update(dt); // offline renders ignore the keyboard and gamepads: they must be reproducible
 
         // ---- Songs.
         if (!nextTrack_) {
