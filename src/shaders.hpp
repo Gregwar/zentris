@@ -2517,9 +2517,10 @@ vec4 shade(int style, vec3 col) {
         a = max(max(edge, ring), mix(mix(0.12, 0.45, uLegible), 0.6, uPale));
         rgb *= 1.0 + 0.5 * uLegible * (1.0 - uPale); // brighter lines over the darkened backplate
     } else if (style == 11) { // neon tube: wide soft glow along the edges, dark core
-        float tube = exp(-e / max(uEdgeW, 0.02) * 1.2);
-        rgb = col * (mix(0.04, 0.8, uPale) + tube * em * 1.4);
-        a = max(tube, mix(mix(0.15, 0.45, uLegible), 0.6, uPale));
+        // The tube is the whole block: never thin or dim, and a faintly tinted core (a black one read as a hole).
+        float tube = exp(-e / max(uEdgeW, 0.09) * 1.2);
+        rgb = col * (mix(0.3, 0.8, uPale) + tube * max(em, mix(1.5, em, uPale)) * 1.4);
+        a = max(tube, mix(mix(0.35, 0.6, uLegible), 0.6, uPale));
         rgb *= 1.0 + 0.5 * uLegible * (1.0 - uPale); // brighter lines over the darkened backplate
     } else if (style == 12) { // circuit traces
         vec2 g = abs(fract((uv * 0.5 + 0.5) * 3.0) - 0.5);
