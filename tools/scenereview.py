@@ -495,6 +495,19 @@ async function load() {
   const r = await (await fetch("api/state")).json();
   scenes = r.scenes; threads = r.threads; render();
 }
+// The URL follows the navigation (#tab, #tab/<scene key>), so a refresh, a bookmark or Back lands on the same view.
+let scenesKey = null; // #scenes/<key>: the scene to show in the Scenes tab's one-by-one view
+function syncUrl(key) {
+  const h = "#" + tab + (key ? "/" + encodeURIComponent(key) : "");
+  if (location.hash !== h) history.pushState(null, "", h);
+}
+function parseUrl() {
+  const [t, k] = location.hash.slice(1).split("/").map(decodeURIComponent);
+  if (!TABS.some(x => x[0] === t)) return;
+  tab = t; open = null; scenesKey = null;
+  if (k && t === "scenes") scenesKey = k; else if (k) open = k;
+}
+window.onpopstate = () => { parseUrl(); render(); };
 function render() {
   $("tabs").innerHTML = TABS.map(([k, l]) => {
     const n = inTab(k).length, hot = (k === "review" || k === "scenes" || k === "suggest") && n;
@@ -502,7 +515,13 @@ function render() {
   }).join("");
   document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => { tab = b.dataset.t; open = null; pos = 0; render(); });
   const list = inTab(tab);
-  if (tab === "scenes" && !open) { pos = Math.min(pos, Math.max(0, list.length - 1)); return showScene(list[pos], list); }
+  if (tab === "scenes" && !open) {
+    if (scenesKey) { const i = list.findIndex(s => s.key === scenesKey); if (i >= 0) pos = i; scenesKey = null; }
+    pos = Math.min(pos, Math.max(0, list.length - 1));
+    syncUrl(list[pos] && list[pos].key);
+    return showScene(list[pos], list);
+  }
+  syncUrl(open);
   if (open) return showScene(scenes.find(s => s.key === open), null);
   if (!list.length) return $("main").innerHTML = `<div class="empty">Nothing here.</div>`;
   $("main").innerHTML = `<div class="grid">${list.map(s => {
@@ -588,10 +607,7 @@ async function act(s, action) {
   if (open) open = null;
   render(); scrollTo(0, 0);
 }
-{ // deep links: #review or #review/<scene key>
-  const [t, k] = decodeURIComponent(location.hash.slice(1)).split("/");
-  if (TABS.some(x => x[0] === t)) { tab = t; open = k || null; }
-}
+parseUrl();
 load();
 setInterval(async () => {  // picks up Claude's replies, unless the user is typing
   if (document.activeElement && document.activeElement.id === "comment" && $("comment").value) return;
