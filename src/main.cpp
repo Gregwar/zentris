@@ -273,7 +273,7 @@ void App::computePhases() {
 Theme App::phaseTheme(int phase) const {
     if (!track_ || plan_.phases.empty()) return baseTheme_;
     const ScenePhase& ph = plan_.phases[std::clamp(phase, 0, (int)plan_.phases.size() - 1)];
-    return evolveTheme(baseTheme_, track_->analysis.fp, ph.level, ph.energy, true);
+    return evolveTheme(baseTheme_, ph.level, ph.energy);
 }
 
 // Transition shapes vary; rising changes favour expanding shapes, falling ones dissolves and falling

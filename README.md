@@ -60,7 +60,7 @@ Node.js, and Node.js is picked up automatically). Songs are downloaded when queu
 ./build/zenscope "https://www.youtube.com/watch?v=..."
 ```
 
-Other options: `--in-order` (play songs in order: folders alphabetically, playlists in their order; the default is a random order), `--seed N` (repeat a run), `--scene CODE` (show again the scene whose code is in the bottom-left corner, with any song: the code carries what the scene took from its song; with the same song, given as in the command the terminal prints, its calm/peak levels also come back at the same times), `--autoplay`, `--mute`, `--size WxH`,
+Other options: `--in-order` (play songs in order: folders alphabetically, playlists in their order; the default is a random order), `--seed N` (repeat a run), `--scene CODE` (show again the scene whose code is in the bottom-left corner, with any song; with the same song, given as in the command the terminal prints, its calm/peak levels also come back at the same times), `--autoplay`, `--mute`, `--size WxH`,
 `--shots PREFIX N` (renders N screenshots of different scenes and exits), `--phase-shots PREFIX` (one screenshot per scene level of a song),
 `--clip OUT.mp4` (records a video with sound, via ffmpeg, from 4 s before the first drop of the song to 6 s after it,
 with the game played at a calm pace; `--clip-before` / `--clip-after SEC` change the span).
@@ -108,13 +108,18 @@ The game and zenscope share the same analysis and song plan code (`src/songplan.
 on the left picks the song phase (section and level: calm, mid, peak) and pins any choice of the scene: mood, palette,
 hue, background, particle layouts, surface, block style and shape, frame, lock effect. Up/Down choose a row,
 Left/Right (or a click / the mouse wheel) change it and pin it, Space pins or unpins it as it is, C unpins
-everything, R shows a new random scene (pinned choices stay) and F fills the board. "Send to dashboard" (or D) asks for a comment
+everything, R shows a new random scene (pinned choices stay, options switched off are never picked) and F fills the
+board. "Send to dashboard" (or D) asks for a comment
 and opens a thread on the scene in the scene review dashboard (`tools/scenereview.py`, "to process"), with a snapshot
 at the section and level shown.
 
-After each change the terminal prints the scene code, adjustments included (`3e9f5438ed1e91f3g_m2_b8`: the base code,
-then one `_` + letter + value per pinned choice); `zentris --scene CODE` shows that scene in the game. Pinning a
-choice leaves all the others as generated.
+A scene code is the scene's choices, two hex digits each in the menu's order (mood, palette, hue, background,
+particles, particles 2, surface, blocks, shape, frame, lock effect): `010301101d000200020105` is DUSK, MONOCHROME,
+hue 15°, DIAGONAL background, BUBBLES, no second layout, SILK, GLASS blocks, ORB shape, CORNERS frame, PRESS. Everything else about the scene comes from a seed made of those choices, so a code always gives the same
+scene, whatever the song. The terminal prints the code after each change; `zentris --scene CODE` shows it in the game.
+
+Options can be switched off (X, or the ON/OFF tag; `--disabled` lets the menu offer them too): scenes never pick
+them, but a code that uses one still shows it. The list is `src/scene-options.txt`, built into the game.
 
 ## Controls
 

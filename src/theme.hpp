@@ -141,24 +141,27 @@ struct Theme {
     std::string code; // scene code: themeFromCode(code) gives this scene back, whatever the song
 };
 
-// Adjustments a scene code can carry after its base code ("<base>_b8_m2", see zenscene): each pins one choice of
-// the generated scene. -1 = as generated.
+// A scene's discrete identity: one value per field. Scene codes are the identity, 2 hex digits per field in this
+// order; everything else about the scene comes from a seed made of the identity (see buildTheme).
 enum SceneField { SF_MOOD, SF_SCHEME, SF_HUE, SF_BG, SF_PART1, SF_PART2, SF_SURFACE, SF_BLOCK, SF_MESH, SF_FRAME,
                   SF_LOCK, SF_COUNT };
-struct SceneOverrides {
-    int v[SF_COUNT];
-    SceneOverrides() { for (int& x : v) x = -1; }
-    bool any() const { for (int x : v) if (x >= 0) return true; return false; }
+struct SceneId {
+    int v[SF_COUNT] = {};
 };
 const char* sceneFieldName(int field);
 int sceneFieldValues(int field);                        // number of values (0 .. n-1)
 std::string sceneFieldValueName(int field, int value);
 int sceneFieldValue(const Theme& t, int field);         // the scene's current value
-// Applies the adjustments to a generated scene (fp: the footprint it was made from) and updates its name and code.
-void applyOverrides(Theme& t, const Footprint& fp, const SceneOverrides& o);
+SceneId sceneId(const Theme& t);
+std::string sceneCode(const SceneId& id);
+bool parseSceneCode(const std::string& code, SceneId& id);
+// The identity a song and a seed give: the song steers the weights; options switched off are never picked.
+SceneId pickIdentity(const Footprint& fp, uint64_t seed);
+// The scene of an identity: the same identity always gives the same scene.
+Theme buildTheme(const SceneId& id);
 
 // Scene options switched off (src/scene-options.txt, built in; edited with zenscene): scenes never pick them, but a
-// scene code that pins one still shows it. New options join the list (disabled) until they are reviewed.
+// scene code that uses one still shows it. New options join the list (disabled) until they are reviewed.
 bool sceneOptionDisableable(int field, int value);
 bool sceneOptionEnabled(int field, int value);
 void setSceneOptionEnabled(int field, int value, bool on);
@@ -167,14 +170,14 @@ void setSceneOptionEnabled(int field, int value, bool on);
 void loadSceneOptions(const std::string& text);
 std::string sceneOptionsText();
 
+// A new scene for a song: pickIdentity then buildTheme.
 Theme generateTheme(const Footprint& fp, uint64_t seed);
-// The scene of a scene code (as shown in the corner), adjustments included; *ok is false if the code is
-// malformed. fp / ov receive the footprint the scene is made from and the code's adjustments.
-Theme themeFromCode(const std::string& code, bool* ok = nullptr, Footprint* fp = nullptr, SceneOverrides* ov = nullptr);
+// The scene of a scene code (as shown in the corner); *ok is false if the code is malformed (a random scene then).
+Theme themeFromCode(const std::string& code, bool* ok = nullptr);
 float meshExponent(int mesh, float roundness);
 // Variant of a song's base theme for an intensity level (0 calm, 1 mid, 2 peak). The song's identity
 // (background, main particles, blocks, frame, mood) is preserved; only color, glow and extras change.
-Theme evolveTheme(const Theme& base, const Footprint& fp, int level, float energy, bool unused = true);
+Theme evolveTheme(const Theme& base, int level, float energy);
 // Re-resolves the palette with a hue shift (used on song section changes).
 void resolvePalette(Theme& t, float hueShift);
 // Blend continuous parameters; discrete ones come from `b` when t >= 0.5.

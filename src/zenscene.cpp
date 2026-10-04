@@ -79,10 +79,10 @@ private:
     MusicState music_;
     std::mt19937_64 rng_{std::random_device{}() ^ (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count()};
 
-    std::string baseCode_;      // the scene code without adjustments
-    Footprint fp_;
-    SceneOverrides ov_;
-    Theme generated_, base_;    // as generated, and with the adjustments
+    SceneId id_;                // the scene (its code is the identity)
+    bool pin_[SF_COUNT] = {};   // choices kept through new random scenes
+    Theme base_;
+    static constexpr float BPM = 120.f; // the steady beat standing in for a song
     int section_ = SEG_VERSE, level_ = 1;
     int sel_ = 0, hover_ = -1;
     float s_ = 1.f;             // HUD scale
@@ -103,36 +103,31 @@ private:
 };
 
 void SceneViewer::setCode(const std::string& code) {
-    bool ok = false;
-    Footprint fp;
-    SceneOverrides ov;
-    themeFromCode(code, &ok, &fp, &ov);
-    if (!ok) {
+    SceneId id;
+    if (!parseSceneCode(code, id)) {
         std::fprintf(stderr, "[zenscene] bad scene code '%s', using a random scene\n", code.c_str());
         randomScene();
         return;
     }
-    baseCode_ = code.substr(0, code.find('_'));
-    fp_ = fp;
-    ov_ = ov;
+    id_ = id;
     rebuild(0.01f);
 }
 
+// R: a new random identity (only options switched on), keeping the pinned choices.
 void SceneViewer::randomScene() {
-    char b[32];
-    std::snprintf(b, sizeof(b), "%llxg", (unsigned long long)rng_());
-    baseCode_ = b;
-    fp_ = Footprint{};
-    rebuild(1.2f); // pinned choices stay
+    SceneId id = pickIdentity(Footprint{}, rng_());
+    for (int f = 0; f < SF_COUNT; f++)
+        if (pin_[f]) id.v[f] = id_.v[f];
+    if (id.v[SF_PART1] == 0) id.v[SF_PART2] = 0;
+    id_ = id;
+    rebuild(1.2f);
 }
 
-// Rebuilds the scene from its code and adjustments, shows it at the chosen song phase, prints its code.
+// Rebuilds the scene from its identity, shows it at the chosen song phase, prints its code.
 void SceneViewer::rebuild(float seconds) {
-    generated_ = themeFromCode(baseCode_);
-    base_ = generated_;
-    if (ov_.any()) applyOverrides(base_, fp_, ov_);
+    base_ = buildTheme(id_);
     const float energy = level_ == 2 ? 0.9f : (level_ == 1 ? 0.55f : 0.25f);
-    R_.setTheme(evolveTheme(base_, fp_, level_, energy), seconds, seconds > 0.1f);
+    R_.setTheme(evolveTheme(base_, level_, energy), seconds, seconds > 0.1f);
     std::printf("[zenscene] %s  |  %s  |  lock %s  |  %s %s\n  zentris --scene %s\n", base_.code.c_str(),
                 base_.name.c_str(), lockEffectName(base_.lockEffect), segmentName(section_), LEVEL_NAMES[level_],
                 base_.code.c_str());
@@ -144,9 +139,9 @@ std::string SceneViewer::rowValue(int row, bool* pinned) const {
     if (row == ROW_SECTION) return segmentName(section_);
     if (row == ROW_LEVEL) return LEVEL_NAMES[level_];
     const int f = row - ROW_FIELDS;
-    *pinned = ov_.v[f] >= 0;
-    if (f == SF_PART2 && base_.layerCount == 0) return "-";
-    return sceneFieldValueName(f, sceneFieldValue(base_, f));
+    *pinned = pin_[f];
+    if (f == SF_PART2 && id_.v[SF_PART1] == 0) return "-";
+    return sceneFieldValueName(f, id_.v[f]);
 }
 
 void SceneViewer::change(int row, int dir) {
@@ -164,14 +159,16 @@ void SceneViewer::change(int row, int dir) {
         return;
     }
     const int f = row - ROW_FIELDS;
-    if (f == SF_PART2 && base_.layerCount == 0) return; // a second layout needs a first one
+    if (f == SF_PART2 && id_.v[SF_PART1] == 0) return; // a second layout needs a first one
     const int n = sceneFieldValues(f);
-    int v = sceneFieldValue(base_, f);
+    int v = id_.v[f];
     for (int k = 0; k < n; k++) { // the options switched off are skipped (unless --disabled)
         v = (v + dir + n) % n;
         if (opt_.showDisabled || sceneOptionEnabled(f, v)) break;
     }
-    ov_.v[f] = v; // a changed choice is pinned
+    id_.v[f] = v;
+    if (f == SF_PART1 && v == 0) id_.v[SF_PART2] = 0;
+    pin_[f] = true; // a changed choice is pinned
     rebuild(0.6f);
 }
 
@@ -179,21 +176,18 @@ void SceneViewer::change(int row, int dir) {
 void SceneViewer::togglePin(int row) {
     if (row < ROW_FIELDS) return;
     const int f = row - ROW_FIELDS;
-    if (ov_.v[f] >= 0) ov_.v[f] = -1;
-    else if (f == SF_PART2 && base_.layerCount == 0) return;
-    else ov_.v[f] = sceneFieldValue(base_, f);
-    rebuild(0.6f);
+    pin_[f] = !pin_[f];
 }
 
 // X: switches the option shown on the row off (or back on), in src/scene-options.txt. A switched off option stays
 // on screen, pinned, until the row changes.
 void SceneViewer::toggleEnabled(int row) {
     if (row < ROW_FIELDS) return;
-    const int f = row - ROW_FIELDS, v = sceneFieldValue(base_, f);
+    const int f = row - ROW_FIELDS, v = id_.v[f];
     if (!sceneOptionDisableable(f, v)) return;
     const bool on = !sceneOptionEnabled(f, v);
     setSceneOptionEnabled(f, v, on);
-    if (!on) ov_.v[f] = v;
+    if (!on) pin_[f] = true;
     std::printf("[zenscene] %s %s %s\n", on ? "enabled" : "disabled", sceneFieldName(f == SF_PART2 ? SF_PART1 : f),
                 sceneFieldValueName(f, v).c_str());
     saveOptions();
@@ -294,7 +288,7 @@ std::vector<HudText> SceneViewer::buildHud() {
         // Pinned choices are in the accent color, generated ones in the text color; switched off ones are dimmed
         // and struck through in red.
         const int f = r - ROW_FIELDS;
-        const int v = r >= ROW_FIELDS ? sceneFieldValue(base_, f) : -1;
+        const int v = r >= ROW_FIELDS ? id_.v[f] : -1;
         const bool off = r >= ROW_FIELDS && !sceneOptionEnabled(f, v);
         hud.push_back({value, (MENU_X + VALUE_X) * s, y + 3 * s, 1.3f * s, off ? 0.45f : (r == sel_ || pinned ? 1.f : 0.8f), pinned});
         if (off) {
@@ -380,7 +374,7 @@ void SceneViewer::autoplay(float dt) {
 
 // No song: a steady beat at the scene's tempo, and section / level envelopes like the game's.
 void SceneViewer::updateMusic(float dt) {
-    const float bpm = fp_.bpm;
+    const float bpm = BPM;
     const double beat = time_ * bpm / 60.0;
     // Section feel (density, speed, glow, saturation), as structureProfile gives it halfway through a section.
     const float prof[SEG_COUNT][4] = {{0.45f, 0.55f, 0.65f, 0.8f}, {0.7f, 0.8f, 0.9f, 0.95f}, {0.73f, 0.98f, 1.f, 0.97f},
@@ -447,7 +441,7 @@ void SceneViewer::onKey(int key, int action, int mods) {
     case GLFW_KEY_SPACE: if (action == GLFW_PRESS) togglePin(sel_); break;
     case GLFW_KEY_X: if (action == GLFW_PRESS) toggleEnabled(sel_); break;
     case GLFW_KEY_C:
-        if (action == GLFW_PRESS && ov_.any()) { ov_ = SceneOverrides{}; rebuild(0.6f); }
+        if (action == GLFW_PRESS) for (bool& p : pin_) p = false;
         break;
     case GLFW_KEY_R: if (action == GLFW_PRESS) randomScene(); break;
     case GLFW_KEY_F: if (action == GLFW_PRESS) game_.debugFillBoard(rng_()); break;
@@ -629,7 +623,7 @@ int SceneViewer::run() {
         } else {
             autoplay(dt);
             const float pace[SEG_COUNT] = {0.5f, 0.8f, 1.f, 1.2f, 1.3f, 0.4f, 0.5f};
-            float bpm = fp_.bpm;
+            float bpm = BPM;
             while (bpm > 130.f) bpm *= 0.5f;
             while (bpm < 65.f) bpm *= 2.f;
             gravAcc_ += dt * bpm / 60.f * pace[section_];
@@ -651,7 +645,7 @@ int SceneViewer::run() {
             std::printf("[shot] %s\n", opt_.shot.c_str());
             if (review)
                 std::printf("[review] {\"code\": \"%s\", \"scene\": \"%s\", \"level\": %d, \"section\": \"%s\", \"bpm\": %.0f}\n",
-                            base_.code.c_str(), base_.name.c_str(), level_, segmentName(section_), fp_.bpm);
+                            base_.code.c_str(), base_.name.c_str(), level_, segmentName(section_), BPM);
             break;
         }
         glfwSwapBuffers(win_);
