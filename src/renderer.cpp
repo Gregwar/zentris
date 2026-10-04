@@ -1544,10 +1544,25 @@ void Renderer::drawText(const std::vector<HudText>& hud) {
             const int order[6] = {0, 1, 2, 0, 2, 3};
             for (int o : order) { tri.push_back(px[o]); tri.push_back(py[o]); }
         }
-        glBufferData(GL_ARRAY_BUFFER, tri.size() * sizeof(float), tri.data(), GL_STREAM_DRAW);
         vec3 c = toSrgb(h.accent ? ac : tc);
         // Reversed screen (slow-motion bonus): reverse the text too, once the front has covered most of it.
         if (inverted_ == (invT_ > 0.35f)) c = vec3(1.f) - c * 0.92f - vec3(0.04f);
+        // A thin, soft halo of the opposite tone keeps small text readable over particles and busy backgrounds
+        // (dark behind light text, light behind dark text). Four 1px-offset copies, drawn first.
+        {
+            const float lum = 0.3f * c.x + 0.59f * c.y + 0.11f * c.z;
+            const vec3 hc = lum > 0.5f ? vec3(0.02f) : vec3(0.98f);
+            const float d = std::max(1.f, std::round(h.scale * 0.5f));
+            const float off[4][2] = {{d, 0}, {-d, 0}, {0, d}, {0, -d}};
+            std::vector<float> halo;
+            halo.reserve(tri.size() * 4);
+            for (const auto& o : off)
+                for (size_t k = 0; k < tri.size(); k += 2) { halo.push_back(tri[k] + o[0]); halo.push_back(tri[k + 1] + o[1]); }
+            glBufferData(GL_ARRAY_BUFFER, halo.size() * sizeof(float), halo.data(), GL_STREAM_DRAW);
+            glUniform4f(U(progText_, "uColor"), hc.x, hc.y, hc.z, 0.22f * h.alpha);
+            glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(halo.size() / 2));
+        }
+        glBufferData(GL_ARRAY_BUFFER, tri.size() * sizeof(float), tri.data(), GL_STREAM_DRAW);
         glUniform4f(U(progText_, "uColor"), c.x, c.y, c.z, h.alpha);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(tri.size() / 2));
     }

@@ -399,25 +399,25 @@ std::vector<HudText> App::buildHud(float dt) {
     sceneNameTimer_ = std::max(0.f, sceneNameTimer_ - dt);
     if (track_ && !track_->analysis.segments.empty()) {
         const Segment& sg = track_->analysis.segments[track_->analysis.segmentAt(songTime_)];
-        hud.push_back({segmentName(sg.kind), 28 * s, h - 60.f * s, 1.3f * s, 0.3f, true});
+        hud.push_back({segmentName(sg.kind), 28 * s, h - 60.f * s, 1.3f * s, 0.42f, true});
     }
     hud.push_back({R_.targetTheme().name + "  #" + sceneCode(), 28 * s, h - 40.f * s, 1.3f * s,
-                   0.12f + 0.4f * smoothstepf(0, 2, sceneNameTimer_)});
+                   0.26f + 0.3f * smoothstepf(0, 2, sceneNameTimer_)});
 
     // Score panel under the hold slot, labels above previews.
     vec2 hold = R_.project(vec3(-8.6f, 9.4f, 0)), next = R_.project(vec3(8.6f, 9.4f, 0));
     vec2 sc = R_.project(vec3(-8.6f, 1.5f, 0));
-    hud.push_back({"HOLD", hold.x, hold.y, 1.5f * s, 0.45f, false, true});
-    hud.push_back({"NEXT", next.x, next.y, 1.5f * s, 0.45f, false, true});
-    hud.push_back({"SCORE", sc.x, sc.y, 1.4f * s, 0.45f, false, true});
+    hud.push_back({"HOLD", hold.x, hold.y, 1.6f * s, 0.62f, false, true});
+    hud.push_back({"NEXT", next.x, next.y, 1.6f * s, 0.62f, false, true});
+    hud.push_back({"SCORE", sc.x, sc.y - 2 * s, 1.6f * s, 0.62f, false, true});
     hud.push_back({std::to_string(game_.score()), sc.x, sc.y + 18 * s, 2.8f * s, 0.9f, false, true});
-    hud.push_back({"LINES", sc.x, sc.y + 62 * s, 1.4f * s, 0.45f, false, true});
+    hud.push_back({"LINES", sc.x, sc.y + 60 * s, 1.6f * s, 0.62f, false, true});
     hud.push_back({std::to_string(game_.lines()), sc.x, sc.y + 80 * s, 2.8f * s, 0.9f, false, true});
-    hud.push_back({"LEVEL", sc.x, sc.y + 124 * s, 1.4f * s, 0.45f, false, true});
+    hud.push_back({"LEVEL", sc.x, sc.y + 122 * s, 1.6f * s, 0.62f, false, true});
     hud.push_back({std::to_string(game_.level()) + (game_.level() >= Game::MAX_LEVEL ? " MAX" : ""), sc.x, sc.y + 142 * s,
                    2.8f * s, 0.9f, false, true});
     if (game_.best() > 0) {
-        hud.push_back({"BEST", sc.x, sc.y + 186 * s, 1.4f * s, 0.35f, false, true});
+        hud.push_back({"BEST", sc.x, sc.y + 184 * s, 1.6f * s, 0.5f, false, true});
         hud.push_back({std::to_string(game_.best()), sc.x, sc.y + 204 * s, 2.f * s, 0.6f, false, true});
     }
     if (game_.combo() > 0) {
@@ -460,8 +460,8 @@ std::vector<HudText> App::buildHud(float dt) {
             float br = 0.55f + 0.3f * (0.5f + 0.5f * std::sin(runTime_ * TAU * 0.4f));
             hud.push_back({pad ? "ZL ZR" : "V", g.x, g.y - 7 * s, (pad ? 1.3f : 1.8f) * s, br, true, true});
         }
-        hud.push_back({game_.bonusActive() || game_.bonusReady() ? "SLOW" : "BONUS", lbl.x, lbl.y, 1.2f * s,
-                       game_.bonusActive() ? 0.6f : game_.bonusReady() ? 0.5f : 0.3f, game_.bonusActive(), true});
+        hud.push_back({game_.bonusActive() || game_.bonusReady() ? "SLOW" : "BONUS", lbl.x, lbl.y, 1.4f * s,
+                       game_.bonusActive() ? 0.7f : game_.bonusReady() ? 0.62f : 0.5f, game_.bonusActive(), true});
     }
     slowToast_ = std::max(0.f, slowToast_ - dt);
     if (slowToast_ > 0) {
