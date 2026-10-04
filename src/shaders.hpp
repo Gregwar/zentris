@@ -704,6 +704,7 @@ layout(location = 0) in vec2 aCorner;
 layout(location = 1) in vec4 aSeed;
 uniform mat4 uVP, uView;
 uniform float uTime, uSize, uBright, uCount, uAspect, uP11, uPixel, uIntensity, uDensity, uSide, uKick, uBoardDim;
+uniform float uPale; // also read by the fragment shader
 uniform vec4 uWipe;
 uniform int uWipeShape;
 uniform float uWipeSeed;
@@ -754,6 +755,16 @@ vec3 rotX(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(p.x, c * 
 vec3 rotY(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z); }
 vec3 rotZ(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x - s * p.y, s * p.x + c * p.y, p.z); }
 float spec(float x) { int i = int(clamp(x, 0.0, 0.999) * 16.0); return uSpec[i]; }
+float phash(float n) { return fract(sin(n * 12.9898 + 4.1414) * 43758.5453); }
+// Half height of the view at a depth behind the board (the board fills ~23 units of height at z = 0).
+float viewH(float depth) { return 11.7 + depth / uP11; }
+float gWarm = 0.0; // lanterns: how much of a warm glow tints the dot
+// Koi: a lazy, slowly wandering loop on one side of the board (never stopping: the body follows it).
+vec2 koiPath(float th, float tau, float ph, float side, float hw, float hh) {
+    vec2 c = vec2(side * (0.7 + 0.04 * sin(0.07 * tau + ph)) * hw, 0.22 * hh * sin(0.05 * tau + ph * 1.3));
+    vec2 r = vec2((0.3 + 0.04 * sin(0.11 * tau + ph)) * hh, (0.32 + 0.06 * sin(0.09 * tau + ph * 0.7)) * hh);
+    return c + vec2(cos(th), sin(th) + 0.2 * sin(2.0 * th + ph)) * r;
+}
 
 vec3 stylePos(vec4 s, float t, out float bright, out float cm, out float sz) {
     float bass = uBass * uReact.x;
@@ -1175,6 +1186,281 @@ vec3 stylePos(vec4 s, float t, out float bright, out float cm, out float sz) {
         cm = v;
         sz = 1.1 + 0.5 * top;
         return vec3(x + sin(y * 0.3 + t * 0.7) * 0.4, y, -35.0);
+    } else if (uStyle == 44) { // fireworks: slow soft bursts blooming and fading here and there, sparks sinking
+        float b = floor(s.x * 5.0);
+        float ct = t / 10.0 + fract(b * 0.618 + uP.x);
+        float cyc = floor(ct), k = fract(ct);
+        float hs = cyc * 7.31 + b * 3.17;
+        float side = mod(b + cyc, 2.0) * 2.0 - 1.0;
+        float depth = 35.0 + 35.0 * phash(hs + 1.0);
+        float hh = viewH(depth), hw = hh * uAspect;
+        vec3 c = vec3(side * mix(0.5, 0.78, phash(hs + 2.0)) * hw, mix(-0.1, 0.55, phash(hs + 3.0)) * hh, -depth);
+        // Sparks on rays spread evenly over a sphere; each ray is a head followed by a fading trail of dots.
+        float NR = 44.0;
+        float ray = floor(s.y * NR);
+        float z = 1.0 - 2.0 * (ray + 0.5) / NR, a = ray * 2.39996 + hs;
+        vec3 dir = vec3(sqrt(1.0 - z * z) * cos(a), z, sqrt(1.0 - z * z) * sin(a));
+        float lag = s.z * s.z;
+        float kk = max(k - lag * 0.12, 0.0);
+        float R = (0.22 + 0.12 * phash(hs + 4.0)) * hh * (0.92 + 0.08 * fract(ray * 0.618));
+        vec3 p = c + dir * R * (1.0 - exp(-kk * 4.5));
+        p.y -= 0.3 * hh * kk * kk;
+        bright = smoothstep(0.0, 0.15, k) * pow(1.0 - k, 1.4) * pow(1.0 - s.z, 2.0) * (0.85 + 0.25 * uHigh * uReact.y);
+        sz = (1.0 - 0.4 * k) * (1.0 - 0.5 * s.z);
+        cm = 0.7 * fract(phash(hs + 5.0) + 0.25 * k + 0.15 * s.z);
+        return p;
+    } else if (uStyle == 45) { // jellyfish: pulsing bells drifting upward, trailing tentacles of dots
+        float j = floor(s.x * 4.0);
+        float depth = 30.0 + 24.0 * fract(j * 0.37 + uP.x);
+        float hh = viewH(depth), hw = hh * uAspect;
+        float rise = fract(t * 0.011 * (0.8 + 0.4 * fract(j * 0.61)) + j * 0.27 + uP.y);
+        float side = mod(j, 2.0) * 2.0 - 1.0;
+        vec3 c = vec3(side * (0.38 + 0.38 * fract(j * 0.43 + uP.z)) * hw + 3.0 * sin(t * 0.13 + j * 2.0),
+                      mix(-1.6 * hh, 1.3 * hh, rise), -depth);
+        float pulse = 0.5 + 0.5 * sin(t * 0.85 + j * 1.9);
+        pulse = pulse * pulse * (3.0 - 2.0 * pulse); // 1 open, 0 contracted
+        float R = (0.17 + 0.05 * fract(j * 0.71)) * hh;
+        float polMax = mix(1.05, 1.4, pulse);
+        float wide = mix(0.82, 1.08, pulse);
+        vec3 lp;
+        if (s.y < 0.55) { // the bell, its rim brighter
+            float v = sqrt(s.z);
+            float pol = v * polMax, az = s.w * TAU;
+            lp = vec3(sin(pol) * cos(az) * R * wide, cos(pol) * R * mix(1.0, 0.7, pulse), sin(pol) * sin(az) * R * wide);
+            bright = 0.3 + 0.55 * smoothstep(0.75, 1.0, v);
+            cm = 0.15 + 0.35 * v;
+        } else { // tentacles hanging from the rim, waving behind the pulse
+            float ti = floor(s.z * 9.0);
+            float u = fract(s.z * 9.0) * (0.75 + 0.25 * fract(ti * 0.37)), az = ti / 9.0 * TAU + 0.3;
+            float rr = sin(polMax) * R * wide * (1.0 - 0.35 * u);
+            float L = R * (2.4 + 0.8 * fract(ti * 0.53)) * (0.95 + 0.1 * (1.0 - pulse));
+            float rimY = cos(polMax) * R * mix(1.0, 0.7, pulse);
+            lp = vec3(cos(az) * rr, rimY - u * L, sin(az) * rr);
+            lp.x += sin(u * 5.0 - t * 1.1 + ti) * u * 0.32 * R;
+            lp.z += cos(u * 4.0 - t * 0.9 + ti * 1.7) * u * 0.24 * R;
+            bright = 0.42 * pow(1.0 - u, 1.2) + 0.05;
+            sz = 0.7;
+            cm = 0.35 + 0.3 * u;
+        }
+        lp = rotZ(rotX(lp, -0.35), 0.15 * sin(t * 0.2 + j));
+        bright *= smoothstep(0.0, 0.1, rise) * (1.0 - smoothstep(0.9, 1.0, rise));
+        return c + lp;
+    } else if (uStyle == 46) { // dandelion: seeds drifting up and sideways, each a small radial tuft on a stalk
+        float i = floor(s.x * 22.0);
+        float hi = phash(i * 1.37 + 0.5);
+        float depth = 14.0 + 60.0 * phash(i * 2.11 + 0.2);
+        float hh = viewH(depth), hw = hh * uAspect;
+        float k = fract(t * (0.016 + 0.01 * hi) + phash(i * 0.73));
+        float wind = uP.x < 0.5 ? -1.0 : 1.0;
+        vec3 c = vec3((phash(i * 3.3) * 2.0 - 1.0) * hw + wind * (k - 0.4) * 0.5 * hw + 4.0 * sin(t * 0.21 + i),
+                      mix(-hh - 4.0, hh + 4.0, k) + 2.0 * sin(t * 0.37 + i * 1.3), -depth);
+        float scale = 0.9 + 0.4 * hi;
+        vec3 lp;
+        if (s.y < 0.18) { // stalk and seed
+            float u = s.z;
+            lp = vec3(0.0, -u * 3.0, 0.0);
+            bright = u > 0.8 ? 0.65 : 0.35;
+            sz = u > 0.8 ? 1.0 : 0.6;
+            cm = 0.15;
+        } else { // pappus: fine filaments radiating, a tiny tuft at each tip
+            float f = floor(s.z * 16.0);
+            float u = pow(s.w, 0.6);
+            float pol = 0.25 + 1.25 * fract(f * 0.618), az = f * 2.4;
+            vec3 d = vec3(sin(pol) * cos(az), cos(pol), sin(pol) * sin(az));
+            lp = d * u * 2.6;
+            bright = 0.3 + 0.6 * pow(u, 4.0);
+            sz = 0.6 + 0.5 * pow(u, 4.0);
+            cm = 0.3 + 0.4 * u;
+        }
+        lp = rotZ(rotY(lp, t * 0.15 + i), 0.35 * sin(t * 0.4 + i * 2.1) - wind * 0.25);
+        bright *= smoothstep(0.0, 0.1, k) * (1.0 - smoothstep(0.85, 1.0, k));
+        return c + lp * scale;
+    } else if (uStyle == 47) { // pendulums: two mirrored rows of increasing length, the classic pendulum wave
+        float f = s.x * 20.0;
+        float i = floor(mod(f, 10.0));                 // 0 = innermost, shortest
+        float side = f < 10.0 ? -1.0 : 1.0;
+        float depth = 45.0;
+        float hh = viewH(depth);
+        float m = 20.0 + (9.0 - i);                   // oscillations per cycle: all realign every 75 s
+        float w = TAU * m / 75.0;
+        float L = 1.72 * hh * (20.0 / m) * (20.0 / m);
+        float th = (0.16 + 0.025 * uLoud * uReact.y) * cos(w * t + uP.x * 0.5);
+        vec3 piv = vec3(side * (0.92 + i * 0.085) * hh, 0.86 * hh, -depth);
+        vec3 dir = vec3(side * sin(th), -cos(th), 0.0);
+        if (s.y < 0.3) { // thread
+            bright = 0.1;
+            sz = 0.45;
+            cm = 0.7 * i / 9.0;
+            return piv + dir * L * s.z;
+        }
+        float z = s.z * 2.0 - 1.0, a = s.w * TAU;
+        vec3 o = vec3(sqrt(1.0 - z * z) * cos(a), z, sqrt(1.0 - z * z) * sin(a)) * 0.035 * hh * pow(fract(s.y * 7.0), 0.33);
+        bright = 0.55 + 0.25 * (0.5 + 0.5 * o.z);
+        sz = 0.8;
+        cm = 0.7 * i / 9.0;
+        return piv + dir * L + o;
+    } else if (uStyle == 48) { // koi: a few fish, tapering chains of dots, swimming lazy curves
+        float fi = floor(s.x * 4.0);
+        // Each fish is 40 beads: 26 along the spine, two lines of 5 for the tail fin, two of 2 for the side fins.
+        float slot = floor(fract(s.x * 4.0) * 40.0);
+        float side = mod(fi, 2.0) * 2.0 - 1.0;
+        float depth = 34.0 + 5.0 * fi;
+        float hh = viewH(depth), hw = hh * uAspect;
+        float sc = hh / 26.0;
+        float ph = fi * 1.7 + uP.x * 6.0;
+        float tau = t * 0.45;
+        float bodyLen = (7.0 + 1.5 * fract(fi * 0.57)) * sc;
+        float u, off, rad;
+        if (slot < 26.0) { u = slot / 25.0 * 0.82; off = 0.0; rad = 1.2 * pow(sin(PI * min(u / 0.82 * 0.85 + 0.15, 1.0)), 0.7); }
+        else if (slot < 36.0) { float e = mod(slot - 26.0, 5.0) / 4.0; u = 0.82 + 0.16 * e; off = (slot < 31.0 ? -1.0 : 1.0) * (0.15 + 0.8 * e); rad = 0.45 - 0.15 * e; }
+        else { float e = mod(slot - 36.0, 2.0); u = 0.24 + 0.05 * e; off = (slot < 38.0 ? -1.0 : 1.0) * (1.2 + 0.6 * e); rad = 0.4; }
+        // Swims around its loop, the body sampled backward along it.
+        float dir = fi < 1.5 ? -1.0 : 1.0;
+        float th = dir * tau * 0.18 + ph;
+        float lag = dir * bodyLen / (0.33 * hh);
+        float tb = th - u * lag;
+        vec2 bp = koiPath(tb, tau, ph, side, hw, hh);
+        vec2 tg = normalize(bp - koiPath(tb - 0.02 * dir, tau, ph, side, hw, hh) + vec2(1e-5));
+        vec2 nr = vec2(-tg.y, tg.x);
+        float sway = sin(u * 5.0 - t * 1.8 + fi) * 0.5 * u;
+        vec2 jit = (vec2(s.y, s.z) - 0.5) * vec2(0.5, 1.7) * rad;
+        vec2 q = bp + (nr * (sway + off) + tg * jit.x + nr * jit.y) * sc;
+        bright = 0.24 * (slot < 26.0 ? 1.0 : 0.6);
+        sz = (0.6 + 0.9 * rad) * (0.8 + 0.4 * s.w);
+        cm = 0.5 * smoothstep(-0.3, 0.3, sin(u * 11.0 + fi * 2.3) + 0.6 * sin(u * 27.0 + fi));
+        return vec3(q, -depth);
+    } else if (uStyle == 49) { // sky lanterns: slowly rising and swaying, a warm flame glowing in each
+        float i = floor(s.x * 22.0);
+        float hi = phash(i * 1.91 + 0.3);
+        float depth = 15.0 + 70.0 * pow(phash(i * 2.7 + 0.1), 0.8);
+        float hh = viewH(depth), hw = hh * uAspect;
+        float k = fract(t * (0.01 + 0.006 * hi) + phash(i * 0.53));
+        vec3 c = vec3((phash(i * 4.1) * 2.0 - 1.0) * hw * 0.95 + 3.0 * sin(t * 0.15 + i * 1.7) + k * 8.0 * (uP.x - 0.5),
+                      mix(-hh - 5.0, hh + 5.0, k), -depth);
+        vec3 lp;
+        if (s.y < 0.75) { // paper shell, wider at the top, lit from below
+            float v = s.z;
+            float r = 1.0 + 0.6 * v;
+            float a = s.w * TAU;
+            if (s.y < 0.22) a = floor(s.w * 5.0) / 5.0 * TAU; // ribs of the frame
+            else if (s.y < 0.3) { v = 1.0; r *= sqrt(fract(s.y * 37.0)); } // closed top
+            lp = vec3(cos(a) * r, v * 3.4, sin(a) * r);
+            bright = (s.y < 0.22 ? 0.3 : 0.14) + 0.55 * pow(1.0 - v, 2.0);
+            sz = s.y < 0.22 ? 0.7 : 1.8;
+            cm = 0.3 + 0.4 * v;
+            gWarm = 0.3;
+        } else { // flame
+            lp = (vec3(s.z, s.w, fract(s.z * 7.0 + s.w * 3.0)) - 0.5) * 0.7 + vec3(0.0, 0.4, 0.0);
+            bright = 0.6 * (0.85 + 0.15 * sin(t * 1.3 + i * 3.0));
+            sz = 1.25;
+            cm = 0.1;
+            gWarm = 0.6;
+        }
+        lp = rotZ(rotY(lp, t * 0.1 + i), 0.12 * sin(t * 0.35 + i * 2.3)) * (0.9 + 0.4 * hi);
+        bright *= smoothstep(0.0, 0.08, k) * (1.0 - smoothstep(0.85, 1.0, k));
+        return c + lp;
+    } else if (uStyle == 50) { // snowfall: big soft flakes falling gently, swaying, in depth layers
+        float layer = s.x < 0.12 ? 0.0 : (s.x < 0.4 ? 1.0 : 2.0);
+        float depth = layer < 0.5 ? 8.0 + 10.0 * s.z : (layer < 1.5 ? 28.0 + 14.0 * s.z : 58.0 + 30.0 * s.z);
+        float hh = viewH(depth), hw = hh * uAspect;
+        float span = 2.0 * hh + 8.0;
+        float y = hh + 4.0 - mod(s.y * span + t * 0.14 * hh * (0.75 + 0.5 * s.w), span);
+        float x = (fract(s.w * 7.13 + s.x * 3.1) * 2.0 - 1.0) * hw * 1.05
+                  + sin(t * 0.45 * (0.7 + 0.6 * s.w) + s.w * 30.0) * 0.075 * hh
+                  + (uP.x - 0.5) * 0.25 * (y - hh);
+        sz = (layer < 0.5 ? 3.4 : (layer < 1.5 ? 1.7 : 0.95)) * (0.75 + 0.5 * s.w);
+        bright = (layer < 0.5 ? 0.16 : (layer < 1.5 ? 0.4 : 0.5)) * (0.7 + 0.3 * s.w);
+        cm = layer * 0.3 + 0.15 * s.w;
+        return vec3(x, y, -depth);
+    } else if (uStyle == 51) { // gears: two mirrored chains of interlocking toothed rings, turning together
+        float side = mod(float(gl_InstanceID), 2.0) * 2.0 - 1.0;
+        float gi = s.x < 0.28 ? 0.0 : (s.x < 0.48 ? 1.0 : (s.x < 0.84 ? 2.0 : 3.0));
+        // Chain: pitch radius, teeth (2 per unit of radius) and the direction to the next gear.
+        vec4 G0 = vec4(-31.0, 13.0, 7.0, -1.9), G1 = vec4(0.0, 0.0, 5.0, -1.2), G2 = vec4(0.0, 0.0, 9.0, -2.6),
+             G3 = vec4(0.0, 0.0, 4.0, 0.0);
+        G1.xy = G0.xy + (G0.z + G1.z) * vec2(cos(G0.w), sin(G0.w));
+        G2.xy = G1.xy + (G1.z + G2.z) * vec2(cos(G1.w), sin(G1.w));
+        G3.xy = G2.xy + (G2.z + G3.z) * vec2(cos(G2.w), sin(G2.w));
+        float al = t * 0.12 + uP.x * 3.0;
+        float gs = viewH(40.0) / 27.0;
+        // Each next angle keeps a tooth of one gear in a gap of the other at their contact point.
+        vec4 g = G0;
+        if (gi > 0.5) { al = G0.w + PI + (G0.z * 2.0 * (G0.w - al) + PI) / (G1.z * 2.0); g = G1; }
+        if (gi > 1.5) { al = G1.w + PI + (G1.z * 2.0 * (G1.w - al) + PI) / (G2.z * 2.0); g = G2; }
+        if (gi > 2.5) { al = G2.w + PI + (G2.z * 2.0 * (G2.w - al) + PI) / (G3.z * 2.0); g = G3; }
+        float R = g.z, N = R * 2.0;
+        float ang, r;
+        if (s.z < 0.62) { // toothed outline: tip, flank, root, flank
+            float w = s.y * N, ti = floor(w), q = fract(w);
+            float ro = R + 0.8, rin = R - 0.95;
+            float pa;
+            if (q < 0.3) { pa = mix(-0.17, 0.17, q / 0.3); r = ro; }
+            else if (q < 0.45) { float e = (q - 0.3) / 0.15; pa = mix(0.17, 0.3, e); r = mix(ro, rin, e); }
+            else if (q < 0.85) { pa = mix(0.3, 0.7, (q - 0.45) / 0.4); r = rin; }
+            else { float e = (q - 0.85) / 0.15; pa = mix(0.7, 0.83, e); r = mix(rin, ro, e); }
+            ang = al + (ti + pa) / N * TAU;
+            bright = 0.5;
+            cm = 0.2 + 0.1 * gi;
+        } else if (s.z < 0.8) { // inner rim
+            ang = s.y * TAU; r = R - 2.2;
+            bright = 0.3; cm = 0.5;
+        } else if (s.z < 0.9) { // hub
+            ang = s.y * TAU; r = 0.28 * R;
+            bright = 0.45; cm = 0.7;
+        } else { // spokes
+            float sp = floor(s.w * 5.0);
+            ang = al + sp / 5.0 * TAU; r = mix(0.28 * R, R - 2.2, fract(s.w * 5.0));
+            bright = 0.25; cm = 0.6;
+        }
+        vec2 q2 = (g.xy + vec2(cos(ang), sin(ang)) * r) * gs;
+        sz = 0.75;
+        return vec3(side * -q2.x * (0.95 + 0.1 * uP.y), q2.y, -40.0 - gi * 0.7);
+    } else if (uStyle == 52) { // spirograph: hypotrochoids slowly traced, then fading
+        float ci = floor(s.x * 4.0);
+        float u = s.y;
+        float ct = t / 38.0 + ci * 0.25 + uP.x;
+        float cyc = floor(ct), k = fract(ct);
+        float hs = cyc * 5.7 + ci * 13.1;
+        float pk = floor(phash(hs) * 7.0);
+        float Rg = pk < 1.0 ? 5.0 : (pk < 2.0 ? 7.0 : (pk < 3.0 ? 8.0 : (pk < 4.0 ? 7.0 : (pk < 5.0 ? 9.0 : (pk < 6.0 ? 6.0 : 10.0)))));
+        float rg = pk < 1.0 ? 3.0 : (pk < 2.0 ? 4.0 : (pk < 3.0 ? 3.0 : (pk < 4.0 ? 2.0 : (pk < 5.0 ? 4.0 : (pk < 6.0 ? 5.0 : 3.0)))));
+        float d = rg * (0.5 + 0.7 * phash(hs + 1.0));
+        float side = mod(ci, 2.0) * 2.0 - 1.0;
+        float depth = 34.0 + 10.0 * floor(ci / 2.0);
+        float hh = viewH(depth), hw = hh * uAspect;
+        vec3 c = vec3(side * (0.6 + 0.12 * phash(hs + 2.0)) * hw, (floor(ci / 2.0) > 0.5 ? -0.42 : 0.4) * hh * side, -depth);
+        float size = (0.33 + 0.08 * phash(hs + 3.0)) * hh;
+        float th = u * TAU * rg;
+        float q = (Rg - rg) / rg;
+        vec2 xy = vec2((Rg - rg) * cos(th) + d * cos(q * th), (Rg - rg) * sin(th) - d * sin(q * th)) * size / (Rg - rg + d);
+        float rot = t * 0.02 * side + phash(hs + 4.0) * TAU;
+        xy = vec2(cos(rot) * xy.x - sin(rot) * xy.y, sin(rot) * xy.x + cos(rot) * xy.y);
+        float drawn = smoothstep(0.0, 0.7, k);
+        float age = drawn - u;
+        bright = smoothstep(0.0, 0.004, age) * (0.4 + 0.6 * exp(-age * 3.0)) * (1.0 - smoothstep(0.7, 1.0, k)) * 0.6
+                 * (1.0 + 0.8 * exp(-age * age * 4000.0));
+        sz = 0.7;
+        cm = 0.7 * fract(u * 0.8 + phash(hs + 5.0));
+        return c + vec3(xy, 0.0);
+    } else if (uStyle == 53) { // pulse grid: a 3D grid of dots, a slow wave rolling through it
+        float NZ = 4.0;
+        float N = max(floor(sqrt(uCount / (2.0 * NZ))), 2.0);
+        float nx = 2.0 * N;
+        float i = float(gl_InstanceID);
+        vec3 g = vec3(mod(i, nx) / (nx - 1.0) - 0.5, mod(floor(i / nx), N) / (N - 1.0) - 0.5, floor(i / (nx * N)) / (NZ - 1.0));
+        float depth = 32.0 + g.z * 54.0;
+        float hh = viewH(depth), hw = hh * uAspect;
+        vec3 p = vec3(g.x * 2.1 * hw, g.y * 2.1 * hh, -depth);
+        float dd = length(p.xy / vec2(hw, hh));
+        float ph = dd * 5.0 - t * 0.6 + g.z * 1.2 + (uP.x - 0.5) * g.x * 4.0;
+        float wv = sin(ph);
+        float amp = 1.5 + 3.5 * bass;
+        p.z += amp * wv * 1.4;
+        p.xy += p.xy / max(length(p.xy), 1.0) * amp * 0.5 * wv;
+        bright = (0.07 + 0.32 * pow(0.5 + 0.5 * wv, 3.0)) * (1.0 - 0.35 * g.z);
+        sz = 0.75 + 0.35 * (0.5 + 0.5 * wv);
+        cm = clamp(0.4 + 0.3 * wv + 0.15 * (g.z - 0.5), 0.0, 1.0);
+        return p;
     } else { // meteors: fast diagonal streaks
         float k = fract(s.y + t * 0.3 * (0.5 + s.w));
         vec3 start = vec3((s.x - 0.2) * 160.0, 50.0, -20.0 - s.z * 50.0);
@@ -1196,6 +1482,7 @@ void main() {
     float size = 0.22 * uSize * sz * (1.0 + 0.4 * uBeat * uReact.x);
     float a = bright * uBright * (0.75 + 0.5 * uLoud * uReact.y);
     a *= smoothstep(3.0, 14.0, viewZ); // fade near the camera
+    if (uStyle >= 44 && uStyle <= 53) a *= 1.0 + 0.6 * uPale; // fine layouts: a little more ink on pale backgrounds
     // Phase ripple: layers of the old scene recede as the wave front passes, the new ones appear.
     if (uWipe.x > 0.5) {
         vec2 ndc = clip.xy / max(clip.w, 1e-3);
@@ -1240,6 +1527,7 @@ void main() {
     clip.xy += offs;
     gl_Position = clip;
     vCol = cm < 0.5 ? mix(uColA, uColB, cm * 2.0) : mix(uColB, uColC, cm * 2.0 - 1.0);
+    if (uStyle == 49) vCol = mix(vCol, vec3(1.0, 0.62, 0.3) * max(max(vCol.r, vCol.g), vCol.b), gWarm);
     vAlpha = a;
 }
 )";

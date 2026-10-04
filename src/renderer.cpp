@@ -1232,6 +1232,15 @@ void Renderer::drawParticleLayer(const ParticleLayer& L, const Theme& owner, flo
     case PS_WIND: mult = 0.12f; break;
     case PS_FIRE: mult = 0.3f; break;
     case PS_SEA: mult = 0.4f; break;
+    case PS_FIREWORKS: mult = 0.12f; break;
+    case PS_JELLYFISH: mult = 0.14f; break;
+    case PS_DANDELION: mult = 0.14f; break;
+    case PS_PENDULUMS: mult = 0.1f; break;
+    case PS_KOI: mult = 0.08f; break;
+    case PS_LANTERNS: mult = 0.2f; break;
+    case PS_SNOWFALL: mult = 0.05f; break;
+    case PS_GEARS: mult = 0.3f; break;
+    case PS_SPIROGRAPH: mult = 0.16f; break;
     default: mult = 1.f; break;
     }
     int count = (int)(MAX_PARTICLES * L.count * mult);
@@ -1244,6 +1253,9 @@ void Renderer::drawParticleLayer(const ParticleLayer& L, const Theme& owner, flo
         count = n * n * n;
     } else if (L.style == PS_SKYLINE) { // 64 columns of dots
         count = 64 * std::clamp(count / 64, 60, 160);
+    } else if (L.style == PS_PULSEGRID) { // 4 layers of 2n x n dots
+        int n = 10 + (int)(L.count * 8);
+        count = 2 * n * n * 4;
     }
     count = std::clamp(count, 16, MAX_PARTICLES);
 

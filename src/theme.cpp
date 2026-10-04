@@ -186,6 +186,16 @@ int pickShape(Rng& r, int style) {
     case PS_SEA:
     case PS_DUNES: return (int)SH_DOT;
     case PS_FIREFLIES: return r.chance(0.7f) ? (int)SH_DOT : (int)SH_SPARKLE;
+    case PS_FIREWORKS: return r.chance(0.75f) ? (int)SH_DOT : (int)SH_SPARKLE;
+    case PS_JELLYFISH:
+    case PS_DANDELION:
+    case PS_KOI:
+    case PS_LANTERNS:
+    case PS_SNOWFALL:
+    case PS_PENDULUMS:
+    case PS_SPIROGRAPH: return (int)SH_DOT;
+    case PS_GEARS: return r.chance(0.7f) ? (int)SH_DOT : (int)SH_SQUARE;
+    case PS_PULSEGRID: { float w[SH_COUNT] = {3, 0.6f, 0, 0.8f, 0.6f, 0, 0, 0.4f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.4f}; return r.weighted(w); }
     case PS_LATTICE: { float w[SH_COUNT] = {2, 0.5f, 0.5f, 1.5f, 1, 0, 0, 1.5f, 0.5f, 1, 0.5f, 0, 0, 1, 0.3f, 1, 1, 0.3f, 0.3f, 0.5f}; return r.weighted(w); }
     case PS_TUNNEL: { float w[SH_COUNT] = {2, 0.5f, 0.5f, 0.8f, 0.8f, 0, 1.5f, 0.5f, 0.3f, 0.5f, 0.3f, 0, 0, 0.3f, 0.3f, 0.5f, 0.5f, 0.5f, 0.8f, 0.3f}; return r.weighted(w); }
     default: { float w[SH_COUNT] = {3, 0.7f, 1.0f, 0.6f, 0.8f, 0.3f, 0.4f, 0.5f, 0.5f, 0.5f, 0.4f, 0.2f, 0.3f, 0.4f, 0.4f, 0.4f, 0.4f, 0.6f, 0.3f, 0.5f}; return r.weighted(w); }
