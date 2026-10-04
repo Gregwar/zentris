@@ -13,7 +13,8 @@ const char* BG_NAMES[BG_COUNT] = {"GRADIENT", "HALO", "HORIZON", "NEBULA", "VOID
                                   "GRID", "HILLS", "CONIC", "STARFIELD", "DUAL GLOW", "WAVES", "CLOUDS", "POLKA",
                                   "DIAGONAL", "SUNBURST", "RIPPLES", "PLASMA", "SEA", "PEAKS", "SHAFTS", "HALO RING",
                                   "MOON", "RIDGELINES", "CITY", "COLOR MESH", "ECLIPSE", "CIRRUS", "CANYON",
-                                  "SWIRL", "FOREST", "ISOMETRIC"};
+                                  "SWIRL", "FOREST", "ISOMETRIC", "PLANET", "DESERT", "ARCTIC", "VOLCANO",
+                                  "ROSE WINDOW", "TEMPLE", "JUNGLE", "PAPER CUT", "BLUEPRINT", "LIGHTHOUSE"};
 const char* PS_NAMES[PS_COUNT] = {"GALAXY", "TUNNEL", "OCEAN", "SPHERE", "DRIFT", "STREAMS",
                                   "WARP", "CURTAINS", "HALOS", "HELIX", "BOKEH", "LATTICE",
                                   "FIREFLIES", "RAIN", "VORTEX", "WAVEFORM", "STARBURST", "ORBITS", "CONFETTI",
@@ -21,23 +22,28 @@ const char* PS_NAMES[PS_COUNT] = {"GALAXY", "TUNNEL", "OCEAN", "SPHERE", "DRIFT"
                                   "COMETS", "SPARKLERS", "BUBBLES", "CUBE", "INFINITY", "BEAT RINGS", "PLASMA",
                                   "MOIRE", "SWARM", "SPIRALS", "RIBBON", "METEORS", "SKYLINE", "CORONA", "DUNES", "WIND", "FIRE", "SEA",
                                   "FIREWORKS", "JELLYFISH", "DANDELION", "PENDULUMS", "KOI", "LANTERNS", "SNOWFALL",
-                                  "GEARS", "SPIROGRAPH", "PULSE GRID"};
+                                  "GEARS", "SPIROGRAPH", "PULSE GRID", "BIRDS", "BUTTERFLIES", "ATOMS", "RAINDROPS",
+                                  "EMBERS", "SUNFLOWER", "TENTACLES", "MANDALA", "SATELLITES", "NOTES"};
 const char* BS_NAMES[BS_COUNT] = {"GLASS", "SOLID", "WIRE", "LANTERN", "INSET", "DOTS", "CRYSTAL", "SPLIT",
                                   "HOLO", "GRADIENT", "DOUBLE", "NEON", "CIRCUIT", "FROSTED", "CHECKER", "RINGS",
                                   "BEVEL", "PIXEL", "STRIPES", "CORE", "HATCH", "BREATH",
                                   "KINTSUGI", "TERRAZZO", "CANDY", "ENAMEL", "PILLOW", "SCALES", "WAFFLE", "OPAL",
-                                  "STAINED", "PAPER"};
+                                  "STAINED", "PAPER", "GUMMY", "BRUSHED", "GLAZE", "MARBLE", "WOOD", "STITCH",
+                                  "STUDS", "CARBON", "VELVET", "LED"};
 const char* LE_NAMES[LE_COUNT] = {"POP", "AFTERGLOW", "BOUNCE", "SQUASH", "GROW", "PRESS", "TWINKLE", "RIPPLE",
                                   "CASCADE", "EMBER", "HUE SHIFT",
                                   "SHOCKWAVE", "SPARKS", "MAGNET", "JELLY", "FLIP", "INK", "SHIMMER", "FROST", "DUST",
-                                  "HEARTBEAT"};
+                                  "HEARTBEAT", "SPLASH", "STAMP", "PETALS", "BLOOM", "ROW WAVE", "SPIN", "CONFETTI",
+                                  "DRIP", "ECHO", "AURA"};
 const char* MESH_NAMES[MESH_COUNT] = {"CUBE", "ROUNDED", "ORB", "GEM", "CHAMFER", "PILLOW", "TILE", "COIN", "OCTAGON",
-                                      "HEX", "DIAMOND", "DOME", "CROSS", "STAR"};
+                                      "HEX", "DIAMOND", "DOME", "CROSS", "STAR", "HEART", "DROP", "FLOWER", "RING",
+                                      "PYRAMID", "CAPSULE", "SHIELD", "BLOB", "TRIANGLE", "ZIGGURAT"};
 const char* MOOD_NAMES[4] = {"NIGHT", "DUSK", "PALE", "COLORFUL"};
 const char* SURF_NAMES[SURF_COUNT] = {"", "SMOKE", "SILK", "LAVA", "CAUSTICS", "INK", "GEOMETRY", "AURORA", "FOG",
                               "BEAMS", "FLOW RINGS", "LIQUID", "SHADES", "VORONOI", "WATER", "FACETS", "HEXES",
                               "SHARDS", "MARBLE", "TOPOGRAPHY", "KALEIDOSCOPE", "RAIN RINGS", "TRUCHET", "WEAVE",
-                              "HALFTONE", "SAND", "BRUSH", "PRISM"};
+                              "HALFTONE", "SAND", "BRUSH", "PRISM", "OIL SLICK", "LACE", "MOSAIC", "ZEBRA",
+                              "FROST", "CRACKLE", "LEAF SHADOWS", "DRIPS", "CIRCUITRY", "DAPPLE"};
 
 vec3 ok(float L, float C, float h) { return oklchToLinear(L, C, h); }
 
@@ -71,7 +77,8 @@ int pickBackground(Rng& r, const Footprint& fp, int mood) {
                          mood == 2 ? 0.3f : 0.8f + 0.8f * fp.bassWeight, 1.0f, 0.9f, mood == 2 ? 0.f : 1.2f,
                          1.2f, 1.0f, 1.0f, 0.7f, 1.0f, 0.9f, 0.9f, mood == 2 ? 0.4f : 1.0f,
                          mood == 2 ? 0.5f : 1.0f, 0.9f, 1.0f, 1.0f,
-                         1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+                         1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+                         1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f};
     return pickEnabled(r, w, SF_BG);
 }
 
@@ -134,6 +141,7 @@ int pickParticleStyle(Rng& r, const Footprint& fp, int mood, int avoid) {
         0.8f + 0.4f * fp.density,         // gears
         0.8f,                             // spirograph
         0.7f + 0.6f * bass,               // pulse grid
+        0.8f, 0.8f, 0.8f, 0.8f, 0.7f + 0.5f * bpmN, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, // birds .. notes
     };
     if (avoid >= 0) w[avoid] = 0;
     return pickEnabled(r, w, SF_PART1, 1);
@@ -276,6 +284,63 @@ void resolvePalette(Theme& t, float hueShift) {
             Ls[i] = baseL + (f - 0.5f) * 0.22f;
             Cs[i] = C * (i == 6 ? 1.2f : 0.9f);
             break;
+        // Fixed-hue palettes (the scene's hue only nudges them): OKLCH hues ~0 pink/red, 0.7 orange, 1.7 yellow,
+        // 2.6 green, 3.4 cyan, 4.4 blue, 5.3 violet.
+        case 18: {                                                                            // aurora
+            const float hs[7] = {2.6f, 2.9f, 3.3f, 3.7f, 4.6f, 5.1f, 5.5f};                  // green, teal, violet
+            hues[i] = hs[i] + 0.12f * std::sin(h);
+            Ls[i] = baseL + (f - 0.5f) * 0.16f;
+            break;
+        }
+        case 19: {                                                                            // coral reef
+            const float hs[7] = {0.35f, 0.55f, 3.25f, 3.45f, 1.25f, 0.15f, 3.7f};            // coral, turquoise, sand
+            hues[i] = hs[i] + 0.1f * std::sin(h);
+            if (i == 4) Cs[i] = C * 0.7f;
+            break;
+        }
+        case 20:                                                                              // sunrise
+            hues[i] = 6.0f + f * 1.6f + 0.1f * std::sin(h);                                    // pink, peach, gold
+            Ls[i] = baseL + f * 0.12f - 0.04f;
+            break;
+        case 21:                                                                              // deep sea
+            hues[i] = 4.6f - f * 1.4f + 0.1f * std::sin(h);                                    // navy .. aqua
+            Ls[i] = baseL - 0.08f + f * 0.2f;
+            break;
+        case 22: {                                                                            // retro
+            const float hs[7] = {1.45f, 3.3f, 0.6f, 1.2f, 3.6f, 0.4f, 1.7f};                  // mustard, teal, burnt orange
+            hues[i] = hs[i] + 0.08f * std::sin(h);
+            Cs[i] = C * 0.85f;
+            Ls[i] = baseL + ((i % 3) - 1) * 0.06f;
+            break;
+        }
+        case 23:                                                                              // citrus
+            hues[i] = 0.75f + f * 1.6f + 0.08f * std::sin(h);                                  // orange, lemon, lime
+            Ls[i] = baseL + 0.04f + (f - 0.5f) * 0.1f;
+            break;
+        case 24: {                                                                            // berry
+            const float hs[7] = {6.1f, 5.6f, 4.6f, 0.15f, 5.2f, 4.3f, 5.9f};                  // raspberry, plum, blueberry
+            hues[i] = hs[i] + 0.1f * std::sin(h);
+            Ls[i] = baseL - 0.04f + (f - 0.5f) * 0.14f;
+            break;
+        }
+        case 25: {                                                                            // vaporwave
+            const float hs[7] = {5.9f, 3.4f, 5.2f, 3.7f, 6.2f, 4.9f, 3.2f};                   // pink, cyan, purple
+            hues[i] = hs[i] + 0.1f * std::sin(h);
+            break;
+        }
+        case 26: {                                                                            // autumn
+            const float hs[7] = {0.5f, 0.85f, 0.15f, 1.3f, 0.65f, 6.1f, 1.05f};               // rust, amber, maroon, gold
+            hues[i] = hs[i] + 0.08f * std::sin(h);
+            Ls[i] = baseL - 0.06f + (f - 0.5f) * 0.16f;
+            break;
+        }
+        case 27: {                                                                            // primary
+            const float hs[7] = {0.5f, 1.75f, 4.5f, 0.45f, 1.8f, 4.4f, 0.1f};                 // red, yellow, blue
+            hues[i] = hs[i];
+            Cs[i] = std::min(0.26f, C * 1.4f);
+            if (i % 3 == 1) Ls[i] = std::max(Ls[i], 0.86f);                                   // yellows need light
+            break;
+        }
         default:                                                                              // ink + accent
             hues[i] = h + jitter;
             // Ink on pale backgrounds; on dark ones a soft single tint (near-white glowing blocks
@@ -435,6 +500,7 @@ SceneId pickIdentity(const Footprint& fp, uint64_t seed) {
     id.v[SF_MOOD] = mood;
     // Muted schemes (monochrome, pastel rainbow, ink + accent) are rarer: scenes read as colorful first.
     float schemeW[SCHEME_COUNT] = {3.f, 2.f, 1.2f, 0.8f, 2.6f, 0.4f + 0.5f * fp.brightness, 1.5f, 0.35f + (mood == 0 ? 0.25f : 0.f),
+                                   1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f,
                                    1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f};
     id.v[SF_SCHEME] = pickEnabled(r, schemeW, SF_SCHEME);
     const int bg = pickBackground(r, fp, mood);
@@ -446,6 +512,7 @@ SceneId pickIdentity(const Footprint& fp, uint64_t seed) {
     if (r.chance(0.65f)) {
         float sw[SURF_COUNT] = {0, 1.3f, 1.1f, 0.9f, mood == 2 ? 0.5f : 1.f, 1.f, 1.f, mood == 2 ? 0.3f : 1.f, 1.1f,
                                 mood == 2 ? 0.3f : 0.9f, 0.9f, 1.f, 1.1f, 1.1f, 1.f, 1.f, 0.9f, 1.f,
+                                1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f,
                                 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f};
         // Flat tilings (voronoi, facets, hexes...) and a second waterline clash with a landscape's floor or horizon.
         auto floorStyle = [](int st) { return st == PS_WAVES || st == PS_DUNES || st == PS_SEA; };
@@ -464,10 +531,12 @@ SceneId pickIdentity(const Footprint& fp, uint64_t seed) {
                          1.3f, 0.9f, 1.3f, 1.0f, mood == 2 ? 0.4f : 1.1f, 1.1f, 1.0f,
                          mood == 2 ? 0.4f : 1.1f, 0.9f, 1.0f, 0.9f, 0.9f, 1.1f, 0.9f, 0.9f,
                          mood == 2 ? 0.5f : 1.0f, 0.8f, 0.9f,
+                         1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f,
                          1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f};
     const int block = pickEnabled(r, w, SF_BLOCK);
     id.v[SF_BLOCK] = block;
     float mw[MESH_COUNT] = {5.5f, 2.5f, 1.0f, 0.5f, // gems read less clearly as pieces: rarer
+                            1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f,
                             1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f};
     const int faceStyles[] = {BS_DOTS, BS_INSET, BS_SPLIT, BS_DOUBLE, BS_CIRCUIT, BS_CHECKER, BS_RINGS, BS_PIXEL, BS_HATCH,
                               BS_STRIPES, BS_KINTSUGI, BS_TERRAZZO, BS_ENAMEL, BS_SCALES, BS_WAFFLE, BS_STAINED,
@@ -478,6 +547,7 @@ SceneId pickIdentity(const Footprint& fp, uint64_t seed) {
     id.v[SF_MESH] = pickEnabled(r, mw, SF_MESH);
     float fw[FR_COUNT] = {2.f, 1.5f, 1.5f, 1.2f, 1.0f, 0.8f, 1.0f, 1.0f, 1.0f,
                           1.0f, 1.0f, 1.0f, 1.0f, 0.8f, 0.8f, 1.0f, 1.0f, 0.8f,
+                          1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f,
                           1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f};
     id.v[SF_FRAME] = pickEnabled(r, fw, SF_FRAME);
     float lw[LE_COUNT];
@@ -723,11 +793,14 @@ const char* SF_NAMES[SF_COUNT] = {"MOOD", "PALETTE", "HUE", "BACKGROUND", "PARTI
 const char* SCHEME_NAMES[SCHEME_COUNT] = {"ANALOGOUS", "COMPLEMENTARY", "TRIADIC", "MONOCHROME", "DUOTONE",
                                           "PASTEL RAINBOW", "SPLIT COMPLEMENT", "INK + ACCENT", "SUNSET RAMP",
                                           "JEWEL TONES", "NEON PAIR", "EARTH", "ICE", "CANDY", "TETRADIC",
-                                          "GOLDEN ANGLE", "TWILIGHT", "FOREST"};
+                                          "GOLDEN ANGLE", "TWILIGHT", "FOREST", "AURORA", "CORAL REEF",
+                                          "SUNRISE", "DEEP SEA", "RETRO", "CITRUS", "BERRY", "VAPORWAVE",
+                                          "AUTUMN", "PRIMARY"};
 const char* FR_NAMES[FR_COUNT] = {"OUTLINE", "CORNERS", "WELL", "FLOOR", "GRID", "NONE", "PILLARS", "DOUBLE", "DOTTED",
                                   "GLOW BASE", "TOP + BOTTOM", "TICKS", "SIDE FADE", "UNDERLINE", "CORNER DOTS",
                                   "RAILS", "DASHED", "DOT PILLARS", "BRACKETS", "ARCH", "RULER", "CHEVRONS", "BEADS",
-                                  "NEON TUBE", "ZIGZAG", "LATTICE", "ORBIT", "PEDESTAL"};
+                                  "NEON TUBE", "ZIGZAG", "LATTICE", "ORBIT", "PEDESTAL", "FILMSTRIP", "PIANO",
+                                  "VINES", "CIRCUIT", "CRENELS", "WAVES", "STARS", "LANTERNS", "BRACES", "SCANNER"};
 constexpr int HUE_STEPS = 24;
 
 } // namespace

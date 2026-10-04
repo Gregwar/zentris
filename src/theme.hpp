@@ -12,7 +12,8 @@ enum BgStyle { BG_GRADIENT, BG_RADIAL, BG_HORIZON, BG_NEBULA, BG_FLAT, BG_AURORA
                BG_SEA, BG_PEAKS, BG_SHAFTS, BG_HALORING,
                // Added later (disabled until reviewed, see scene-options.txt):
                BG_MOON, BG_RIDGELINES, BG_CITY, BG_COLORMESH, BG_ECLIPSE, BG_CIRRUS, BG_CANYON, BG_SWIRL, BG_FOREST,
-               BG_ISOMETRIC, BG_COUNT };
+               BG_ISOMETRIC, BG_PLANET, BG_DESERT, BG_ARCTIC, BG_VOLCANO, BG_ROSEWINDOW, BG_TEMPLE, BG_JUNGLE,
+               BG_PAPERCUT, BG_BLUEPRINT, BG_LIGHTHOUSE, BG_COUNT };
 enum ParticleStyle {
     PS_GALAXY, PS_TUNNEL, PS_WAVES, PS_SPHERE, PS_DRIFT, PS_STREAMS, PS_WARP,
     PS_AURORA, PS_HALOS, PS_HELIX, PS_BOKEH, PS_LATTICE,
@@ -22,7 +23,8 @@ enum ParticleStyle {
     PS_SPIRALS, PS_RIBBON, PS_METEORS, PS_SKYLINE, PS_CORONA, PS_DUNES, PS_WIND, PS_FIRE, PS_SEA,
     // Added later (disabled until reviewed):
     PS_FIREWORKS, PS_JELLYFISH, PS_DANDELION, PS_PENDULUMS, PS_KOI, PS_LANTERNS, PS_SNOWFALL, PS_GEARS, PS_SPIROGRAPH,
-    PS_PULSEGRID, PS_COUNT
+    PS_PULSEGRID, PS_BIRDS, PS_BUTTERFLIES, PS_ATOMS, PS_RAINDROPS, PS_EMBERS, PS_SUNFLOWER, PS_TENTACLES,
+    PS_MANDALA, PS_SATELLITES, PS_NOTES, PS_COUNT
 };
 enum ParticleShape { SH_DOT, SH_RING, SH_SPARKLE, SH_SQUARE, SH_DIAMOND, SH_DISC, SH_STREAK, SH_PLUS, SH_STAR, SH_HEX,
                      SH_TRIANGLE, SH_HEART, SH_CRESCENT, SH_XCROSS, SH_DOUBLERING, SH_SQUARE_OUT, SH_DIAMOND_OUT,
@@ -33,11 +35,13 @@ enum BlockStyle { BS_GLASS, BS_SOLID, BS_WIRE, BS_LANTERN, BS_INSET, BS_DOTS, BS
                   BS_CORE, BS_HATCH, BS_BREATH,
                   // Added later (disabled until reviewed):
                   BS_KINTSUGI, BS_TERRAZZO, BS_CANDY, BS_ENAMEL, BS_PILLOW, BS_SCALES, BS_WAFFLE, BS_OPAL, BS_STAINED,
-                  BS_PAPER, BS_COUNT };
+                  BS_PAPER, BS_GUMMY, BS_BRUSHED, BS_GLAZE, BS_MARBLE, BS_WOOD, BS_STITCH, BS_STUDS, BS_CARBON,
+                  BS_VELVET, BS_LED, BS_COUNT };
 enum BlockMesh { MESH_CUBE, MESH_ROUNDED, MESH_SPHERE, MESH_GEM,
                  // Added later (disabled until reviewed):
                  MESH_CHAMFER, MESH_PILLOW, MESH_TILE, MESH_COIN, MESH_OCTAGON, MESH_HEX, MESH_DIAMOND, MESH_DOME,
-                 MESH_CROSS, MESH_STAR, MESH_COUNT };
+                 MESH_CROSS, MESH_STAR, MESH_HEART, MESH_DROP, MESH_FLOWER, MESH_RING, MESH_PYRAMID, MESH_CAPSULE,
+                 MESH_SHIELD, MESH_BLOB, MESH_TRIANGLE, MESH_ZIGGURAT, MESH_COUNT };
 // How cleared blocks disappear. Each theme uses a set of 3; each clear picks one.
 enum ClearEffect { CE_SHRINK, CE_RISE, CE_SCATTER, CE_SQUASH, CE_SWEEP, CE_FOLD, CE_MELT, CE_SPARKLE,
                    CE_POUR, CE_ZIP, CE_BLOOM,
@@ -48,16 +52,18 @@ enum LockEffect { LE_POP, LE_AFTERGLOW, LE_BOUNCE, LE_SQUASH, LE_GROW, LE_PRESS,
                   LE_EMBER, LE_HUESHIFT,
                   // Added later (disabled until reviewed):
                   LE_SHOCKWAVE, LE_SPARKS, LE_MAGNET, LE_JELLY, LE_FLIP, LE_INK, LE_SHIMMER, LE_FROST, LE_DUST,
-                  LE_HEARTBEAT, LE_COUNT };
+                  LE_HEARTBEAT, LE_SPLASH, LE_STAMP, LE_PETALS, LE_BLOOM, LE_ROWWAVE, LE_SPIN, LE_CONFETTI, LE_DRIP,
+                  LE_ECHO, LE_AURA, LE_COUNT };
 const char* lockEffectName(int e);
 enum FrameStyle { FR_OUTLINE, FR_CORNERS, FR_WELL, FR_FLOOR, FR_GRID, FR_NONE, FR_PILLARS, FR_DOUBLE, FR_DOTTED,
                   FR_GLOWBASE, FR_TOPBOTTOM, FR_TICKS, FR_SIDEFADE, FR_UNDERLINE, FR_CORNERDOTS, FR_RAILS, FR_DASHED,
                   FR_DOTPILLARS,
                   // Added later (disabled until reviewed):
                   FR_BRACKETS, FR_ARCH, FR_RULER, FR_CHEVRONS, FR_BEADS, FR_NEONTUBE, FR_ZIGZAG, FR_LATTICE, FR_ORBIT,
-                  FR_PEDESTAL, FR_COUNT };
+                  FR_PEDESTAL, FR_FILMSTRIP, FR_PIANO, FR_VINES, FR_CIRCUIT, FR_CRENELS, FR_WAVES, FR_STARS,
+                  FR_LANTERNS, FR_BRACES, FR_SCANNER, FR_COUNT };
 // Palette schemes and continuous surfaces (see SCHEME_NAMES and SURF_NAMES in theme.cpp).
-constexpr int SCHEME_COUNT = 18, SURF_COUNT = 28;
+constexpr int SCHEME_COUNT = 28, SURF_COUNT = 38;
 
 struct PaletteParams {
     float hue = 0;        // radians
