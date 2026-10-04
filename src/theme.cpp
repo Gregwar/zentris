@@ -206,10 +206,11 @@ void resolvePalette(Theme& t, float hueShift) {
 
     float hues[7], Ls[7], Cs[7];
     // Darker colors can be more saturated (light ones leave the screen's gamut): pieces stay mid-light.
-    float baseL = mood == 0 ? 0.68f : (mood == 1 ? 0.74f : (mood == 3 ? 0.8f : 0.60f)); // glow adds light: keep colors deep enough
+    float baseL = mood == 0 ? 0.68f : (mood == 1 ? 0.74f : (mood == 3 ? 0.76f : 0.60f)); // glow adds light: keep colors deep enough
     float C = p.chroma;
     // On a pale background low-chroma colors read as gray: keep pale themes clearly colored (calm sections too).
     if (mood == 2) C = std::min(0.24f, std::max(0.13f, C * 1.3f));
+    if (mood == 3) C = std::min(0.24f, std::max(0.16f, C * 1.2f)); // vivid pieces on a vivid backdrop
     for (int i = 0; i < 7; i++) {
         float f = (float)i / 6.f;
         float jitter = r.range(-0.04f, 0.04f);
@@ -307,17 +308,21 @@ void resolvePalette(Theme& t, float hueShift) {
     } else if (mood == 3) {
         // Colorful (added later, disabled until reviewed): a vivid mid-lightness background whose hue is opposite
         // the pieces', so they stand out; light pieces and particles.
-        const float ch = avoidMud(h + PI + 0.6f * (t.bgP[2] - 0.5f), 0.5f);
-        const float bc = std::min(0.2f, 0.11f + p.bgChroma);
-        float lt = 0.5f + t.bgP[0] * 0.08f, lb = 0.38f + t.bgP[1] * 0.08f;
+        // Deep, saturated and two-hued (top and bottom hues 0.5 .. 1.6 rad apart, either way), for contrast with the
+        // light pieces and variety between scenes.
+        const float ch = avoidMud(h + PI + 0.6f * (t.bgP[2] - 0.5f), 0.4f);
+        const float bc = std::min(0.22f, 0.13f + p.bgChroma);
+        const float lt = 0.34f + t.bgP[0] * 0.14f, lb = 0.24f + t.bgP[1] * 0.12f;
+        const float turn = (p.perm & 1 ? 1.f : -1.f) * (0.5f + 1.1f * t.bgP[3]);
         t.bgTop = ok(lt, bc, ch);
-        t.bgBottom = ok(lb, bc * 1.12f, avoidMud(ch + 0.5f, lb));
-        t.bgGlow = ok(0.8f, 0.12f, ch - 0.4f);
-        t.accent = ok(0.93f, 0.07f, accentH);
+        t.bgBottom = ok(lb, bc * 1.1f, avoidMud(ch + turn, lb));
+        // Glows, clouds and particles are colored, not light: a light glow would haze the whole scene.
+        t.bgGlow = ok(0.58f, 0.17f, avoidMud(ch - 0.5f, 0.58f));
+        t.accent = ok(0.9f, 0.08f, accentH);
         t.text = ok(0.97f, 0.02f, h);
-        t.partA = ok(0.9f, 0.08f, ch);
-        t.partB = ok(0.86f, 0.12f, ch + 0.6f);
-        t.partC = ok(0.95f, 0.05f, ch - 0.6f);
+        t.partA = ok(0.8f, 0.13f, ch + 0.3f);
+        t.partB = ok(0.76f, 0.16f, ch - 0.7f);
+        t.partC = ok(0.86f, 0.09f, ch + 1.2f);
         t.pale = 0.25f; // dusk's blending (a dark board well); a lower emissive keeps blocks from washing out
     } else if (mood == 1) {
         float lt = 0.26f + t.bgP[0] * 0.1f, lb = 0.42f + t.bgP[1] * 0.14f;
