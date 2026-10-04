@@ -171,7 +171,17 @@ int pickShape(Rng& r, int style) {
     case PS_LANTERNS:
     case PS_SNOWFALL:
     case PS_PENDULUMS:
-    case PS_SPIROGRAPH: return (int)SH_DOT;
+    case PS_SPIROGRAPH:
+    case PS_BIRDS:
+    case PS_BUTTERFLIES:
+    case PS_ATOMS:
+    case PS_RAINDROPS:
+    case PS_SUNFLOWER:
+    case PS_TENTACLES:
+    case PS_MANDALA:
+    case PS_SATELLITES:
+    case PS_NOTES: return (int)SH_DOT;
+    case PS_EMBERS: return r.chance(0.8f) ? (int)SH_DOT : (int)SH_SPARKLE;
     case PS_GEARS: return r.chance(0.7f) ? (int)SH_DOT : (int)SH_SQUARE;
     case PS_PULSEGRID: { float w[SH_COUNT] = {3, 0.6f, 0, 0.8f, 0.6f, 0, 0, 0.4f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.4f}; return r.weighted(w); }
     case PS_LATTICE: { float w[SH_COUNT] = {2, 0.5f, 0.5f, 1.5f, 1, 0, 0, 1.5f, 0.5f, 1, 0.5f, 0, 0, 1, 0.3f, 1, 1, 0.3f, 0.3f, 0.5f}; return r.weighted(w); }

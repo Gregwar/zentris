@@ -1871,6 +1871,16 @@ void Renderer::drawParticleLayer(const ParticleLayer& L, const Theme& owner, flo
     case PS_SNOWFALL: mult = 0.05f; break;
     case PS_GEARS: mult = 0.3f; break;
     case PS_SPIROGRAPH: mult = 0.16f; break;
+    case PS_BIRDS: mult = 0.08f; break;
+    case PS_BUTTERFLIES: mult = 0.2f; break;
+    case PS_ATOMS: mult = 0.1f; break;
+    case PS_RAINDROPS: mult = 0.16f; break;
+    case PS_EMBERS: mult = 0.045f; break;
+    case PS_SUNFLOWER: mult = 0.05f; break;
+    case PS_TENTACLES: mult = 0.22f; break;
+    case PS_MANDALA: mult = 0.08f; break;
+    case PS_SATELLITES: mult = 0.055f; break;
+    case PS_NOTES: mult = 0.16f; break;
     default: mult = 1.f; break;
     }
     int count = (int)(MAX_PARTICLES * L.count * mult);
