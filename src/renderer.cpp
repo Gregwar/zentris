@@ -1131,12 +1131,21 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
         const float lum = luminance(plate), cap = lerpf(0.06f, 0.012f, legible_);
         if (lum > cap) plate = plate * (cap / lum);
     }
+    // Dusk scenes: the mid-tone backdrop showed through the well (alpha 0.7) and tinted it the pieces' hue.
+    //             A dark, mostly neutral and nearly opaque well instead (keeping 60% of its tint).
+    const float duskW = saturate(1.f - std::fabs(t.pal.mood - 1.f)) * (1.f - paleW(t));
+    if (duskW > 0.f) {
+        vec3 dp = lerp(vec3(luminance(plate)), plate, 0.6f);
+        const float dl = luminance(dp);
+        if (dl > 0.003f) dp = dp * (0.003f / dl);
+        plate = lerp(plate, dp, duskW);
+    }
     plate = lerp(plate, vec3(1.f), paleW(t));
     fx.clear();
     BlockInst pl;
     pl.pos = vec3(0, 0, -0.62f) + base;
     pl.scale = vec3(BOARD_W + 0.3f, BOARD_H + 0.3f, 0.01f);
-    pl.color = vec4(plate, vividWell ? 0.92f : lerpf(lerpf(0.7f, 0.4f, paleW(t)), lerpf(0.94f, 0.82f, paleW(t)), legible_));
+    pl.color = vec4(plate, vividWell ? 0.92f : std::max(lerpf(lerpf(0.7f, 0.4f, paleW(t)), lerpf(0.94f, 0.82f, paleW(t)), legible_), 0.92f * duskW));
     pl.params = vec4(2, 0, 0, 1);
     fx.push_back(pl);
     // A curve as a chain of small squares, spaced so they barely touch (no additive double-ups).
