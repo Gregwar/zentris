@@ -349,7 +349,28 @@ float meshExponent(int mesh, float roundness) {
     case MESH_GEM: return 1.35f; // a full, rounded diamond (a sharp octahedron leaves cells touching at tips)
     case MESH_SPHERE: return 2.f;
     case MESH_ROUNDED: return roundness;
+    // Profile meshes are not superellipsoids: the nearest one, which a superellipsoid morphs toward in a
+    // transition before the shape switches.
+    case MESH_PILLOW: return 4.f;
+    case MESH_TILE: return 7.f;
+    case MESH_COIN: case MESH_DOME: return 2.5f;
+    case MESH_OCTAGON: case MESH_HEX: return 5.f;
+    case MESH_DIAMOND: case MESH_STAR: return 1.35f;
     default: return 24.f;
+    }
+}
+
+// The range of block scales of a mesh, when it is not the usual 0.8 .. 0.96.
+static bool meshScaleRange(int mesh, float& a, float& b) {
+    switch (mesh) {
+    case MESH_SPHERE: a = 0.85f, b = 1.f; return true;
+    case MESH_GEM: a = 0.95f, b = 1.05f; return true; // diamonds leave gaps: draw them larger
+    case MESH_COIN: a = 0.86f, b = 1.f; return true;
+    case MESH_HEX: a = 0.84f, b = 0.9f; return true; // tips stay clear of the rows above and below
+    case MESH_DIAMOND: a = 0.8f, b = 0.87f; return true; // tips nearly meet
+    case MESH_CROSS: a = 0.86f, b = 0.98f; return true; // arms nearly meet
+    case MESH_STAR: a = 0.86f, b = 0.94f; return true; // side points stay clear of the neighbours'
+    default: return false;
     }
 }
 
@@ -442,7 +463,8 @@ SceneId pickIdentity(const Footprint& fp, uint64_t seed) {
                               BS_STRIPES, BS_KINTSUGI, BS_TERRAZZO, BS_ENAMEL, BS_SCALES, BS_WAFFLE, BS_STAINED,
                               BS_PAPER};
     for (int fsIdx : faceStyles)
-        if (block == fsIdx) mw[2] = mw[3] = 0; // face patterns need flat faces
+        if (block == fsIdx) // face patterns need flat faces (and wide ones: a star's points cut them)
+            mw[MESH_SPHERE] = mw[MESH_GEM] = mw[MESH_PILLOW] = mw[MESH_DOME] = mw[MESH_STAR] = 0;
     id.v[SF_MESH] = pickEnabled(r, mw, SF_MESH);
     float fw[FR_COUNT] = {2.f, 1.5f, 1.5f, 1.2f, 1.0f, 0.8f, 1.0f, 1.0f, 1.0f,
                           1.0f, 1.0f, 1.0f, 1.0f, 0.8f, 0.8f, 1.0f, 1.0f, 0.8f,
@@ -501,8 +523,8 @@ Theme buildTheme(const SceneId& id) {
     t.blockMesh = id.v[SF_MESH];
     t.roundness = r.range(3.f, 7.f);
     t.blockScale = r.range(0.8f, 0.96f);
-    if (t.blockMesh == MESH_SPHERE) t.blockScale = r.range(0.85f, 1.0f);
-    if (t.blockMesh == MESH_GEM) t.blockScale = r.range(0.95f, 1.05f); // diamonds leave gaps: draw them larger
+    float sa, sb;
+    if (meshScaleRange(t.blockMesh, sa, sb)) t.blockScale = r.range(sa, sb);
     t.blockDepth = (t.blockMesh == MESH_CUBE && r.chance(0.3f)) ? r.range(0.2f, 0.6f) : 1.f;
     t.edgeWidth = r.range(0.04f, 0.14f);
     t.emissive = mood == 2 ? r.range(0.15f, 0.4f) : (mood == 3 ? r.range(0.35f, 0.8f) : r.range(0.7f, 1.6f));

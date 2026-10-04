@@ -1939,8 +1939,8 @@ void main() {
     gFres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
     gUV = vEdge.xy;
     // 1 at face center, 0 on the edge. Clamped: a negative value would make the edge glow explode
-    // into single-pixel sparkles.
-    gE = clamp(1.0 - max(abs(gUV.x), abs(gUV.y)), 0.0, 1.0);
+    // into single-pixel sparkles. Profile meshes (coin, star...) give their distance to the outline.
+    gE = vEdge.w > 0.5 ? clamp(vEdge.z, 0.0, 1.0) : clamp(1.0 - max(abs(gUV.x), abs(gUV.y)), 0.0, 1.0);
     gAA = max(fwidth(gE) * 1.2, 1e-3);
     gEdge = 1.0 - smoothstep(uEdgeW - gAA, uEdgeW + gAA, gE);
     gEdgeGlow = gEdge + exp(-gE / max(uEdgeW, 0.01) * 2.5) * 0.35;

@@ -71,6 +71,7 @@ add_executable(zentris
   src/input.cpp
   src/theme.cpp
   src/renderer.cpp
+  src/blockshapes.cpp
   src/specialfx.cpp
 )
 target_link_libraries(zentris PRIVATE zencore glfw glad)
@@ -90,6 +91,7 @@ add_executable(zenscene
   src/game.cpp
   src/theme.cpp
   src/renderer.cpp
+  src/blockshapes.cpp
   src/specialfx.cpp
 )
 target_link_libraries(zenscene PRIVATE zencore glfw glad)

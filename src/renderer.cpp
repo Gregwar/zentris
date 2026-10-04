@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "blockshapes.hpp"
 #include "shaders.hpp"
 #include "stb_easy_font.h"
 #include "stb_image_write.h"
@@ -169,7 +170,8 @@ bool Renderer::init(int width, int height) {
 
 // Blocks are superellipsoids |x|^e + |y|^e + |z|^e = 1 built on a subdivided cube, so every block shape
 // is one continuous family (e=1 gem, 2 sphere, 3..7 rounded, ~24 cube) and shapes can morph smoothly.
-void Renderer::buildMesh(Mesh& m, bool sharpCube, float e) {
+// The other shapes (chamfered cube, coin, star...) are profile meshes, built by kind in blockshapes.cpp.
+void Renderer::buildMesh(Mesh& m, bool sharpCube, float e, int shape) {
     std::vector<float> v; // pos3 normal3 edge4
     std::vector<unsigned> idx;
     auto push = [&](vec3 p, vec3 n, float a, float b, float c, float w) {
@@ -177,7 +179,8 @@ void Renderer::buildMesh(Mesh& m, bool sharpCube, float e) {
         v.insert(v.end(), d, d + 10);
     };
     const vec3 axes[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
-    {
+    if (shape) buildBlockShape(shape, v, idx);
+    else {
         const int N = sharpCube ? 1 : 12;
         for (int f = 0; f < 6; f++) {
             vec3 n = axes[f];
@@ -1570,10 +1573,13 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
     mix_ = m;
     wipeFront_ = m * (1.f + WIPE_W);
     cur_ = blendThemes(from_, to_, m);
-    // Block shape morphs continuously (log-space blend of the superellipsoid exponent).
-    if (std::fabs(builtExp_ - cur_.meshExp) > 0.002f * cur_.meshExp) {
-        buildMesh(blockMesh_, false, cur_.meshExp);
+    // Block shape morphs continuously (log-space blend of the superellipsoid exponent); profile shapes
+    // switch with the theme's other discrete fields, mid-transition.
+    const int shape = isProfileMesh(cur_.blockMesh) ? cur_.blockMesh : 0;
+    if (shape != builtShape_ || (!shape && std::fabs(builtExp_ - cur_.meshExp) > 0.002f * cur_.meshExp)) {
+        buildMesh(blockMesh_, false, cur_.meshExp, shape);
         builtExp_ = cur_.meshExp;
+        builtShape_ = shape;
     }
     pauseFade_ = approach(pauseFade_, paused ? 1.f : (dim_ ? 0.6f : 0.f), paused ? 4.f : 1.5f, dt);
 

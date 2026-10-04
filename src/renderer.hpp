@@ -112,7 +112,7 @@ private:
     struct Dying { vec3 pos; int type; float t, delay, dur; int effect; vec3 dir; };
 
     GLuint compile(const char* vs, const char* fs, const char* name);
-    void buildMesh(Mesh& m, bool sharpCube, float exponent);
+    void buildMesh(Mesh& m, bool sharpCube, float exponent, int shape = 0); // shape: a profile mesh (blockshapes.hpp)
     void createTargets();
     void drawBackground(const MusicState& music, double time);
     void drawParticleLayer(const ParticleLayer& L, const Theme& owner, float weight, bool side, const MusicState& music);
@@ -159,8 +159,9 @@ private:
     GLuint burstVao_ = 0, burstVbo_ = 0;
     GLuint instVbo_ = 0;
     GLuint textVao_ = 0, textVbo_ = 0;
-    Mesh cubeMesh_, blockMesh_;  // sharp cube for helpers; morphable superellipsoid for blocks
+    Mesh cubeMesh_, blockMesh_;  // sharp cube for helpers; morphable superellipsoid (or profile shape) for blocks
     float builtExp_ = -1;
+    int builtShape_ = 0;        // the profile mesh blockMesh_ holds, 0: the superellipsoid of builtExp_
 
     GLuint msFbo_ = 0, msColor_ = 0, msDepth_ = 0;
     GLuint sceneFbo_ = 0, sceneTex_ = 0;
