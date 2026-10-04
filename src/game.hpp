@@ -12,7 +12,7 @@ enum PieceType { I = 0, O, T, S, Z, J, L, PIECE_COUNT };
 
 struct Cell {
     int8_t type = -1;   // -1 empty, else PieceType
-    float flash = 0.f;  // lock flash, decays to 0
+    float flash = 0.f;  // 1 when the cell locks, down to 0 over Game::LOCK_FX_SECONDS (lock effects)
 };
 
 struct GameEvent {
@@ -33,6 +33,7 @@ struct Piece {
 class Game {
 public:
     static constexpr int W = 10, H = 22, HIDDEN = 2;
+    static constexpr float LOCK_FX_SECONDS = 4.f; // longest lock effect
 
     Game();
     void reset(uint64_t seed);

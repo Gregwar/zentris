@@ -441,8 +441,6 @@ void Renderer::onEvent(const GameEvent& ev, const Game&) {
             for (auto& c : ev.cells) { lockX_ += c.x; lockY_ += c.y; }
             lockX_ /= ev.cells.size();
             lockY_ /= ev.cells.size();
-            if (t.lockEffect == LE_HALO)
-                spawnRing(cellPos(lockX_, lockY_) + vec3(0, 0, 0.6f), 0.6f, t.piece[ev.cells[0].type], 48, 3.2f, 0.7f, 0.09f);
         }
         break;
     case GameEvent::Clear: {
@@ -689,15 +687,17 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
             float rowDelay = (Game::H - 1 - y) * 0.035f;
             float wave = music.beatPhase >= rowDelay ? std::exp(-(music.beatPhase - rowDelay) * 7.f) : 0.f;
             float waveGlow = 0.3f * music.energy * music.intensity * wave;
-            // Lock effect: a = 1 when the piece locks, 0 about 1.1 s later; k = 1 - a.
-            const float a = c.flash, k = 1.f - a;
-            float fl = 0, gl = 0;
+            // Lock effect. age: seconds since the cell locked; a: 1 at the lock, 0 ~1.1 s later; k = 1 - a.
+            const float age = (1.f - c.flash) * Game::LOCK_FX_SECONDS;
+            const float k = std::min(1.f, age * 0.9f), a = 1.f - k;
+            auto fade = [&](float dur) { return std::max(0.f, 1.f - age / dur); };
+            float fl = 0, gl = 0, tint = 0, hue = 0;
             vec3 dp(0, 0, 0), sc(1, 1, 1);
             switch (t.lockEffect) {
-            case LE_POP: fl = std::max(0.f, a - 0.65f); sc = vec3(1.f + 0.35f * fl); break; // short flash and pop
-            case LE_AFTERGLOW: fl = 1.1f * a * a; break;                                   // bright, cooling slowly
-            case LE_BOUNCE:                                                                // lands with small bounces
-                if (a > 0) dp.y = 0.32f * std::exp(-6.f * k) * std::fabs(std::sin(k * 16.f));
+            case LE_POP: fl = std::max(0.f, 0.35f - 0.9f * age); sc = vec3(1.f + 0.35f * fl); break; // short flash and pop
+            case LE_AFTERGLOW: { float f = fade(3.f); fl = 1.1f * f * f; break; }                // bright, cooling slowly
+            case LE_BOUNCE:                                                                         // lands with small bounces
+                dp.y = 0.32f * std::exp(-6.f * k) * std::fabs(std::sin(k * 16.f)) * (a > 0);
                 fl = 0.3f * a * a * a;
                 break;
             case LE_SQUASH: { // squashed by the landing, wobbling back
@@ -734,10 +734,28 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
                 fl = 0.35f * a * a;
                 break;
             }
-            case LE_HALO: fl = 0.6f * a * a; sc = vec3(1.f + 0.06f * a); break; // with a ring of particles
+            case LE_HUESHIFT: { // locks with its hue turned ~80 degrees, slowly turning back over 4 s
+                float f = fade(Game::LOCK_FX_SECONDS);
+                hue = 1.4f * f * f * (3.f - 2.f * f);
+                fl = 0.25f * f * f;
+                break;
+            }
+            case LE_EMBER: { // starts in the scene's accent color, cooling back to its own over 4 s
+                float f = fade(Game::LOCK_FX_SECONDS);
+                tint = 0.7f * f * std::sqrt(f);
+                fl = 0.5f * f * f;
+                break;
+            }
             }
             BlockInst bi = block(cellPos((float)x, y - g.rowOffset(y)) + dp, c.type, 0, fl, settleGlow_ + waveGlow + gl, 1.f);
             bi.scale = bi.scale * sc;
+            if (hue > 0) {
+                vec3 L = toOklab(vec3(bi.color.x, bi.color.y, bi.color.z));
+                const float cs = std::cos(hue), sn = std::sin(hue);
+                L = vec3(L.x, L.y * cs - L.z * sn, L.y * sn + L.z * cs);
+                bi.color = vec4(fromOklab(L), 1);
+            }
+            if (tint > 0) bi.color = vec4(mixOklab(vec3(bi.color.x, bi.color.y, bi.color.z), t.accent, tint), 1);
             solid.push_back(bi);
         }
     for (const Dying& d : dying_) {

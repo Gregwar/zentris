@@ -242,7 +242,7 @@ void Game::lockPiece() {
     GameEvent lockEv{GameEvent::Lock};
     float mx = 0;
     for (auto& q : c) {
-        if (q[1] >= 0) board_[q[1]][q[0]] = Cell{(int8_t)cur_.type, 1.f}; // flash: 1 at lock, gone in ~1.1 s
+        if (q[1] >= 0) board_[q[1]][q[0]] = Cell{(int8_t)cur_.type, 1.f};
         lockEv.cells.push_back({q[0], q[1], cur_.type});
         mx += q[0];
     }
@@ -368,7 +368,7 @@ void Game::update(float dt) {
     for (int y = 0; y < H; y++) {
         if (fallHold_ <= 0) rowOffset_[y] = approach(rowOffset_[y], 0.f, 7.f, dt);
         if (rowOffset_[y] < 0.001f) rowOffset_[y] = 0;
-        for (int x = 0; x < W; x++) board_[y][x].flash = std::max(0.f, board_[y][x].flash - dt * 0.9f);
+        for (int x = 0; x < W; x++) board_[y][x].flash = std::max(0.f, board_[y][x].flash - dt / LOCK_FX_SECONDS);
     }
     if (!active_) {
         spawnDelay_ -= dt;

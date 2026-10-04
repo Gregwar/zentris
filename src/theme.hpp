@@ -33,7 +33,7 @@ enum ClearEffect { CE_SHRINK, CE_RISE, CE_SCATTER, CE_SQUASH, CE_SWEEP, CE_FOLD,
                    CE_STRETCH, CE_SINK, CE_CASCADE, CE_COUNT };
 // How a piece settles when it locks. Each theme uses one.
 enum LockEffect { LE_POP, LE_AFTERGLOW, LE_BOUNCE, LE_SQUASH, LE_GROW, LE_PRESS, LE_TWINKLE, LE_RIPPLE, LE_CASCADE,
-                  LE_HALO, LE_COUNT };
+                  LE_EMBER, LE_HUESHIFT, LE_COUNT };
 const char* lockEffectName(int e);
 enum FrameStyle { FR_OUTLINE, FR_CORNERS, FR_WELL, FR_FLOOR, FR_GRID, FR_NONE, FR_PILLARS, FR_DOUBLE, FR_DOTTED,
                   FR_GLOWBASE, FR_TOPBOTTOM, FR_TICKS, FR_SIDEFADE, FR_UNDERLINE, FR_CORNERDOTS, FR_RAILS, FR_DASHED,
