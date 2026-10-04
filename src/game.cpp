@@ -319,6 +319,29 @@ void Game::restart() {
     spawnDelay_ = 0.6f;
 }
 
+void Game::debugFillBoard(uint64_t seed) {
+    Rng r(seed ^ 0xF111B0A4Dull);
+    for (auto& row : board_)
+        for (auto& c : row) c = Cell{};
+    std::fill(std::begin(rowOffset_), std::end(rowOffset_), 0.f);
+    over_ = false;
+    const int well = (int)(r.next() % W);
+    int h = 5 + (int)(r.next() % 4);
+    for (int x = 0; x < W; x++) {
+        h = std::clamp(h + (int)(r.next() % 5) - 2, 3, 10);
+        if (x == well) continue;
+        for (int k = 0; k < h; k++) {
+            // 2x2-ish blobs of one color, offset per column pair, like locked pieces.
+            const int y = H - 1 - k;
+            const uint64_t blob = splitmix64(seed + (uint64_t)(x / 2) * 977 + (uint64_t)((k + (x / 2) % 2) / 2) * 131);
+            board_[y][x].type = (int8_t)(blob % 7);
+        }
+    }
+    holdType_ = (int)(r.next() % 7);
+    holdUsed_ = false;
+    spawn((int)(r.next() % 7));
+}
+
 bool Game::activateBonus() {
     if (!bonusReady()) return false;
     bonusActive_ = true;

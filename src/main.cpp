@@ -34,6 +34,8 @@ struct Options {
     std::string clipPath; // --clip: record a video around the first drop of the first song, then exit
     float clipBefore = 4.f, clipAfter = 6.f;
     std::string scene; // forced scene code (as shown in the corner), "" = random scenes
+    std::string reviewPath; // --review-shot: one snapshot of a song scene with a filled board, then exit
+    int reviewLevel = -1;   // scene level to show (0 calm, 1 mid, 2 peak), -1 any
     int width = 1600, height = 900;
 };
 
@@ -52,6 +54,9 @@ static void usage() {
         "  --shots PREFIX N     render N screenshots of different scenes then exit (testing)\n"
         "  --shot-time SEC      song position used for screenshots (default 25)\n"
         "  --phase-shots PREFIX one screenshot per phase of the first song, then exit (testing)\n"
+        "  --review-shot OUT.png  one screenshot of a scene made for the first song (random, or --scene), in a\n"
+        "                       random part of the song (of level --review-level 0|1|2), with a filled board;\n"
+        "                       prints a [review] JSON line describing it, then exits (tools/scenereview.py)\n"
         "  --clip OUT.mp4       record a video (with sound, needs ffmpeg) around the first drop of the first\n"
         "                       song, then exit; --clip-before / --clip-after SEC set the span (default 4 / 6)\n");
 }
@@ -124,6 +129,11 @@ private:
     // Windowed geometry for fullscreen toggling.
     int winX_ = 100, winY_ = 100, winW_ = 1600, winH_ = 900;
     MusicState music_;
+    // --review-shot.
+    int reviewPhase_ = -1;
+    bool reviewFilled_ = false;
+    void pickReviewTime();
+    void printReview() const;
 };
 
 void App::startTrack(std::shared_ptr<Track> t) {
@@ -192,6 +202,57 @@ double App::firstDropTime() const {
     for (const ScenePhase& ph : plan_.phases)
         if (ph.level == 2) return ph.start;
     return track_->duration() * 0.3;
+}
+
+// --review-shot: a phase of the wanted level (any if the song has none), shot once its scene has settled.
+void App::pickReviewTime() {
+    Rng r(runSeed_ ^ 0x5EE5ull);
+    std::vector<int> cand;
+    for (int k = 0; k < (int)plan_.phases.size(); k++)
+        if (opt_.reviewLevel < 0 || plan_.phases[k].level == opt_.reviewLevel) cand.push_back(k);
+    if (cand.empty())
+        for (int k = 0; k < (int)plan_.phases.size(); k++) cand.push_back(k);
+    reviewPhase_ = cand.empty() ? 0 : cand[r.next() % cand.size()];
+    if (plan_.phases.empty()) {
+        opt_.shotTime = (float)std::min(40.0, track_->duration() * 0.5);
+        return;
+    }
+    const ScenePhase& ph = plan_.phases[reviewPhase_];
+    const double end = reviewPhase_ + 1 < (int)plan_.phases.size() ? plan_.phases[reviewPhase_ + 1].start
+                                                                   : track_->duration();
+    opt_.shotTime = (float)std::max(ph.start + 1.0, std::min(ph.start + 10.0 + r.uniform() * 20.0, end - 0.5));
+}
+
+static std::string jsonStr(const std::string& s) {
+    std::string o = "\"";
+    for (unsigned char c : s) {
+        if (c == '"' || c == '\\') { o += '\\'; o += (char)c; }
+        else if (c < 0x20) { char b[8]; std::snprintf(b, sizeof(b), "\\u%04x", c); o += b; }
+        else o += (char)c;
+    }
+    return o + "\"";
+}
+
+void App::printReview() const {
+    const double t = songTime_;
+    const ScenePhase* ph = plan_.phases.empty() ? nullptr : &plan_.phases[plan_.phaseAt(t)];
+    const Analysis& an = track_->analysis;
+    const char* section = an.segments.empty() ? "?" : segmentName(an.segments[an.segmentAt(t)].kind);
+    std::printf("[review] {\"file\": %s, \"code\": %s, \"scene\": %s, \"song\": %s, \"title\": %s, \"time\": %.1f, "
+                "\"duration\": %.1f, \"level\": %d, \"phase\": %d, \"phases\": %d, \"energy\": %.2f, \"section\": %s, "
+                "\"bpm\": %.0f, \"levels\": %s}\n",
+                jsonStr(opt_.reviewPath).c_str(), jsonStr(sceneCode()).c_str(), jsonStr(R_.targetTheme().name).c_str(),
+                jsonStr(track_->path).c_str(), jsonStr(track_->title).c_str(), t, track_->duration(), ph ? ph->level : 1,
+                ph ? plan_.phaseAt(t) : 0, (int)plan_.phases.size(), ph ? ph->energy : 0.f, jsonStr(section).c_str(),
+                an.fp.bpm, jsonStr([&] {
+                    std::string l;
+                    for (const ScenePhase& p : plan_.phases) {
+                        char b[32];
+                        std::snprintf(b, sizeof(b), "%sL%d@%.0f", l.empty() ? "" : " ", p.level, p.start);
+                        l += b;
+                    }
+                    return l;
+                }()).c_str());
 }
 
 std::string App::sceneCode() const {
@@ -469,7 +530,8 @@ int App::run() {
                          : (std::random_device{}() ^ (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count());
     const bool clipMode = !opt_.clipPath.empty();
     const bool shotMode = !opt_.shotPrefix.empty() || clipMode; // offline: fixed time step, no sound
-    if (clipMode) { showHelp_ = false; helpTimer_ = 0; }
+    const bool reviewMode = !opt_.reviewPath.empty();
+    if (clipMode || reviewMode) { showHelp_ = false; helpTimer_ = 0; }
     FILE* clipPipe = nullptr;
     std::vector<unsigned char> clipPx;
 
@@ -557,7 +619,10 @@ int App::run() {
                 int k = std::min(shotsTaken, (int)plan_.phases.size() - 1);
                 double end = k + 1 < (int)plan_.phases.size() ? plan_.phases[k + 1].start : track_->duration();
                 if (simSongTime_ < end - 14.0) simSongTime_ = std::max(plan_.phases[k].start, end - 14.0);
-            } else if (simSongTime_ < opt_.shotTime - 12.0) simSongTime_ = opt_.shotTime - 12.0;
+            } else {
+                if (reviewMode && reviewPhase_ < 0) pickReviewTime();
+                if (simSongTime_ < opt_.shotTime - 12.0) simSongTime_ = opt_.shotTime - 12.0;
+            }
             simSongTime_ += dt * audio_.currentSpeed();
             songTime_ = simSongTime_;
         } else {
@@ -607,7 +672,7 @@ int App::run() {
         if (!paused_ && !waiting) {
             trackAge_ += dt;
             if (opt_.autoplay || shotMode) {
-                autoplay(dt);
+                if (!reviewFilled_) autoplay(dt); // a review's filled board is left as it is
             } else {
                 for (int i = 0; i < input_.repeatSteps(A_LEFT); i++) game_.move(-1);
                 for (int i = 0; i < input_.repeatSteps(A_RIGHT); i++) game_.move(1);
@@ -809,11 +874,17 @@ int App::run() {
                     R_.onEvent(ev, game_);
                 }
             }
+            if (reviewMode && !reviewFilled_ && shotSettle > 10.5f) {
+                game_.debugFillBoard(runSeed_);
+                reviewFilled_ = true;
+            }
             shotSettle += dt;
             if (shotSettle > 12.f) {
                 char name[512];
                 std::snprintf(name, sizeof(name), "%s%02d.png", opt_.shotPrefix.c_str(), shotsTaken);
+                if (reviewMode) std::snprintf(name, sizeof(name), "%s", opt_.reviewPath.c_str());
                 R_.screenshot(name);
+                if (reviewMode) printReview();
                 std::printf("[shot] %s  <- %s\n", name, R_.targetTheme().name.c_str());
                 shotsTaken++;
                 shotSettle = 0;
@@ -868,6 +939,8 @@ int main(int argc, char** argv) {
         else if (a == "--shots" && i + 2 < argc) { o.shotPrefix = argv[++i]; o.shotCount = std::atoi(argv[++i]); }
         else if (a == "--phase-shots" && i + 1 < argc) { o.shotPrefix = argv[++i]; o.shotCount = 99; o.phaseShots = true; }
         else if (a == "--shot-time" && i + 1 < argc) o.shotTime = std::stof(argv[++i]);
+        else if (a == "--review-shot" && i + 1 < argc) { o.reviewPath = argv[++i]; o.shotPrefix = o.reviewPath; o.shotCount = 1; }
+        else if (a == "--review-level" && i + 1 < argc) o.reviewLevel = std::atoi(argv[++i]);
         else if (a == "--clip" && i + 1 < argc) o.clipPath = argv[++i];
         else if (a == "--clip-before" && i + 1 < argc) o.clipBefore = std::stof(argv[++i]);
         else if (a == "--clip-after" && i + 1 < argc) o.clipAfter = std::stof(argv[++i]);

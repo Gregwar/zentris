@@ -56,6 +56,9 @@ public:
         bonusLines_ = BONUS_LINES;
         events_.push_back({GameEvent::BonusReady});
     }
+    // Testing (scene reviews): replaces the board with a mid-game stack that uses every piece color, with a
+    // well so no row is full, a held piece and a fresh piece at the top.
+    void debugFillBoard(uint64_t seed);
     // Debugging: add the lines needed to reach the next level.
     void skipToNextLevel() {
         if (level() < MAX_LEVEL) lines_ += LINES_PER_LEVEL - lines_ % LINES_PER_LEVEL;
