@@ -362,6 +362,13 @@ void resolvePalette(Theme& t, float hueShift) {
         }
         hues[i] += jitter;
         if (mood == 2) hues[i] = avoidMud(hues[i], Ls[i]); // mid-lightness olives read as mud on pale themes
+        // Yellows are light, vivid colors: at the pieces' usual mid lightness they turn mustard, khaki and olive on
+        // dark backgrounds. Around yellow (orange and green keep theirs), lift lightness and chroma: lemon and lime.
+        else if (mood <= 1) {
+            const float w = std::max(0.f, 1.f - std::fabs(std::remainder(hues[i] - 1.85f, TAU)) / 0.7f);
+            Ls[i] = std::max(Ls[i], 0.68f + 0.24f * w);
+            Cs[i] *= 1.f + 0.4f * w;
+        }
     }
     // Permute which piece gets which color.
     int idx[7] = {0, 1, 2, 3, 4, 5, 6};
