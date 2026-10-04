@@ -1661,9 +1661,38 @@ uniform int uStyleA, uStyleB;
 uniform float uStyleMix;
 uniform float uEdgeW, uEmissive, uFill, uGhost, uPale, uBeat, uTime, uLegible;
 uniform vec3 uCamPos, uLightDir;
+uniform vec3 uAccent, uHighlight;
+uniform vec3 uPiece[7];
 
 float gLam, gSpec, gFres, gE, gEdge, gEdgeGlow, gAA;
 vec2 gUV;
+// Face frame (styles 22+): normal, view, light, the face's tangents along uv, the face position with x to the
+// right and y up (front face), and a seed per piece type and face (stable while the piece moves).
+vec3 gN, gV, gL, gT, gB;
+vec2 gFP;
+float gSeed;
+
+float h11(float n) { return fract(sin(n * 12.9898 + 4.1414) * 43758.5453); }
+float h21(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float vnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y);
+}
+// Normal tilted by a height field's gradient along the face's uv.
+vec3 bumpN(vec2 g) { return normalize(gN - gT * g.x - gB * g.y); }
+float lamOf(vec3 n) { return max(dot(n, gL), 0.0) * 0.65 + 0.35; }
+float specOf(vec3 n, float p) { return pow(max(dot(reflect(-gL, n), gV), 0.0), p); }
+vec3 hueRot(vec3 c, float a) {
+    const vec3 k = vec3(0.57735);
+    float ca = cos(a);
+    return max(c * ca + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - ca), 0.0);
+}
+float segDist(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a, ba = b - a;
+    return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
+}
+vec3 goldOf() { return mix(vec3(1.0, 0.74, 0.3), uAccent, 0.2); }
 
 vec4 shade(int style, vec3 col) {
     vec3 rgb;
@@ -1757,6 +1786,133 @@ vec4 shade(int style, vec3 col) {
         float h1 = abs(fract((uv.x + uv.y) * 4.0) - 0.5), h2 = abs(fract((uv.x - uv.y) * 4.0) - 0.5);
         float hatch = 1.0 - smoothstep(0.1 - aa, 0.14 + aa, min(h1, h2));
         rgb = col * (0.18 * lam + hatch * (0.35 + 0.6 * em)) + col * edge * 0.35 * em;
+    } else if (style == 22) { // kintsugi: matte ceramic mended with thin gold seams
+        float ang = (gSeed - 0.5) * 1.4 + (h11(gSeed * 3.1) > 0.5 ? 1.5708 : 0.0);
+        vec2 p = mat2(cos(ang), sin(ang), -sin(ang), cos(ang)) * gFP;
+        float s2 = h11(gSeed * 5.3), s3 = h11(gSeed * 9.7);
+        float yc = 0.4 * (s2 - 0.5) + 0.16 * sin(p.x * 2.2 + gSeed * 6.28) + 0.06 * sin(p.x * 5.3 + s3 * 6.28);
+        float d = abs(p.y - yc);
+        float x0 = (s3 - 0.5) * 0.9, y0 = 0.4 * (s2 - 0.5) + 0.16 * sin(x0 * 2.2 + gSeed * 6.28) + 0.06 * sin(x0 * 5.3 + s3 * 6.28);
+        float ba = (0.6 + 0.5 * s2) * (s3 > 0.5 ? 1.0 : -1.0);
+        vec2 b0 = vec2(x0, y0), b1 = b0 + vec2(cos(ba), sin(ba)) * (0.55 + 0.3 * gSeed);
+        float t = clamp(dot(p - b0, b1 - b0) / dot(b1 - b0, b1 - b0), 0.0, 1.0);
+        float db = segDist(p, b0, b1) + t * 0.025; // the branch thins out
+        float w = 0.045, dm = min(d, db), fw = max(fwidth(dm), 1e-3);
+        float seam = 1.0 - smoothstep(w - fw, w + fw, dm);
+        vec3 ceramic = col * (0.3 + 0.62 * lam) * (1.0 - 0.18 * edge) + col * 0.1 * em + vec3(0.05) * specOf(gN, 8.0);
+        vec3 gold = goldOf() * mix(0.85 + 0.35 * em + 0.6 * spec, 0.75, uPale);
+        rgb = mix(ceramic, gold, seam * (1.0 - 0.5 * edge));
+    } else if (style == 23) { // terrazzo: flat color with scattered chips of lighter tones and one other piece color
+        rgb = col * (0.34 + 0.56 * lam) + col * 0.1 * em + vec3(spec) * 0.12;
+        vec2 q = (gFP * 0.5 + 0.5) * 3.0;
+        vec2 cell = floor(q), f = fract(q) - 0.5;
+        float hc = h21(cell + gSeed * 17.0), fq = length(fwidth(q)); // derivatives out of the branch below
+        if (hc > 0.3) {
+            float h2 = h21(cell * 1.7 + gSeed * 31.0), h3 = h21(cell * 2.3 + gSeed * 11.0);
+            vec2 o = (vec2(h2, h3) - 0.5) * 0.2;
+            float ca = h2 * 6.28;
+            vec2 r = mat2(cos(ca), sin(ca), -sin(ca), cos(ca)) * (f - o);
+            float rad = 0.15 + 0.1 * h3;
+            vec2 rn = r / vec2(rad, rad * (0.6 + 0.35 * hc));
+            float d = length(rn) * (1.0 + 0.12 * sin(atan(rn.y, rn.x) * 3.0 + hc * 9.0)); // irregular, bounded
+            float fw = max(fq / rad, 1e-3);
+            float chip = (1.0 - smoothstep(1.0 - fw, 1.0 + fw, d)) * (1.0 - smoothstep(0.15, 0.4, fq)); // none on grazing faces
+            int other = int(mod(vPar.w + 3.0, 7.0));
+            vec3 cc = hc < 0.62 ? mix(col, vec3(1.0), 0.5) : (hc < 0.82 ? col * 0.4 : mix(uPiece[other], col, 0.3));
+            rgb = mix(rgb, cc * (0.45 + 0.55 * lam) + cc * 0.1 * em, chip);
+        }
+    } else if (style == 24) { // hard candy: saturated, domed, glossy, a little translucent
+        vec2 g = -4.0 * uv * uv * uv * 0.32; // height 1 - u^4 - v^4
+        vec3 nb = bumpN(g);
+        float lb = lamOf(nb);
+        vec3 cs = max(mix(vec3(dot(col, vec3(0.3, 0.55, 0.15))), col, 1.3), 0.0);
+        vec3 body = mix(cs * (0.22 + 0.5 * lb) + cs * em * 0.4 * pow(e, 0.7), cs * (0.5 + 0.45 * lb), uPale);
+        float hl = specOf(nb, 14.0) * 0.45 + specOf(nb, 90.0) * 0.9;
+        rgb = body * (1.0 - 0.2 * (1.0 - e) * (1.0 - e)) + mix(cs, vec3(1.0), 0.7) * hl;
+        a = mix(mix(0.86, 0.94, uPale), 1.0, max(hl, edge * 0.5));
+    } else if (style == 25) { // enamel pin: thin polished metal rim, flat glossy color inside
+        float rw = 0.16;
+        float rim = 1.0 - smoothstep(rw - aa, rw + aa, e);
+        float groove = exp(-pow((e - rw - 0.035) / 0.035, 2.0));
+        float band = 0.5 + 0.5 * cos((gFP.x * 0.6 + gFP.y) * 2.4 + 0.8);
+        float bev = clamp(0.5 + 0.5 * (gFP.y - gFP.x) * 0.8, 0.0, 1.0) * (1.0 - smoothstep(0.0, rw, e));
+        vec3 metal = mix(vec3(0.92, 0.84, 0.62), uHighlight, 0.3) * (0.35 + 0.5 * band + 0.3 * bev) * mix(1.0, 0.7, uPale)
+            + vec3(spec) * 0.5;
+        vec3 inner = col * (0.48 + 0.42 * lam) * (1.0 - 0.4 * groove) + col * 0.12 * em;
+        inner += mix(col, vec3(1.0), 0.6) * specOf(gN, 6.0) * 0.12 * (1.0 - groove);
+        rgb = mix(inner, metal, rim);
+    } else if (style == 26) { // pillow: softly inflated, bright center, edges falling into gentle shade
+        vec2 g = -4.0 * uv * uv * uv * 0.55;
+        vec3 nb = bumpN(g);
+        float r = pow(pow(abs(uv.x), 4.0) + pow(abs(uv.y), 4.0), 0.25);
+        float puff = 1.0 - r * r * r;
+        rgb = col * (0.22 + 0.62 * lamOf(nb)) * (0.62 + 0.45 * puff) + col * 0.12 * em * puff + mix(col, vec3(1.0), 0.5) * specOf(nb, 10.0) * 0.1;
+    } else if (style == 27) { // scales: overlapping arcs hanging down, subtle
+        vec2 q = (gFP * 0.5 + 0.5) * 3.0;
+        float rr = ceil(q.y * 2.0);
+        float R = 0.58, tone = 1.0, line = 0.0, dd = 1.0;
+        for (int k = 1; k >= 0; k--) {
+            float row = rr + float(k);
+            float off = mod(row, 2.0) * 0.5;
+            vec2 c = vec2(floor(q.x - off) + 0.5 + off, row * 0.5);
+            float d = length(q - c);
+            if (d < R && dd > 0.99) { dd = d / R; }
+        }
+        float fw = max(fwidth(dd), 1e-3);
+        tone = 1.0 - 0.16 * smoothstep(0.35, 1.0, dd);
+        line = smoothstep(0.88 - fw, 0.95, dd) * (1.0 - smoothstep(1.0, 1.0 + fw, dd));
+        rgb = col * (0.34 + 0.58 * lam) * tone * (1.0 - 0.3 * line) + col * 0.1 * em + vec3(spec) * 0.15;
+    } else if (style == 28) { // waffle: embossed grid of square pockets
+        vec2 ld = normalize(vec2(gL.x, gL.y) + vec2(0.0, 1e-3));
+        vec2 q = (gFP * 0.5 + 0.5) * 3.0;
+        float fw = max(fwidth(q.x) + fwidth(q.y), 1e-3);
+        float sw = max(0.07, fw);
+        #define WAFFLE_H(P) smoothstep(0.3, 0.3 + sw, max(abs(fract(P).x - 0.5), abs(fract(P).y - 0.5)))
+        float h = WAFFLE_H(q);
+        float slope = (WAFFLE_H(q + ld * 0.05) - WAFFLE_H(q - ld * 0.05));
+        #undef WAFFLE_H
+        float edgeRidge = 1.0 - smoothstep(0.1, 0.1 + aa, e);
+        h = max(h, edgeRidge);
+        rgb = col * (0.36 + 0.55 * lam) * (0.76 + 0.24 * h) * (1.0 - 0.45 * slope * (1.0 - edgeRidge)) + col * 0.1 * em
+            + vec3(spec) * 0.12 * h;
+    } else if (style == 29) { // opal: milky body, hue shimmer drifting slowly with view and position
+        float ph = dot(gFP, vec2(0.35, 0.25)) + dot(vWorld.xy, vec2(0.11, 0.07)) + dot(gV.xy, vec2(2.0, 1.4)) + uTime * 0.03;
+        float wob = vnoise(gFP * 0.8 + vec2(gSeed * 9.0, uTime * 0.02));
+        float ang = mix(0.12, 0.08, uPale) * sin((ph + wob * 0.35) * 6.28);
+        vec3 c1 = hueRot(col, ang);
+        float milk = dot(col, vec3(0.3, 0.55, 0.15));
+        vec3 body = mix(c1, vec3(milk) * 1.15, 0.12);
+        vec3 sheen = mix(hueRot(col, ang * 4.0), vec3(milk * 1.3), 0.4);
+        rgb = body * (0.36 + 0.54 * lam) + sheen * 0.07 * (0.5 + 0.5 * sin((ph - wob) * 9.0)) * (0.5 + 0.5 * em)
+            + body * 0.1 * em + mix(col, vec3(1.0), 0.6) * specOf(gN, 12.0) * 0.12 + col * edge * 0.12 * em;
+    } else if (style == 30) { // stained glass: leaded panes of glowing translucent color
+        float a1 = gSeed * 3.1416, a2 = a1 + 1.0 + h11(gSeed * 4.7) * 1.2;
+        vec2 o1 = (vec2(h11(gSeed * 2.3), h11(gSeed * 6.1)) - 0.5) * 0.5;
+        vec2 n1 = vec2(cos(a1), sin(a1)), n2 = vec2(cos(a2), sin(a2));
+        float d1 = dot(gFP - o1, n1);
+        float d2 = dot(gFP - o1, n2);
+        if (d1 < 0.0) d2 = 9.0; // the second lead line stops at the first: three panes
+        float dl = min(abs(d1), abs(d2));
+        float fw = max(fwidth(dl), 1e-3);
+        float lead = max(1.0 - smoothstep(0.045 - fw, 0.045 + fw, dl), 1.0 - smoothstep(0.11 - aa, 0.11 + aa, e));
+        float pane = d1 < 0.0 ? 0.0 : (d2 < 0.0 ? 1.0 : 2.0);
+        float tone = 0.84 + 0.28 * h11(pane + gSeed * 13.0);
+        vec3 glow = mix(col * (0.25 + em * 0.75 * (0.55 + 0.45 * e)), col * (0.62 + 0.25 * lam), uPale) * tone;
+        vec3 leadC = mix(vec3(0.03) + col * 0.04, vec3(0.05) + col * 0.1, uPale) + vec3(spec) * 0.25;
+        rgb = mix(glow, leadC, lead);
+        a = mix(mix(0.82, 0.97, uPale), 1.0, lead);
+    } else if (style == 31) { // paper: matte, folded once along a diagonal, faint fibers
+        float dir = h11(gSeed * 2.9) > 0.5 ? 1.0 : -1.0;
+        float df = (gFP.x * dir - gFP.y) * 0.7071;
+        float fw = max(fwidth(df), 1e-3);
+        float side = smoothstep(-fw, fw, df);
+        float facet = mix(1.0, 0.8, side);
+        float crease = 1.0 - smoothstep(0.02 - fw, 0.03 + fw, abs(df));
+        vec2 fr = mat2(0.8, 0.6, -0.6, 0.8) * gFP;
+        float fib = vnoise(fr * vec2(18.0, 3.0) + gSeed * 40.0) * 0.6 + vnoise(gFP * 22.0 + 7.0) * 0.4;
+        float fade = 1.0 - smoothstep(0.15, 0.5, length(fwidth(gFP)) * 18.0);
+        float lum = 1.0 + (fib - 0.5) * 0.16 * fade;
+        rgb = col * (0.38 + 0.54 * lam) * facet * lum * (1.0 + 0.15 * crease) * (1.0 - 0.12 * edge) + col * 0.08 * em;
     } else { // breathing fill (follows the music's pulse)
         rgb = col * (0.25 + 0.35 * lam + (0.3 + 0.6 * uBeat) * em * 0.6) + col * edge * 0.3 * em;
         a = mix(0.7, 1.0, edge);
@@ -1788,6 +1944,16 @@ void main() {
     gAA = max(fwidth(gE) * 1.2, 1e-3);
     gEdge = 1.0 - smoothstep(uEdgeW - gAA, uEdgeW + gAA, gE);
     gEdgeGlow = gEdge + exp(-gE / max(uEdgeW, 0.01) * 2.5) * 0.35;
+    {
+        vec3 an = abs(vN);
+        vec3 n = an.x > an.y && an.x > an.z ? vec3(sign(vN.x), 0, 0) : (an.y > an.z ? vec3(0, sign(vN.y), 0) : vec3(0, 0, sign(vN.z)));
+        gT = abs(n.y) > 0.5 ? vec3(1, 0, 0) : vec3(0, 1, 0);
+        gB = cross(n, gT);
+        vec3 fp = gT * gUV.x + gB * gUV.y;
+        gFP = vec2(dot(fp, vec3(1, 0, 1)), dot(fp, vec3(0, 1, -1)));
+        gN = N; gV = V; gL = L;
+        gSeed = h11(vPar.w * 7.31 + dot(n, vec3(1.3, 2.9, 4.7)) + 0.5);
+    }
 
     if (kind == 1) { // ghost
         vec3 rgb = col * (gEdgeGlow * 0.9 * max(uEmissive, 0.5) + 0.06);

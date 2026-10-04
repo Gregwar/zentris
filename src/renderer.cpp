@@ -21,6 +21,8 @@ static float seeThrough(const Theme& t) {
     case BS_GLASS: return 0.9f * (1.f - t.fillAlpha);
     case BS_FRESNEL: return 1.f - 0.7f * t.fillAlpha;
     case BS_FROSTED: case BS_DOTS: return 0.35f;
+    case BS_STAINED: return 0.25f;
+    case BS_CANDY: return 0.1f;
     default: return 0.f;
     }
 }
@@ -676,7 +678,7 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
         b.pos = p + base;
         b.scale = vec3(s * sc);
         b.color = vec4(mixOklab(from_.piece[type], to_.piece[type], wipeMix(p)), 1);
-        b.params = vec4(kind, flash, glow, 0);
+        b.params = vec4(kind, flash, glow, (float)type); // w: piece type (seeds the face patterns of some materials)
         return b;
     };
     for (int y = Game::HIDDEN; y < Game::H; y++)
@@ -1507,6 +1509,13 @@ void Renderer::render(const Game& game, const MusicState& music, double time, fl
     set1f(progBlock_, "uBeat", music.beatPulse * cur_.beatPulse);
     set1f(progBlock_, "uTime", (float)time);
     set3f(progBlock_, "uCamPos", camPos_);
+    set3f(progBlock_, "uAccent", cur_.accent);
+    set3f(progBlock_, "uHighlight", cur_.highlightTint);
+    {
+        float pc[21];
+        for (int i = 0; i < 7; i++) { pc[i * 3] = cur_.piece[i].x; pc[i * 3 + 1] = cur_.piece[i].y; pc[i * 3 + 2] = cur_.piece[i].z; }
+        glUniform3fv(U(progBlock_, "uPiece"), 7, pc);
+    }
     set3f(progBlock_, "uLightDir", normalize(vec3(cur_.bgP[3] - 0.5f, 0.9f, 0.7f)));
     // Backplate first (no depth write), then the solid blocks, then translucent helpers.
     // Helpers output premultiplied color: additive on dark themes, normal blending on pale ones.

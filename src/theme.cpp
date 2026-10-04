@@ -439,7 +439,8 @@ SceneId pickIdentity(const Footprint& fp, uint64_t seed) {
     float mw[MESH_COUNT] = {5.5f, 2.5f, 1.0f, 0.5f, // gems read less clearly as pieces: rarer
                             1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f};
     const int faceStyles[] = {BS_DOTS, BS_INSET, BS_SPLIT, BS_DOUBLE, BS_CIRCUIT, BS_CHECKER, BS_RINGS, BS_PIXEL, BS_HATCH,
-                              BS_STRIPES};
+                              BS_STRIPES, BS_KINTSUGI, BS_TERRAZZO, BS_ENAMEL, BS_SCALES, BS_WAFFLE, BS_STAINED,
+                              BS_PAPER};
     for (int fsIdx : faceStyles)
         if (block == fsIdx) mw[2] = mw[3] = 0; // face patterns need flat faces
     id.v[SF_MESH] = pickEnabled(r, mw, SF_MESH);
