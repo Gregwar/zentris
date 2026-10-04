@@ -1356,7 +1356,7 @@ void Renderer::drawParticleLayer(const ParticleLayer& L, const Theme& owner, flo
     case PS_HALOS: mult = 0.45f; break;
     case PS_SPHERE: mult = 0.5f; break;
     case PS_HELIX: mult = 0.35f; break;
-    case PS_STREAMS: mult = 0.6f; break;
+    case PS_STREAMS: mult = 0.3f; break;
     case PS_FIREFLIES: mult = 0.05f; break;
     case PS_RAIN: mult = 0.2f; break;
     case PS_VORTEX: mult = 0.5f; break;
