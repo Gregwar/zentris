@@ -242,7 +242,7 @@ void Game::lockPiece() {
     GameEvent lockEv{GameEvent::Lock};
     float mx = 0;
     for (auto& q : c) {
-        if (q[1] >= 0) board_[q[1]][q[0]] = Cell{(int8_t)cur_.type, 0.35f};
+        if (q[1] >= 0) board_[q[1]][q[0]] = Cell{(int8_t)cur_.type, 1.f}; // flash: 1 at lock, gone in ~1.1 s
         lockEv.cells.push_back({q[0], q[1], cur_.type});
         mx += q[0];
     }

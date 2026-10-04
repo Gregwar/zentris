@@ -190,7 +190,8 @@ void App::makeBaseTheme(const Footprint& fp, uint64_t seed) {
 
 // Prints the scene and the command line that shows it again (same scene code, same song).
 void App::printScene() const {
-    std::printf("[app] scene: %s\n[app] same scene: zentris --scene %s", baseTheme_.name.c_str(), sceneCode().c_str());
+    std::printf("[app] scene: %s (lock effect: %s)\n[app] same scene: zentris --scene %s", baseTheme_.name.c_str(),
+                lockEffectName(baseTheme_.lockEffect), sceneCode().c_str());
     if (track_) std::printf(" %s", platform::quoteArg(track_->path).c_str());
     std::printf("\n");
 }

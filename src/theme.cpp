@@ -20,6 +20,8 @@ const char* PS_NAMES[PS_COUNT] = {"GALAXY", "TUNNEL", "OCEAN", "SPHERE", "DRIFT"
 const char* BS_NAMES[BS_COUNT] = {"GLASS", "SOLID", "WIRE", "LANTERN", "INSET", "DOTS", "CRYSTAL", "SPLIT",
                                   "HOLO", "GRADIENT", "DOUBLE", "NEON", "CIRCUIT", "FROSTED", "CHECKER", "RINGS",
                                   "BEVEL", "PIXEL", "STRIPES", "CORE", "HATCH", "BREATH"};
+const char* LE_NAMES[LE_COUNT] = {"POP", "AFTERGLOW", "BOUNCE", "SQUASH", "GROW", "PRESS", "TWINKLE", "RIPPLE",
+                                  "CASCADE", "HALO"};
 const char* MESH_NAMES[MESH_COUNT] = {"CUBE", "ROUNDED", "ORB", "GEM"};
 const char* MOOD_NAMES[3] = {"NIGHT", "DUSK", "PALE"};
 const char* SURF_NAMES[18] = {"", "SMOKE", "SILK", "LAVA", "CAUSTICS", "INK", "GEOMETRY", "AURORA", "FOG",
@@ -453,9 +455,14 @@ static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
         t.hueDrift = (r.chance(0.5f) ? 1.f : -1.f) * r.range(0.4f, 0.9f);
     }
 
+    // ---- Lock effect: from its own random stream, so adding it changed no other choice of existing scenes.
+    t.lockEffect = (int)(Rng(seed ^ 0x10CCEFFEC7ull).next() % LE_COUNT);
+
     t.name = themeName(t);
     return t;
 }
+
+const char* lockEffectName(int e) { return e >= 0 && e < LE_COUNT ? LE_NAMES[e] : "?"; }
 
 // A song keeps one visual identity: background, main particle layout, blocks, frame and mood never change
 // inside a song. Levels (0 calm, 1 mid, 2 peak) only shift hue a little and change color intensity, glow and

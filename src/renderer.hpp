@@ -164,6 +164,7 @@ private:
     int wipeShape_ = WIPE_RADIAL, pendingShape_ = WIPE_RADIAL;
     static constexpr float WIPE_W = 0.35f;
     float pauseFade_ = 0, settleGlow_ = 0;
+    float lockAge_ = 99.f, lockX_ = 0, lockY_ = 0; // last lock: seconds since, mean cell (board coordinates)
     bool dim_ = false;
     float govern_ = 1.f;      // automatic exposure reduction when the scene gets too bright
     float bgLum_ = 0.f;       // measured brightness around the board (sides of the screen)

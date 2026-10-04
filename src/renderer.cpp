@@ -436,6 +436,14 @@ void Renderer::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
     case GameEvent::Lock:
         for (auto& c : ev.cells) spawnBurst(cellPos((float)c.x, (float)c.y), t.piece[c.type], 1, 0.4f, 1.6f, 0.08f);
+        if (!ev.cells.empty()) {
+            lockAge_ = lockX_ = lockY_ = 0;
+            for (auto& c : ev.cells) { lockX_ += c.x; lockY_ += c.y; }
+            lockX_ /= ev.cells.size();
+            lockY_ /= ev.cells.size();
+            if (t.lockEffect == LE_HALO)
+                spawnRing(cellPos(lockX_, lockY_) + vec3(0, 0, 0.6f), 0.6f, t.piece[ev.cells[0].type], 48, 3.2f, 0.7f, 0.09f);
+        }
         break;
     case GameEvent::Clear: {
         // Cleared blocks disappear with one of the scene's 3 effects (a Tetris always gets a fuller one).
@@ -681,8 +689,56 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
             float rowDelay = (Game::H - 1 - y) * 0.035f;
             float wave = music.beatPhase >= rowDelay ? std::exp(-(music.beatPhase - rowDelay) * 7.f) : 0.f;
             float waveGlow = 0.3f * music.energy * music.intensity * wave;
-            solid.push_back(block(cellPos((float)x, y - g.rowOffset(y)), c.type, 0, c.flash, settleGlow_ + waveGlow,
-                                  1.f + 0.35f * c.flash));
+            // Lock effect: a = 1 when the piece locks, 0 about 1.1 s later; k = 1 - a.
+            const float a = c.flash, k = 1.f - a;
+            float fl = 0, gl = 0;
+            vec3 dp(0, 0, 0), sc(1, 1, 1);
+            switch (t.lockEffect) {
+            case LE_POP: fl = std::max(0.f, a - 0.65f); sc = vec3(1.f + 0.35f * fl); break; // short flash and pop
+            case LE_AFTERGLOW: fl = 1.1f * a * a; break;                                   // bright, cooling slowly
+            case LE_BOUNCE:                                                                // lands with small bounces
+                if (a > 0) dp.y = 0.32f * std::exp(-6.f * k) * std::fabs(std::sin(k * 16.f));
+                fl = 0.3f * a * a * a;
+                break;
+            case LE_SQUASH: { // squashed by the landing, wobbling back
+                float w = a > 0 ? std::exp(-6.f * k) * std::cos(k * 20.f) : 0.f;
+                sc = vec3(1.f + 0.18f * w, 1.f - 0.22f * w, 1.f + 0.18f * w);
+                fl = 0.3f * a * a * a;
+                break;
+            }
+            case LE_GROW: // grows into place with an elastic overshoot
+                if (a > 0) sc = vec3(1.f - 0.35f * std::exp(-5.f * k) * std::cos(k * 15.f));
+                fl = 0.4f * a * a;
+                break;
+            case LE_PRESS: // pressed into the board, then back
+                dp.z = -0.6f * a * a;
+                sc = vec3(1.f - 0.1f * a);
+                fl = 0.7f * a * a;
+                break;
+            case LE_TWINKLE: { // each cell flashes once, at its own moment
+                float h = std::fmod(std::fabs(std::sin(x * 12.9898f + y * 78.233f) * 43758.5453f), 1.f) * 0.45f;
+                float d = (k - h) * 9.f;
+                fl = a > 0 ? 1.2f * std::exp(-d * d) : 0.f;
+                break;
+            }
+            case LE_RIPPLE: { // a ring of light spreading through the stack from the piece
+                float d = std::hypot(x - lockX_, y - lockY_), r = lockAge_ * 14.f;
+                gl = 0.9f * std::exp(-(d - r) * (d - r) * 1.2f) * std::max(0.f, 1.f - lockAge_);
+                fl = 0.4f * a * a;
+                break;
+            }
+            case LE_CASCADE: { // a pulse running down the columns under the piece
+                float dy = y - lockY_, r = lockAge_ * 22.f;
+                if (dy > -1.f && std::fabs(x - lockX_) < 2.6f)
+                    gl = 0.85f * std::exp(-(dy - r) * (dy - r) * 0.8f) * std::max(0.f, 1.f - lockAge_ / 0.9f);
+                fl = 0.35f * a * a;
+                break;
+            }
+            case LE_HALO: fl = 0.6f * a * a; sc = vec3(1.f + 0.06f * a); break; // with a ring of particles
+            }
+            BlockInst bi = block(cellPos((float)x, y - g.rowOffset(y)) + dp, c.type, 0, fl, settleGlow_ + waveGlow + gl, 1.f);
+            bi.scale = bi.scale * sc;
+            solid.push_back(bi);
         }
     for (const Dying& d : dying_) {
         const float k = saturate((d.t - d.delay) / d.dur);   // disappearing phase 0..1
@@ -1152,6 +1208,7 @@ void Renderer::drawText(const std::vector<HudText>& hud) {
 
 void Renderer::render(const Game& game, const MusicState& music, double time, float dt, bool paused,
                       const std::vector<HudText>& hud, float fade) {
+    lockAge_ += dt;
     // ---- Theme transition.
     transT_ = std::min(1.f, transT_ + dt / transDur_);
     if (transT_ >= 1.f && hasPending_) {
