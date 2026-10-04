@@ -2476,7 +2476,7 @@ vec4 shade(int style, vec3 col) {
         rgb = col * mix(0.4 + 0.3 * lam, 0.75 + 0.25 * lam, uPale) + col * edgeGlow * em * 1.1 + mix(col, vec3(1.0), 0.4) * spec * 0.3;
         a = mix(mix(max(uFill, 0.45), max(uFill, 0.82), uPale), 1.0, edge);
     } else if (style == 1) { // solid
-        rgb = col * (0.3 + 0.7 * lam) * (1.0 - 0.3 * edge) + vec3(spec) * 0.3 + col * 0.12 * em;
+        rgb = col * (0.3 + 0.7 * lam) * (1.0 - 0.55 * edge) + vec3(spec) * 0.3 + col * 0.12 * em; // a darker rim separates neighbours
     } else if (style == 2) { // wire
         // On pale themes a dark see-through fill over the light backplate turns gray: tint it instead.
         rgb = col * edgeGlow * em * 1.5 + col * mix(0.03, 0.8, uPale);

@@ -665,7 +665,8 @@ Theme buildTheme(const SceneId& id) {
     t.blockStyle = id.v[SF_BLOCK];
     t.blockMesh = id.v[SF_MESH];
     t.roundness = r.range(3.f, 7.f);
-    t.blockScale = r.range(0.8f, 0.96f);
+    // At most 0.9: with less of a gap, glow fills it and same-colored neighbours melt into one slab.
+    t.blockScale = r.range(0.8f, 0.9f);
     float sa, sb;
     if (meshScaleRange(t.blockMesh, sa, sb)) t.blockScale = r.range(sa, sb);
     t.blockDepth = (t.blockMesh == MESH_CUBE && r.chance(0.3f)) ? r.range(0.2f, 0.6f) : 1.f;
