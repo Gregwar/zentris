@@ -205,8 +205,9 @@ void resolvePalette(Theme& t, float hueShift) {
     Rng r(p.perm);
 
     float hues[7], Ls[7], Cs[7];
-    float baseL = mood == 0 ? 0.72f : (mood == 1 ? 0.8f : (mood == 3 ? 0.84f : 0.60f)); // glow adds light: keep colors deep enough
-    float C = p.chroma * (mood == 1 ? 0.9f : 1.f);
+    // Darker colors can be more saturated (light ones leave the screen's gamut): pieces stay mid-light.
+    float baseL = mood == 0 ? 0.68f : (mood == 1 ? 0.74f : (mood == 3 ? 0.8f : 0.60f)); // glow adds light: keep colors deep enough
+    float C = p.chroma;
     // On a pale background low-chroma colors read as gray: keep pale themes clearly colored (calm sections too).
     if (mood == 2) C = std::min(0.24f, std::max(0.13f, C * 1.3f));
     for (int i = 0; i < 7; i++) {
@@ -417,14 +418,16 @@ SceneId sceneId(const Theme& t) {
 SceneId pickIdentity(const Footprint& fp, uint64_t seed) {
     Rng r(seed);
     SceneId id;
-    // Key on the circle of fifths gives the base hue (synesthetic mapping), within about +-30 degrees.
+    // Key on the circle of fifths gives the base hue (synesthetic mapping), within about +-30 degrees; without a
+    // song, any hue.
     const int fifths = (fp.key * 7) % 12;
-    id.v[SF_HUE] = ((fifths * 2 + r.irange(-2, 2)) % 24 + 24) % 24;
+    id.v[SF_HUE] = fp.hash ? ((fifths * 2 + r.irange(-2, 2)) % 24 + 24) % 24 : r.irange(0, 23);
     float moodW[4] = {0.62f - 0.25f * fp.brightness + (fp.minor ? 0.12f : 0.f), 0.2f + 0.2f * fp.brightness,
                       0.08f + 0.22f * fp.brightness * (1.f - 0.5f * fp.bassWeight), 0.12f + 0.2f * fp.brightness};
     const int mood = pickEnabled(r, moodW, SF_MOOD);
     id.v[SF_MOOD] = mood;
-    float schemeW[SCHEME_COUNT] = {3.f, 2.f, 1.2f, 1.3f, 2.6f, 0.8f + fp.brightness, 1.5f, 0.8f + (mood == 0 ? 0.6f : 0.f),
+    // Muted schemes (monochrome, pastel rainbow, ink + accent) are rarer: scenes read as colorful first.
+    float schemeW[SCHEME_COUNT] = {3.f, 2.f, 1.2f, 0.8f, 2.6f, 0.4f + 0.5f * fp.brightness, 1.5f, 0.35f + (mood == 0 ? 0.25f : 0.f),
                                    1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f};
     id.v[SF_SCHEME] = pickEnabled(r, schemeW, SF_SCHEME);
     const int bg = pickBackground(r, fp, mood);
@@ -495,10 +498,10 @@ Theme buildTheme(const SceneId& id) {
     t.pal.mood = (float)mood;
     t.pal.scheme = id.v[SF_SCHEME];
     t.pal.hue = id.v[SF_HUE] * TAU / 24.f;
-    t.pal.chroma = r.range(0.11f, 0.2f);
+    t.pal.chroma = r.range(0.14f, 0.22f);
     t.pal.spread = r.range(0.15f, 0.5f);
     t.pal.bgHueOffset = r.chance(0.6f) ? r.range(-0.4f, 0.4f) : r.range(2.2f, 4.0f);
-    t.pal.bgChroma = r.range(0.015f, 0.07f);
+    t.pal.bgChroma = r.range(0.025f, 0.08f);
     t.pal.perm = r.next();
     for (float& v : t.bgP) v = r.uniform();
     resolvePalette(t, 0);
