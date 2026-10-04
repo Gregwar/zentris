@@ -611,10 +611,11 @@ Theme buildTheme(const SceneId& id) {
     t.pal.chroma = r.range(0.14f, 0.22f);
     t.pal.spread = r.range(0.15f, 0.5f);
     // The background takes the pieces' hue or a contrasting one. When the pieces already share one hue (analogous,
-    // monochrome, ink + accent), a background of that hue too makes a one-tint scene: mostly contrast then.
+    // monochrome, ink + accent), a background of that hue too makes a one-tint scene: still possible (it can be
+    // beautiful), but contrast is more common then.
     const int sc = id.v[SF_SCHEME];
     const bool oneHue = sc == 0 || sc == 3 || sc == 7;
-    t.pal.bgHueOffset = r.chance(oneHue ? 0.25f : 0.6f) ? r.range(-0.4f, 0.4f) : r.range(2.2f, 4.0f);
+    t.pal.bgHueOffset = r.chance(oneHue ? 0.4f : 0.6f) ? r.range(-0.4f, 0.4f) : r.range(2.2f, 4.0f);
     t.pal.bgChroma = r.range(0.025f, 0.08f);
     t.pal.perm = r.next();
     for (float& v : t.bgP) v = r.uniform();
