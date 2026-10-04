@@ -766,11 +766,13 @@ Theme evolveTheme(const Theme& base, int level, float energy) {
         for (int k = 0; k < 8 && base.surfStyle >= 13 && base.surfStyle <= 16 && floorStyle(st); k++)
             st = pickParticleStyle(r, fp, mood, avoid);
         const int slot = base.layerCount == 0 ? 0 : 1;
+        // Fuller, not cluttered: the new layer keeps a secondary density (sparser still over a moving surface,
+        // so a peak never stacks three dense moving layers) and the existing layers get only a small boost.
         makeLayer(r, fp, mood, t.layers[slot], st, true);
-        t.layers[slot].count = std::min(1.f, t.layers[slot].count * 1.6f);
+        if (base.surfStyle > 0 && slot > 0) t.layers[slot].count *= 0.7f;
         t.layerCount = slot + 1;
-        t.surfAmt = std::min(0.8f, base.surfAmt * 1.25f);
-        t.layers[0].count = std::min(1.f, t.layers[0].count * 1.3f);
+        t.surfAmt = std::min(0.8f, base.surfAmt * 1.1f);
+        t.layers[0].count = std::min(1.f, t.layers[0].count * 1.15f);
         for (int i = 0; i < 2; i++) t.layers[i].bright *= 1.1f;
         t.bloom = base.bloom * 1.3f;
         t.saturation = clampf(base.saturation * 1.12f, 0.8f, 1.3f);
