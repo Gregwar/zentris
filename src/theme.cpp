@@ -530,6 +530,7 @@ SceneId pickIdentity(const Footprint& fp, uint64_t seed) {
                                floorStyle(p1) || floorStyle(p2);
         if (landscape) sw[13] = sw[14] = sw[15] = sw[16] = 0.f;
         if (landscape) sw[22] = sw[23] = sw[24] = sw[25] = 0.f; // truchet, weave, halftone, sand: flat textures too
+        if (landscape) sw[29] = sw[30] = sw[33] = sw[36] = 0.f; // lace, mosaic, crackle, circuitry
         surf = pickEnabled(r, sw, SF_SURFACE);
         if (r.chance(0.3f)) p1 = p2 = -1;
         else if (p2 >= 0 && r.chance(0.5f)) p2 = -1;

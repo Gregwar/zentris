@@ -573,6 +573,10 @@ float smoothNoise(vec2 p) { // three octaves only: rounder shapes than fbm
 vec4 paleInk(vec3 col, float a) { // on pale scenes a light pattern vanishes into the light background: give it more coverage
     return vec4(col, a * mix(1.0, 2.2, uPale));
 }
+// Circuitry traces from grid node n: to the right, upward, and (rarely) diagonal; some rows and columns are busier.
+bool circR(vec2 n) { return hash12(n * vec2(1.0, 1.31) + 0.7) < 0.3 + 0.4 * hash12(vec2(0.0, n.y) + 4.2); }
+bool circU(vec2 n) { return hash12(n * vec2(1.17, 1.0) + 5.3) < 0.2 + 0.35 * hash12(vec2(n.x, 0.0) + 8.1); }
+bool circD(vec2 n) { return !circR(n) && !circU(n) && hash12(n + 21.7) < 0.3; }
 vec4 surface(vec4 S, vec2 uv) {
     int s = int(S.x + 0.5);
     if (s == 0 || S.y <= 0.001) return vec4(0.0);
@@ -837,6 +841,228 @@ vec4 surface(vec4 S, vec2 uv) {
         float b = exp(-x * x * 40.0);
         float env = smoothstep(0.2, 0.7, smoothNoise(c * 0.6 - vec2(0.0, T * 0.006) + 3.0));
         return paleInk(hueTurn(colA * 1.2, x * 2.4), b * env * amt * 0.42);
+    } else if (s == 28) { // oil slick: thin-film fringes on slow swirling patches, hues turning only a little around the theme
+        vec2 p = c * 1.1;
+        vec2 wq = vec2(smoothNoise(p * 0.8 + vec2(T * 0.006, 0.0)), smoothNoise(p * 0.8 + vec2(4.1, 2.7) - vec2(0.0, T * 0.005)));
+        float h = smoothNoise(p * 1.1 + wq * 2.4 - vec2(T * 0.004, 0.0)); // film thickness
+        float v = h * 13.0;
+        float fringe = pow(0.5 + 0.5 * cos(v * 6.2831853), 2.0);
+        float env = smoothstep(0.38, 0.62, smoothNoise(p * 0.55 + wq * 0.8 + 9.0)); // where the film lies
+        vec3 col = max(hueTurn(colA * 1.15, 0.9 * sin(v * 3.14159 + 0.5)), 0.0) * (0.8 + 0.3 * fringe);
+        return paleInk(col, env * (0.06 + 0.15 * fringe) * amt);
+    } else if (s == 29) { // lace: rosettes of small holes framed by scallops, joined by a fine net, very faint
+        vec2 p0 = c * 3.2;
+        vec2 p = p0 + vec2(0.5 * mod(floor(p0.y), 2.0), 0.0); // offset rows
+        vec2 f = fract(p) - 0.5;
+        float r = length(f), a = atan(f.y, f.x);
+        float fw = fwidth(p0.x) * 1.2; // derivatives taken before the row offset, which jumps
+        // Scalloped rim of the motif.
+        float rs = 0.43 + 0.035 * cos(a * 14.0);
+        float thread = 1.0 - smoothstep(0.012, 0.012 + fw, abs(r - rs));
+        // Ring of twelve small holes.
+        float seg = 6.2831853 / 12.0, an = (floor(a / seg) + 0.5) * seg;
+        float dh = length(f - 0.29 * vec2(cos(an), sin(an)));
+        float hole12 = 1.0 - smoothstep(0.045, 0.045 + fw, dh);
+        thread = max(thread, 1.0 - smoothstep(0.008, 0.008 + fw, abs(dh - 0.045)));
+        // Inner ring of six petals and a small center hole.
+        float seg6 = 6.2831853 / 6.0, a6 = floor(a / seg6 + 0.5) * seg6;
+        vec2 q = mat2(cos(a6), -sin(a6), sin(a6), cos(a6)) * f; // into the nearest petal's frame
+        float dp = length((q - vec2(0.13, 0.0)) * vec2(1.0, 1.9)) - 0.055;
+        float petal = 1.0 - smoothstep(0.0, fw, dp);
+        thread = max(thread, 1.0 - smoothstep(0.008, 0.008 + fw, abs(dp)));
+        thread = max(thread, 1.0 - smoothstep(0.007, 0.007 + fw, abs(r - 0.035)));
+        // Solid lace inside the rim, except the holes; a fine diagonal net outside.
+        float fill = (1.0 - smoothstep(rs - fw, rs, r)) * (1.0 - hole12) * smoothstep(0.035, 0.035 + fw, r);
+        vec2 nq = p0 * 7.0;
+        float nfw = fwidth(nq.x) * 1.2;
+        float net = max(1.0 - smoothstep(0.04, 0.04 + nfw, abs(fract(nq.x + nq.y) - 0.5)),
+                        1.0 - smoothstep(0.04, 0.04 + nfw, abs(fract(nq.x - nq.y) - 0.5)));
+        net *= smoothstep(rs, rs + 0.03, r);
+        float sheen = 0.75 + 0.25 * sin(dot(c, vec2(0.8, 0.5)) * 1.5 - T * 0.03);
+        vec3 col = mix(colB, colA * 1.15, 0.5 + 0.5 * petal);
+        return paleInk(col, (thread * 0.3 + fill * 0.07 + petal * 0.05 + net * 0.08) * sheen * amt);
+    } else if (s == 30) { // mosaic: small irregular tesserae with thin grout, each a slightly different tone
+        vec2 p = c * 16.0, ip = floor(p), fp = fract(p);
+        float d1 = 8.0, d2 = 8.0;
+        vec2 id = vec2(0.0);
+        for (int j = -1; j <= 1; j++)
+            for (int i = -1; i <= 1; i++) {
+                vec2 g = vec2(float(i), float(j));
+                vec2 o = g + 0.5 + 0.32 * (hash22(ip + g) - 0.5);
+                vec2 dd = abs(o - fp);
+                float d = max(dd.x, dd.y) * 0.75 + length(dd) * 0.25; // squarish cells
+                if (d < d1) { d2 = d1; d1 = d; id = ip + g; } else if (d < d2) d2 = d;
+            }
+        float fw = fwidth(p.x);
+        float grout = 1.0 - smoothstep(0.03, 0.03 + fw * 1.5, d2 - d1);
+        vec2 cc = (id + 0.5) / 16.0;
+        float pic = smoothNoise(cc * 1.3 + vec2(T * 0.004, -T * 0.003)); // a soft picture laid in the tiles
+        float tone = hash12(id * 1.7);
+        float glint = 0.5 + 0.5 * sin(T * 0.12 + tone * 6.2831853);
+        vec3 col = mix(colB * 0.8, colA * 1.1, smoothstep(0.3, 0.7, pic)) * (0.85 + 0.25 * tone + 0.08 * glint);
+        vec3 gcol = mix(uBottom * 0.5, colB * 0.4, 0.3);
+        float aTile = (0.06 + 0.08 * tone + 0.12 * smoothstep(0.35, 0.75, pic)) * amt;
+        return paleInk(mix(col, gcol, grout), mix(aTile, 0.22 * amt, grout));
+    } else if (s == 31) { // zebra: warped organic stripes, the warp flowing slowly
+        vec2 p = c * 1.2;
+        vec2 wq = vec2(smoothNoise(p * 0.9 + vec2(0.0, T * 0.01)), smoothNoise(p * 0.9 + vec2(3.3, 7.1) + vec2(T * 0.008, 0.0)));
+        float v = p.x * 4.5 + p.y * 0.8 + wq.x * 3.0 + 1.2 * sin(p.y * 1.7 + wq.y * 3.0) - T * 0.006;
+        float fw = fwidth(v) * 1.2;
+        float x = abs(fract(v) - 0.5); // 0 at a stripe's middle
+        float wdt = 0.16 + 0.12 * smoothNoise(p * 1.5 + 5.0); // stripes thin out and swell
+        float stripe = 1.0 - smoothstep(wdt - fw, wdt + fw, x);
+        vec3 col = mix(colB * 0.8, colA, smoothNoise(p * 0.7 + 2.0));
+        return paleInk(col, stripe * amt * 0.2);
+    } else if (s == 32) { // frost: feathery ice ferns reaching in from the corners, slowly growing and melting back
+        vec2 cp = (uv - 0.5) * vec2(uAspect, 1.0);
+        vec2 sg = sign(cp + 1e-6);
+        vec2 v = (vec2(0.5 * uAspect, 0.5) - abs(cp)) / S.z; // from the nearest corner, pointing into the screen
+        float r = length(v), th = atan(v.y, v.x);
+        float cr = 0.0;
+        for (int L = 0; L < 2; L++) { // two interleaved sets of ferns, so neighbors overlap a little
+            float D = 0.21, fl = float(L);
+            float sec = floor(th / D + 0.5 * fl);
+            vec2 hh = hash22(vec2(sec, fl * 7.0) + sg * 3.1);
+            if (hh.x < 0.25) continue;
+            float thi = (sec + 0.5 - 0.5 * fl + 0.5 * (hh.y - 0.5)) * D;
+            float along = r * cos(th - thi), across = r * sin(th - thi);
+            across += 0.02 * sin(along * 7.0 + hh.x * 6.0) * along; // a gentle bend
+            float Ls = (0.2 + 0.3 * hh.x) * (0.75 + 0.25 * sin(T * 0.01 + hh.y * 6.2831853));
+            float taper = clamp(1.0 - along / Ls, 0.0, 1.0);
+            float fw = fwidth(along) + 1e-4;
+            float stem = (1.0 - smoothstep(0.0012, 0.0012 + fw, abs(across))) * step(0.0, along) * smoothstep(0.0, 0.15, taper);
+            float bl = 0.055 * sqrt(taper) * min(1.0, along * 6.0); // feathers: longest midway, short at the tip
+            float bpos = (along - abs(across) * 0.65) * (55.0 + 25.0 * hh.y);
+            float bd = abs(fract(bpos + 0.5) - 0.5) / max(fwidth(bpos), 1e-4);
+            float feather = (1.0 - smoothstep(0.4, 1.3, bd)) * (1.0 - smoothstep(bl * 0.6, bl, abs(across))) * step(0.0, along);
+            cr = max(cr, max(stem, feather * 0.8) * (0.5 + 0.5 * taper) * (L == 0 ? 1.0 : 0.7));
+        }
+        float haze = 1.0 - smoothstep(0.05, 0.4 + 0.08 * sin(T * 0.01), r + 0.12 * (fbm(cp * 4.0) - 0.5)); // rime near the corners
+        vec3 ice = mix(colA, vec3(max(colA.r, max(colA.g, colA.b))), 0.45) * 1.45;
+        return paleInk(mix(colB, ice, max(cr, haze * 0.5)), (haze * 0.12 + cr * 0.4) * amt);
+    } else if (s == 33) { // crackle: a glaze crazed into plates by fine cracks, finer ones subdividing them
+        vec2 wv = vec2(vnoise(c * 5.0), vnoise(c * 5.0 + 7.3)) - 0.5;
+        float cracks = 0.0, plate = 0.0;
+        for (int L = 0; L < 2; L++) {
+            float sc = L == 0 ? 3.5 : 8.0;
+            vec2 p = c * sc + wv * (L == 0 ? 0.5 : 0.35) + float(L) * 11.0;
+            vec2 ip = floor(p), fp = fract(p);
+            float d1 = 8.0, d2 = 8.0;
+            for (int j = -1; j <= 1; j++)
+                for (int i = -1; i <= 1; i++) {
+                    vec2 g = vec2(float(i), float(j));
+                    float d = length(g + hash22(ip + g) * 0.9 + 0.05 - fp);
+                    if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d;
+                }
+            float fw = fwidth(p.x);
+            float e = d2 - d1;
+            float wid = L == 0 ? 0.026 : 0.018;
+            float gaps = L == 0 ? 1.0 : smoothstep(0.4, 0.55, vnoise(p * 0.7)); // fine cracks break off here and there
+            cracks += (1.0 - smoothstep(wid, wid + fw * 1.5, e)) * (L == 0 ? 1.0 : 0.55) * gaps;
+            if (L == 0) plate = smoothstep(0.0, 0.45, e); // plates curl slightly: lighter toward their middle
+        }
+        float sheen = 0.5 + 0.5 * sin(dot(c, vec2(0.7, 0.9)) * 1.2 - T * 0.03);
+        vec3 col = mix(colB * 0.8, colA * 1.1, min(cracks, 1.0));
+        return paleInk(col, (min(cracks, 1.0) * 0.25 + plate * (0.03 + 0.04 * sheen)) * amt);
+    } else if (s == 34) { // leaf shadows: blurred leaf silhouettes swaying on a softly lit wall
+        vec2 cp = c / S.z;
+        float sway = sin(T * 0.11) * 0.6 + sin(T * 0.07 + 1.3) * 0.4;
+        float shade = 0.0;
+        for (int L = 0; L < 2; L++) {
+            float sc = L == 0 ? 3.0 : 4.8, blur = L == 0 ? 0.35 : 0.2;
+            vec2 p = c * sc + vec2(sway * (L == 0 ? 0.12 : 0.2), 0.0) + float(L) * 5.3;
+            vec2 ip = floor(p);
+            for (int j = -1; j <= 1; j++)
+                for (int i = -1; i <= 1; i++) {
+                    vec2 g = ip + vec2(float(i), float(j));
+                    vec2 h = hash22(g + float(L) * 3.1);
+                    if (smoothNoise(g * 0.35 + float(L) * 2.0) < 0.42) continue; // leaves come in clusters
+                    vec2 o = g + 0.2 + 0.6 * h;
+                    float ang = h.x * 6.2831853 + 0.25 * sin(T * (0.25 + 0.2 * h.y) + h.y * 6.2831853) * (0.4 + 0.6 * abs(sway));
+                    vec2 q = mat2(cos(ang), sin(ang), -sin(ang), cos(ang)) * (p - o);
+                    float Lh = 0.45 + 0.2 * h.y, W = 0.17 + 0.06 * h.x;
+                    float t = clamp(q.x / Lh, -1.0, 1.0);
+                    float wdt = W * (1.0 - t * t) * (1.0 - 0.25 * t); // pointed at both ends, broader near the stem
+                    float d = max(abs(q.y) - wdt, abs(q.x) - Lh);
+                    shade = max(shade, (1.0 - smoothstep(-blur * 0.3, blur * 0.5, d)) * (L == 0 ? 0.75 : 1.0));
+                }
+        }
+        float lit = 0.55 + 0.45 * smoothNoise(cp * 1.2 + vec2(T * 0.01, 0.0));
+        vec3 light = colA * 1.15, dark = mix(uBottom * 0.35, colB * 0.3, 0.4);
+        return paleInk(mix(light, dark, shade), mix(0.1 * lit, mix(0.18, 0.26, uPale), shade) * amt);
+    } else if (s == 35) { // drips: paint running down from the top in slow trickles that fade away
+        vec2 cp = c / S.z;
+        float dens = 9.0 * S.z;
+        float px = cp.x * dens, y = 1.0 - uv.y; // y: distance from the top
+        float ip = floor(px);
+        float a = 0.0;
+        vec3 col = vec3(0.0);
+        for (int i = -1; i <= 1; i++) {
+            float g = ip + float(i);
+            float h = hash12(vec2(g, 4.7));
+            float tt = T * (0.008 + 0.006 * h) + h * 5.0, cyc = floor(tt), ph = fract(tt);
+            float hh = hash12(vec2(g, cyc + 1.3));
+            if (hh > 0.6) continue; // no drip in this column this time
+            float x0 = g + 0.5 + 0.5 * (hash12(vec2(g, cyc * 2.1)) - 0.5);
+            float len = (0.25 + 0.55 * hh / 0.6) * smoothstep(0.0, 0.75, ph); // runs down, then stops
+            float fade = 1.0 - smoothstep(0.65, 1.0, ph);
+            float w = (0.07 + 0.05 * hash12(vec2(g, cyc + 9.0))) * (1.0 - 0.35 * clamp(y / max(len, 0.01), 0.0, 1.0));
+            float xx = (px - x0 - 0.04 * sin(y * 9.0 + h * 6.0)) / dens; // screen units, a slight wobble
+            float wx = w / dens * 2.0;
+            float body = (1.0 - smoothstep(wx * 0.75, wx, abs(xx))) * (1.0 - smoothstep(len - 0.004, len, y));
+            float bulb = 1.0 - smoothstep(wx * 1.1, wx * 1.45, length(vec2(xx, y - len)));
+            float m = max(body, bulb) * fade;
+            col += mix(colA, colB, h) * m;
+            a += m;
+        }
+        float top = (1.0 - smoothstep(0.0, 0.035 + 0.02 * smoothNoise(vec2(cp.x * 6.0, 1.0)), y)) * 0.8; // the paint edge along the top
+        col += colA * top;
+        a += top;
+        return paleInk(col / max(a, 1e-3), min(a, 1.0) * amt * 0.32);
+    } else if (s == 36) { // circuitry: faint traces between grid nodes, pads at their ends, a soft pulse running along them
+        vec2 p = c * 9.0, ip = floor(p), f = fract(p);
+        float fw = fwidth(p.x);
+        float d = 8.0, pad = 0.0;
+        if (circR(ip)) d = min(d, abs(f.y));
+        if (circR(ip + vec2(0.0, 1.0))) d = min(d, abs(f.y - 1.0));
+        if (circU(ip)) d = min(d, abs(f.x));
+        if (circU(ip + vec2(1.0, 0.0))) d = min(d, abs(f.x - 1.0));
+        if (circD(ip)) d = min(d, abs(f.x - f.y) * 0.7071);
+        // Nodes at the cell corners: a ring pad where a single trace ends, a via where three or more meet.
+        for (int j = 0; j <= 1; j++)
+            for (int i = 0; i <= 1; i++) {
+                vec2 n = ip + vec2(float(i), float(j));
+                float deg = float(circR(n)) + float(circU(n)) + float(circR(n - vec2(1.0, 0.0))) + float(circU(n - vec2(0.0, 1.0)))
+                          + float(circD(n)) + float(circD(n - vec2(1.0)));
+                float r = length(f - vec2(float(i), float(j)));
+                if (deg > 0.5 && deg < 1.5)
+                    pad = max(pad, max(1.0 - smoothstep(0.03, 0.03 + fw, abs(r - 0.11)), 0.35 * (1.0 - smoothstep(0.05, 0.05 + fw, r))));
+                else if (deg > 2.5) pad = max(pad, 1.0 - smoothstep(0.06, 0.06 + fw, r));
+            }
+        float line = 1.0 - smoothstep(0.035, 0.035 + fw * 1.2, d);
+        float m = max(line, pad);
+        float ph = (p.x * 0.8 + p.y * 0.45) * 0.35 + 2.5 * smoothNoise(p * 0.12) - T * 0.18;
+        float pulse = pow(0.5 + 0.5 * sin(ph), 10.0);
+        return paleInk(mix(colB, colA * 1.3, pulse), m * (0.16 + 0.32 * pulse) * amt);
+    } else if (s == 37) { // dapple: soft bright patches of sun through foliage, drifting and slowly shifting
+        float sway = 0.5 * sin(T * 0.09) + 0.3 * sin(T * 0.053 + 2.0);
+        vec2 p = c * 2.2 + vec2(sway * 0.25 + T * 0.01, sway * 0.1);
+        float big = smoothstep(0.45, 0.72, smoothNoise(p * 0.8 + vec2(0.0, T * 0.006)));
+        float a = 0.0;
+        vec2 q = p * 2.4, iq = floor(q);
+        for (int j = -1; j <= 1; j++)
+            for (int i = -1; i <= 1; i++) {
+                vec2 g = iq + vec2(float(i), float(j));
+                vec2 h = hash22(g);
+                vec2 o = g + 0.2 + 0.6 * h + 0.12 * vec2(sin(T * 0.2 + h.x * 6.28), cos(T * 0.17 + h.y * 6.28));
+                float rad = 0.2 + 0.22 * h.y;
+                float life = 0.5 + 0.5 * sin(T * (0.05 + 0.04 * h.x) + h.y * 6.2831853); // spots open and close slowly
+                float d = length((q - o) * vec2(1.0, 1.25));
+                a += (1.0 - smoothstep(rad * 0.3, rad, d)) * smoothstep(0.2, 0.8, life);
+            }
+        float spots = min(a, 1.0) * (0.35 + 0.65 * big);
+        vec3 col = mix(colA * 1.25, mix(colA, vec3(1.0, 0.92, 0.75) * dot(colA, vec3(0.4)), 0.25) * 1.4, spots);
+        return paleInk(col, (big * 0.06 + spots * 0.3) * amt);
     } else { // glass shards: large translucent polygons drifting and turning, their overlaps adding up
         float a = 0.0;
         vec3 col = vec3(0.0);
