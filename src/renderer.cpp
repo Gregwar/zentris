@@ -1010,7 +1010,9 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
     };
     // Backplate (always first): improves legibility over busy backgrounds.
     //            With outline-type blocks over a bright scene it turns darker and nearly opaque.
-    vec3 plate = t.bgTop * 0.3f;
+    // Colorful scenes: a neutral near-black well, so vivid pieces pop against it instead of the backdrop's tint.
+    const bool vividWell = t.pal.mood > 2.5f;
+    vec3 plate = vividWell ? vec3(0.006f) : t.bgTop * 0.3f;
     {
         const float lum = luminance(plate), cap = lerpf(0.06f, 0.012f, legible_);
         if (lum > cap) plate = plate * (cap / lum);
@@ -1020,7 +1022,7 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
     BlockInst pl;
     pl.pos = vec3(0, 0, -0.62f) + base;
     pl.scale = vec3(BOARD_W + 0.3f, BOARD_H + 0.3f, 0.01f);
-    pl.color = vec4(plate, lerpf(lerpf(0.7f, 0.4f, paleW(t)), lerpf(0.94f, 0.82f, paleW(t)), legible_));
+    pl.color = vec4(plate, vividWell ? 0.92f : lerpf(lerpf(0.7f, 0.4f, paleW(t)), lerpf(0.94f, 0.82f, paleW(t)), legible_));
     pl.params = vec4(2, 0, 0, 1);
     fx.push_back(pl);
     auto frame = [&](int style, float fa) {

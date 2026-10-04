@@ -206,11 +206,11 @@ void resolvePalette(Theme& t, float hueShift) {
 
     float hues[7], Ls[7], Cs[7];
     // Darker colors can be more saturated (light ones leave the screen's gamut): pieces stay mid-light.
-    float baseL = mood == 0 ? 0.68f : (mood == 1 ? 0.74f : (mood == 3 ? 0.76f : 0.60f)); // glow adds light: keep colors deep enough
+    float baseL = mood == 0 ? 0.68f : (mood == 1 ? 0.74f : (mood == 3 ? 0.72f : 0.60f)); // glow adds light: keep colors deep enough
     float C = p.chroma;
     // On a pale background low-chroma colors read as gray: keep pale themes clearly colored (calm sections too).
     if (mood == 2) C = std::min(0.24f, std::max(0.13f, C * 1.3f));
-    if (mood == 3) C = std::min(0.24f, std::max(0.16f, C * 1.2f)); // vivid pieces on a vivid backdrop
+    if (mood == 3) C = 0.32f; // pieces as saturated as the screen allows (clipped to the gamut's edge)
     for (int i = 0; i < 7; i++) {
         float f = (float)i / 6.f;
         float jitter = r.range(-0.04f, 0.04f);
@@ -310,19 +310,21 @@ void resolvePalette(Theme& t, float hueShift) {
         // the pieces', so they stand out; light pieces and particles.
         // Deep, saturated and two-hued (top and bottom hues 0.5 .. 1.6 rad apart, either way), for contrast with the
         // light pieces and variety between scenes.
-        const float ch = avoidMud(h + PI + 0.6f * (t.bgP[2] - 0.5f), 0.4f);
-        const float bc = std::min(0.22f, 0.13f + p.bgChroma);
-        const float lt = 0.34f + t.bgP[0] * 0.14f, lb = 0.24f + t.bgP[1] * 0.12f;
-        const float turn = (p.perm & 1 ? 1.f : -1.f) * (0.5f + 1.1f * t.bgP[3]);
+        // Pop: bright, as saturated as the screen allows (chroma beyond the gamut is clipped to its edge), two hues
+        // far apart.
+        const float ch = avoidMud(h + PI + 0.6f * (t.bgP[2] - 0.5f), 0.55f);
+        const float bc = 0.3f + p.bgChroma;
+        const float lt = 0.52f + t.bgP[0] * 0.12f, lb = 0.4f + t.bgP[1] * 0.12f;
+        const float turn = (p.perm & 1 ? 1.f : -1.f) * (1.0f + 1.2f * t.bgP[3]);
         t.bgTop = ok(lt, bc, ch);
         t.bgBottom = ok(lb, bc * 1.1f, avoidMud(ch + turn, lb));
         // Glows, clouds and particles are colored, not light: a light glow would haze the whole scene.
-        t.bgGlow = ok(0.58f, 0.17f, avoidMud(ch - 0.5f, 0.58f));
-        t.accent = ok(0.9f, 0.08f, accentH);
-        t.text = ok(0.97f, 0.02f, h);
-        t.partA = ok(0.8f, 0.13f, ch + 0.3f);
-        t.partB = ok(0.76f, 0.16f, ch - 0.7f);
-        t.partC = ok(0.86f, 0.09f, ch + 1.2f);
+        t.bgGlow = ok(0.72f, 0.3f, avoidMud(ch - 0.5f, 0.72f));
+        t.accent = ok(0.92f, 0.1f, accentH);
+        t.text = ok(0.98f, 0.02f, h);
+        t.partA = ok(0.88f, 0.16f, ch + 0.3f);
+        t.partB = ok(0.84f, 0.2f, ch - 0.9f);
+        t.partC = ok(0.93f, 0.1f, ch + 1.6f);
         t.pale = 0.25f; // dusk's blending (a dark board well); a lower emissive keeps blocks from washing out
     } else if (mood == 1) {
         float lt = 0.26f + t.bgP[0] * 0.1f, lb = 0.42f + t.bgP[1] * 0.14f;
@@ -577,7 +579,7 @@ Theme buildTheme(const SceneId& id) {
     t.chroma = r.chance(0.35f) ? r.range(0.0003f, 0.0011f) : 0.f;
     t.grain = r.range(0.01f, 0.05f);
     t.exposure = r.range(0.95f, 1.15f);
-    t.saturation = r.range(0.95f, 1.15f);
+    t.saturation = mood == 3 ? r.range(1.1f, 1.25f) : r.range(0.95f, 1.15f);
     t.scanlines = r.chance(0.08f) ? r.range(0.03f, 0.07f) : 0.f;
     t.beatPulse = r.range(0.5f, 0.9f) * 0.8f;
     t.bassReact = r.range(0.3f, 1.0f);
