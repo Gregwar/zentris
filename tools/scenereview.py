@@ -32,6 +32,7 @@ Commands:
   suggest --code CODE --branch BRANCH --after-bin ZENSCENE --title TEXT --message TEXT [--section --level --size]
       Opens a suggestion: the scene rendered with main's build/zenscene (before) and with the branch's zenscene
       (after). Replies to it re-render "after" with the branch's binary and bring it back to "suggestions".
+      --before-image / --after-image PNG replace the renders (for what zenscene can't show, like the game's HUD).
   suggestions
       Prints the open suggestions (key, status, branch, title), to avoid proposing the same thing twice.
   resolve KEY
@@ -345,6 +346,11 @@ def cmd_suggest(args):
     info_after = run_snapshot(after_cmd)
     if not info or not info_after:
         sys.exit("could not render the scene")
+    # Shots zenscene can't make (e.g. the game's HUD): given images replace the renders.
+    for src, dst in ((args.before_image, tmp_before), (args.after_image, tmp_after)):
+        if src:
+            with open(src, "rb") as a, open(dst, "wb") as b:
+                b.write(a.read())
     with threads_locked() as threads:
         jsonl = os.path.join(folder, "scenes.jsonl")
         sid = sum(1 for line in open(jsonl) if line.strip()) if os.path.exists(jsonl) else 0
@@ -688,6 +694,8 @@ def main():
     sg.add_argument("--section", default="VERSE")
     sg.add_argument("--level", type=int, default=1, choices=[0, 1, 2])
     sg.add_argument("--size", default="1280x720")
+    sg.add_argument("--before-image", help="use this PNG as the before snapshot (e.g. a zentris shot with the HUD)")
+    sg.add_argument("--after-image", help="use this PNG as the after snapshot")
     sub.add_parser("suggestions", help="list the suggestions")
     rs = sub.add_parser("resolve", help="close a merged or dropped suggestion")
     rs.add_argument("key")
