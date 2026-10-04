@@ -63,6 +63,12 @@ Other options: `--in-order` (play songs in order: folders alphabetically, playli
 `--clip OUT.mp4` (records a video with sound, via ffmpeg, from 4 s before the first drop of the song to 6 s after it,
 with the game played at a calm pace; `--clip-before` / `--clip-after SEC` change the span).
 
+`tools/scenereview.py` reviews scenes: `generate` renders 100 random scenes (each made for a downloaded song, at a
+calm, mid or peak part of it, with a filled board; `zentris --review-shot OUT.png` makes one), and `serve [--lan]`
+opens a dashboard, on a computer or a phone, to skip scenes or comment on them. Comments become threads that
+`pending` / `watch` hand to whoever processes them, and `reply` answers one with before/after snapshots to accept
+or discuss further.
+
 `tools/promo.py [OUT.mp4]` makes a promo video: 5 random songs of the default playlist, each recorded around its
 first drop in a random scene, stitched with crossfades (`--songs N`, `--before`, `--after`, `--fade`, `--size`).
 
