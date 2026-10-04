@@ -1,6 +1,9 @@
 #include "theme.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 
 namespace {
@@ -241,10 +244,78 @@ float meshExponent(int mesh, float roundness) {
     }
 }
 
-Theme generateTheme(const Footprint& fp, uint64_t seed) {
+// The footprint fields a scene uses, quantized so that its scene code can carry them (an empty footprint,
+// the loading scene's, is kept as is: its codes end with 'g').
+static Footprint sceneFootprint(const Footprint& f) {
+    if (!f.hash) return Footprint{};
+    Footprint q;
+    q.bpm = (float)std::clamp((int)std::lround(f.bpm), 40, 295);
+    q.key = std::clamp(f.key, 0, 11);
+    q.minor = f.minor;
+    auto n = [](float x) { return (float)std::lround(saturate(x) * 15.f) / 15.f; };
+    q.brightness = n(f.brightness);
+    q.bassWeight = n(f.bassWeight);
+    q.airWeight = n(f.airWeight);
+    q.dynamics = n(f.dynamics);
+    q.density = n(f.density);
+    return q;
+}
+
+static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic);
+
+// The song's hash is folded into the seed (unchanged for an empty footprint), so the code needs only the seed
+// and the quantized footprint to give back the same scene, with any song.
+Theme generateTheme(const Footprint& song, uint64_t seed) {
+    return generateFrom(sceneFootprint(song), seed ^ splitmix64(song.hash) ^ splitmix64(0), !song.hash);
+}
+
+Theme themeFromCode(const std::string& code, bool* ok) {
+    std::string c = code;
+    const bool generic = !c.empty() && (c.back() == 'g' || c.back() == 'G');
+    if (generic) c.pop_back();
+    const size_t dash = c.find('-');
+    char* end = nullptr;
+    const uint64_t seed = std::strtoull(c.substr(0, dash).c_str(), &end, 16);
+    bool valid = end && *end == 0 && dash != 0;
+    Footprint fp;
+    if (!generic) {
+        // seed-BBKMbadyd: bpm-40, key, minor, then brightness, bass, air, dynamics, density in 15ths.
+        auto hex = [&](size_t i) {
+            const char ch = (char)std::tolower(i < c.size() ? c[i] : 'x');
+            if (ch >= '0' && ch <= '9') return ch - '0';
+            if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+            valid = false;
+            return 0;
+        };
+        const size_t p = dash + 1;
+        valid = valid && dash != std::string::npos && c.size() == p + 9;
+        fp.bpm = (float)(40 + hex(p) * 16 + hex(p + 1));
+        fp.key = std::min(hex(p + 2), 11);
+        fp.minor = hex(p + 3) != 0;
+        float* f[5] = {&fp.brightness, &fp.bassWeight, &fp.airWeight, &fp.dynamics, &fp.density};
+        for (int k = 0; k < 5; k++) *f[k] = (float)hex(p + 4 + k) / 15.f;
+    } else {
+        valid = valid && dash == std::string::npos;
+    }
+    if (ok) *ok = valid;
+    return generateFrom(fp, seed, generic);
+}
+
+static Theme generateFrom(const Footprint& fp, uint64_t seed, bool generic) {
     Theme t;
     t.seed = seed;
-    Rng r(seed ^ splitmix64(fp.hash));
+    {
+        char b[48];
+        if (generic)
+            std::snprintf(b, sizeof(b), "%llxg", (unsigned long long)seed);
+        else
+            std::snprintf(b, sizeof(b), "%llx-%02x%x%x%x%x%x%x%x", (unsigned long long)seed, (int)fp.bpm - 40, fp.key,
+                          fp.minor ? 1 : 0, (int)std::lround(fp.brightness * 15), (int)std::lround(fp.bassWeight * 15),
+                          (int)std::lround(fp.airWeight * 15), (int)std::lround(fp.dynamics * 15),
+                          (int)std::lround(fp.density * 15));
+        t.code = b;
+    }
+    Rng r(seed ^ splitmix64(0));
     const float bpmN = saturate((fp.bpm - 70.f) / 90.f); // 0 slow .. 1 fast
 
     // ---- Palette: key on the circle of fifths gives the base hue (synesthetic mapping).

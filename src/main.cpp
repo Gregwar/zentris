@@ -66,7 +66,7 @@ private:
     void newScene(float seconds);
     void computePhases();
     Theme phaseTheme(int phase) const;
-    void makeBaseTheme(const Footprint& fp, uint64_t seed, bool generic);
+    void makeBaseTheme(const Footprint& fp, uint64_t seed);
     std::string sceneCode() const;
     double firstDropTime() const;
     void printScene() const;
@@ -85,7 +85,6 @@ private:
     Renderer R_;
     uint64_t runSeed_ = 0;
     double clipStart_ = -1; // song time where the --clip recording starts
-    bool baseGeneric_ = false; // base scene made without a song footprint (the loading scene)
     uint64_t sceneCounter_ = 0;
     std::shared_ptr<Track> track_, nextTrack_;
     Theme baseTheme_;
@@ -144,12 +143,9 @@ void App::startTrack(std::shared_ptr<Track> t) {
     if (first) {
         // The scene shown (paused) while the first song loaded becomes its scene: it just starts.
         lastPhase_ = plan_.phaseAt(0.0);
-        if (!opt_.scene.empty()) { // a forced scene needs the song's footprint (unless it is a 'g' code)
-            makeBaseTheme(track_->analysis.fp, 0, false);
-            R_.setTheme(phaseTheme(lastPhase_), 0.01f);
-        }
+        if (!opt_.scene.empty()) R_.setTheme(phaseTheme(lastPhase_), 0.01f); // the forced scene, at the song's level
     } else {
-        makeBaseTheme(track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_), false);
+        makeBaseTheme(track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_));
         R_.setTheme(phaseTheme(0), 3.5f, true, 0.f, pickWipe(3));
     }
     sceneNameTimer_ = 8.f;
@@ -162,24 +158,22 @@ void App::newScene(float seconds) {
     Footprint fp = track_ ? track_->analysis.fp : Footprint{};
     // A new random scene, even with --scene (Y is how to leave the forced one).
     baseTheme_ = generateTheme(fp, runSeed_ ^ splitmix64(sceneCounter_ * 0x51ed27ull));
-    baseGeneric_ = !track_;
     R_.setTheme(phaseTheme(lastPhase_), seconds, true, 0.f, pickWipe(3));
     sceneNameTimer_ = 6.f;
     printScene();
 }
 
-// Scenes depend on a seed and on the song's footprint. --scene CODE replaces the seed; a trailing 'g' marks
-// a scene made without a footprint (the loading scene, kept as the first song's scene), so the code always
-// gives back the same scene for the same song.
-void App::makeBaseTheme(const Footprint& fp, uint64_t seed, bool generic) {
+// Scenes depend on a seed and on the song's footprint; their code carries both, so --scene CODE gives back
+// the same scene whatever the song.
+void App::makeBaseTheme(const Footprint& fp, uint64_t seed) {
     if (!opt_.scene.empty()) {
-        std::string code = opt_.scene;
-        generic = !code.empty() && (code.back() == 'g' || code.back() == 'G');
-        if (generic) code.pop_back();
-        seed = std::strtoull(code.c_str(), nullptr, 16);
+        bool ok = false;
+        baseTheme_ = themeFromCode(opt_.scene, &ok);
+        if (ok) return;
+        std::fprintf(stderr, "[app] bad scene code '%s', using a random scene\n", opt_.scene.c_str());
+        opt_.scene.clear();
     }
-    baseGeneric_ = generic;
-    baseTheme_ = generateTheme(generic ? Footprint{} : fp, seed);
+    baseTheme_ = generateTheme(fp, seed);
 }
 
 // Prints the scene and the command line that shows it again (same scene code, same song).
@@ -199,9 +193,7 @@ double App::firstDropTime() const {
 }
 
 std::string App::sceneCode() const {
-    char b[24];
-    std::snprintf(b, sizeof(b), "%llx%s", (unsigned long long)baseTheme_.seed, baseGeneric_ ? "g" : "");
-    return b;
+    return baseTheme_.code;
 }
 
 void App::computePhases() {
@@ -512,7 +504,7 @@ int App::run() {
 
     game_.reset(runSeed_);
     wipeRng_ = Rng(runSeed_ ^ 0x77195EEDull);
-    makeBaseTheme(Footprint{}, runSeed_, true);
+    makeBaseTheme(Footprint{}, runSeed_);
     R_.setTheme(baseTheme_, 0.01f);
 
     double last = glfwGetTime();

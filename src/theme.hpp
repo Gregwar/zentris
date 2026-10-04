@@ -113,9 +113,12 @@ struct Theme {
     float hueShift = 0.f;   // hue offset currently applied by resolvePalette
 
     std::string name;
+    std::string code; // scene code: themeFromCode(code) gives this scene back, whatever the song
 };
 
 Theme generateTheme(const Footprint& fp, uint64_t seed);
+// The scene of a scene code (as shown in the corner); *ok is false if the code is malformed.
+Theme themeFromCode(const std::string& code, bool* ok = nullptr);
 float meshExponent(int mesh, float roundness);
 // Variant of a song's base theme for an intensity level (0 calm, 1 mid, 2 peak). The song's identity
 // (background, main particles, blocks, frame, mood) is preserved; only color, glow and extras change.
