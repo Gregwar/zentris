@@ -293,14 +293,7 @@ int App::pickWipe(int kind) {
     for (int p : {WIPE_SPIRAL, WIPE_DIAMOND, WIPE_RISE_WAVE, WIPE_FALL_WAVE, WIPE_BLINDS, WIPE_COLUMNS, WIPE_PETALS,
                   WIPE_CROSS, WIPE_SALTIRE, WIPE_CHECKER})
         w[p] = 0.f;
-    const int shape = wipeRng_.weighted(w);
-    // DEBUG (to remove): which transition plays.
-    static const char* names[WIPE_COUNT] = {"RADIAL", "RISE", "FALL", "LEFT", "RIGHT", "INWARD", "CURTAINS",
-        "DISSOLVE", "DIAGONAL", "SPIRAL", "DIAMOND", "RISE WAVE", "FALL WAVE", "BLINDS", "COLUMNS", "PETALS",
-        "CROSS", "SALTIRE", "CHECKER", "CORNER", "SPLIT", "GRAIN", "CLOUD RISE", "CLOUD OPEN", "SMOKE"};
-    static const char* kinds[4] = {"rising", "falling", "refresh", "scene change"};
-    std::printf("[debug] transition: %s (%s)\n", names[shape], kinds[std::clamp(kind, 0, 3)]);
-    return shape;
+    return wipeRng_.weighted(w);
 }
 
 void App::toggleFullscreen() {
