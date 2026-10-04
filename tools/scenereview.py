@@ -301,6 +301,11 @@ def cmd_reply(args):
     # A suggestion always compares main (the original snapshot) with its branch.
     before = s["image"] if suggestion else next((m["after"] for m in reversed(t["messages"]) if m.get("after")), s["image"])
     after = None
+    if args.before_image:  # e.g. a contact sheet of several scenes, paired with --image
+        before = f"after/scene{s['id']:03d}-r{len(t['messages'])}-before.png"
+        os.makedirs(os.path.join(folder, "after"), exist_ok=True)
+        with open(args.before_image, "rb") as src, open(os.path.join(folder, before), "wb") as dst:
+            dst.write(src.read())
     if args.image:
         after = f"scene{s['id']:03d}-r{len(t['messages'])}.png"
         os.makedirs(os.path.join(folder, "after"), exist_ok=True)
@@ -701,6 +706,7 @@ def main():
     r.add_argument("--message", required=True)
     r.add_argument("--no-render", action="store_true", help="answer without a new snapshot")
     r.add_argument("--image", help="use this PNG as the after snapshot")
+    r.add_argument("--before-image", help="use this PNG as the before snapshot")
     sg = sub.add_parser("suggest", help="open a suggestion (a branch's change, before/after)")
     sg.add_argument("--code", required=True)
     sg.add_argument("--branch", required=True)
