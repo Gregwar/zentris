@@ -2776,9 +2776,10 @@ vec4 shade(int style, vec3 col) {
         float wall = (1.0 - smoothstep(R - fw, R + fw, r)) * (1.0 - top);
         float side = r > 1e-3 ? dot(uv / r, ld) : 0.0;
         float shadow = (1.0 - smoothstep(R - 0.04, R + 0.08, length(uv + ld * 0.1))) * smoothstep(R - fw, R + fw, r);
-        float lit = 1.0 + top * 0.08 + wall * side * 0.3 - shadow * 0.22;
+        // Strong relief: a lit top, a wall bright on the light side and dark on the other, a clear cast shadow.
+        float lit = 1.0 + top * 0.14 + wall * side * 0.65 - shadow * 0.45;
         rgb = col * (0.36 + 0.54 * lam) * lit + col * 0.1 * em
-            + mix(col, vec3(1.0), 0.6) * (specOf(gN, 30.0) * 0.3 + wall * max(side, 0.0) * 0.12);
+            + mix(col, vec3(1.0), 0.6) * (specOf(gN, 30.0) * 0.3 + wall * max(side, 0.0) * 0.3);
     } else if (style == 39) { // carbon fiber: 2x2 twill weave, subtle sheen alternating with the tow direction
         vec2 q = (gFP * 0.5 + 0.5) * 6.0;
         vec2 cell = floor(q), f = fract(q);
