@@ -845,9 +845,11 @@ void Renderer::collectBoard(const Game& g, const MusicState& music, double time,
                 if (a > 0) sc = vec3(1.f - 0.35f * std::exp(-5.f * k) * std::cos(k * 15.f));
                 fl = 0.4f * a * a;
                 break;
-            case LE_PRESS: // pressed into the board, then back
-                dp.z = -0.6f * a * a;
-                sc = vec3(1.f - 0.1f * a);
+            case LE_PRESS: // pressed into the board, then back (only from a hard drop, like BOUNCE)
+                if (c.dropped) {
+                    dp.z = -0.6f * a * a;
+                    sc = vec3(1.f - 0.1f * a);
+                }
                 fl = 0.7f * a * a;
                 break;
             case LE_TWINKLE: { // each cell flashes once, at its own moment
