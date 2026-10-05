@@ -2539,6 +2539,10 @@ vec4 shade(int style, vec3 col) {
         rgb = col * mix(0.2 + 0.25 * lam + 0.15 * n, 0.7 + 0.25 * lam + 0.12 * n, uPale) + col * edgeGlow * em * 0.7
             + mix(col, vec3(1.0), 0.3) * spec * 0.2;
         a = mix(mix(0.55, 0.88, uPale), 1.0, edge);
+        // Pale: still see-through enough to wash out, and with no edge the blocks merged into one slab.
+        // A fuller frost and a darker rim.
+        a = mix(a, mix(0.95, 1.0, edge), uPale);
+        rgb *= 1.0 - 0.4 * edge * uPale;
     } else if (style == 14) { // checker
         vec2 c = floor((uv * 0.5 + 0.5) * 2.0);
         float t = mod(c.x + c.y, 2.0);
