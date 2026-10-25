@@ -93,7 +93,7 @@ vec3 bridgeMix(vec3 a, vec3 b, float m) {
 // The front: a glow in the incoming universe's accent when it's dark, an ink line when it's light.
 vec3 front(vec3 col, float s) {
     s = clamp(s, 0.0, 1.5);
-    vec3 glow = mix(uAccB, uAccA, 0.3) * (1.2 + 0.8 * uKick) + vec3(0.25) * s;
+    vec3 glow = mix(uAccB, uAccA, 0.3) * (0.55 + 0.45 * uKick) + vec3(0.12) * s;
     vec3 lit = col + glow * s;
     vec3 inked = mix(col, uInkB, clamp(s, 0.0, 1.0) * 0.45);
     return mix(lit, inked, uLightB);
@@ -151,7 +151,7 @@ vec3 compose(vec2 px) {
     float r = length(e);
     float maxR = length(vec2(uRes.x, uRes.y) * 0.5 / uRes.y / vec2(boardSize().x / boardSize().y, 1.0)) + 0.05;
     float R = mix(-0.08, maxR + 0.08, uP);
-    float w = 0.06;
+    float w = 0.045;
     float ring = exp(-pow((r - R) / w, 2.0));
     vec2 dir = length(d) > 1e-4 ? normalize(d) : vec2(0.0);
     float amp = (0.018 + 0.012 * uKick) * uRes.y * (1.0 - uP * 0.5);
@@ -163,7 +163,7 @@ vec3 compose(vec2 px) {
     vec3 a = sampleA(px + off + off2), b = sampleB(px + off + off2);
     float m = smoothstep(R + w * 0.6, R - w * 0.6, r);
     vec3 col = bridgeMix(a, b, m);
-    return front(col, ring * 0.9 + echo * 0.5);
+    return front(col, ring * 0.7 + echo * 0.4);
 }
 )"},
     // INK: an organic dissolve spreading from the well, with fibrous edges (inked toward a light universe,
@@ -181,7 +181,7 @@ vec3 compose(vec2 px) {
     float edge = frontAt(T + 0.015, 0.03);
     // Wet halo: the incoming side darkens (or glows) a little just behind the edge.
     float halo = smoothstep(0.0, 0.08, uP - T) * (1.0 - smoothstep(0.08, 0.25, uP - T));
-    return front(col, edge * 1.1 + halo * 0.15);
+    return front(col, edge * 0.8 + halo * 0.12);
 }
 )"},
     // CURTAIN: the old world opens like curtains from the well's axis, gathered in folds at the edges.
@@ -213,10 +213,11 @@ vec3 compose(vec2 px) {
     {"LUMA", 0.8f, 0.8f, R"(
 vec3 compose(vec2 px) {
     vec3 a = sampleA(px), b = sampleB(px);
+    // Shades from both frames, slightly blurred by a coarse noise so the order reads as light, not as grain.
     float l = sqrt(clamp(0.5 * luma(a) + 0.5 * luma(b), 0.0, 1.0));
-    float T = 0.12 + 0.6 * l + 0.2 * clamp(boardDist(px) / maxBoardDist(), 0.0, 1.0);
-    T += 0.08 * (vnoise(px / uRes.y * 40.0 + uSeed) - 0.5);
-    float m = switchAt(T, 0.09);
+    float T = 0.08 + 0.45 * l + 0.3 * clamp(boardDist(px) / maxBoardDist(), 0.0, 1.0);
+    T += 0.14 * (fbm(px / uRes.y * 2.5 + uSeed) - 0.5);
+    float m = switchAt(T, 0.12);
     return front(bridgeMix(a, b, m), frontAt(T, 0.02) * 0.25);
 }
 )"},

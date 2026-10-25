@@ -213,7 +213,7 @@ void main() {
     col *= mix(glass, 1.0, uBridge);
     if (uBridge > 0.0) {
         // The bridge: the beams that are left (the well, the stack, the HUD) become ink on the bridge color.
-        float k = clamp((e.x + 0.5 * b.x + e.y) * 1.4, 0.0, 1.0);
+        float k = clamp(e.x * 1.1 + e.y * 0.5, 0.0, 1.0); // the lines themselves, not their bloom
         col = mix(col, mix(uBridgeColor, uBridgeInk, k), uBridge);
     }
     col *= uFade;
