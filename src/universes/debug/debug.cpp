@@ -89,6 +89,7 @@ public:
     }
     void setSong(const SongLook& look, float) override {
         var_ = look.variant >= 0 ? look.variant % 3 : (int)(splitmix64(look.seed) % 3);
+        if (look.variant < 0 && var_ == look.avoidVariant) var_ = (var_ + 1) % 3;
     }
     void setLevel(int level, float, float seconds, float) override {
         level_ = level;

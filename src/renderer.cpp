@@ -77,7 +77,9 @@ void Renderer::changeUniverse(int index, const SongLook& look, int level, float 
     level_ = level;
     energy_ = energy;
     next_ = Slot{};
-    next_ = make(index, look, level, energy);
+    SongLook l = look;
+    if (index == cur_.index && l.variant < 0) l.avoidVariant = cur_.u->variant(); // a universe following itself: another variant
+    next_ = make(index, l, level, energy);
     want_ = c;
     changes_++;
     const TransitionHints a = cur_.u->hints(), b = next_.u->hints();

@@ -67,6 +67,7 @@ struct SongLook {
     float bpm = 120.f;
     float brightness = 0.5f, bassWeight = 0.5f, airWeight = 0.5f, dynamics = 0.5f, density = 0.5f;
     int variant = -1;       // forced variant index (--universe NAME:VARIANT), -1: the universe picks one
+    int avoidVariant = -1;  // a variant not to pick (the one on screen when a universe follows itself), -1: none
 };
 SongLook makeSongLook(const Footprint* fp, uint64_t seed); // fp null: no song (loading)
 

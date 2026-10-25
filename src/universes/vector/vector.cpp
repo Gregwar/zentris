@@ -242,7 +242,8 @@ namespace {
 int phosphorFor(const SongLook& l) {
     if (l.variant >= 0) return l.variant % 4;
     int idx = ((int)std::lround(l.hue / TAU * 24.f) % 24 + 24) % 24;
-    return ((idx + 3) / 6) % 4;
+    const int p = ((idx + 3) / 6) % 4;
+    return p == l.avoidVariant ? (p + 1 + (int)(l.seed % 3)) % 4 : p;
 }
 } // namespace
 

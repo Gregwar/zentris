@@ -213,7 +213,8 @@ the stack turns plain, in their own tones; so the two halves meet in a neutral s
    and draws the whole frame into the framebuffer `render` is given (not necessarily the window: during a
    transition it is a texture): world, well, stack, piece, ghost, previews, bonus gauge, effects, and the HUD text
    (`Frame::hud`, `Frame::panels`) in its own typography (`ugl::hudLeft` resolves the alignment). `setSong` picks
-   the variant (`look.variant >= 0` forces it); `setLevel` stages calm / mid / peak with its own in-universe change;
+   the variant (`look.variant >= 0` forces it; avoid `look.avoidVariant`, the one on screen when the universe
+   follows itself); `setLevel` stages calm / mid / peak with its own in-universe change;
    `refresh`, `onEvent` (locks, hard drops, clears, Tetris, top out), `setBonus` (slow motion), `levelUp` and
    `Frame::music` (beat phase, beat grid, kick, bands) make it react. `Frame::dim` / `paused` / `fade` dim it.
 4. **Layout contract** (`src/layout.hpp`): the well's cells lie on the plane z = 0 of board space (one unit per
