@@ -71,7 +71,7 @@ missing from it still works with a generic layout.
 | Rotate | ↑ or X (Z or J to rotate left) | A (B/X to rotate left) |
 | Hold | C / Shift (tap) | LB / RB |
 | Slow motion (when the gauge is full) | V / E | ZL / ZR (LT / RT) |
-| Next universe | T | Y |
+| Next universe (with `--universe`: its next variant, a new seed) | T | Y |
 | Next song | N / Tab / Enter / PageDown | Back |
 | Seek ±10 s in the song (testing) | Ctrl+Shift+Left/Right | |
 | Next level (debugging) | L | |

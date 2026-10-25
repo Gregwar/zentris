@@ -201,12 +201,21 @@ void App::changeUniverse(int index, int variant, transitions::Reason why, bool i
     R_.changeUniverse(index, l, lv, en, c);
 }
 
-// T / Y: the next universe, with a transition (and the forced universe, if any, is left).
+// T / Y: the next universe, with a transition. With --universe the universe stays locked: T moves on to its next
+// variant (or, with a forced variant, just a new seed) so its configurations can be tested one after the other.
 void App::newScene(bool instant) {
     sceneCounter_++;
-    forcedUniverse_ = forcedVariant_ = -1;
     look_.seed = splitmix64(look_.seed ^ sceneCounter_);
-    changeUniverse(universes::next(R_.universe()), -1, transitions::NEW_SCENE, instant);
+    if (forcedUniverse_ >= 0) {
+        int variant = forcedVariant_;
+        if (variant < 0) {
+            const int n = std::max<int>(1, (int)universes::entry(forcedUniverse_).variants.size());
+            variant = (R_.variant() + 1) % n;
+        }
+        changeUniverse(forcedUniverse_, variant, transitions::NEW_SCENE, instant);
+    } else {
+        changeUniverse(universes::next(R_.universe()), -1, transitions::NEW_SCENE, instant);
+    }
     sceneNameTimer_ = 6.f;
     printScene();
 }
