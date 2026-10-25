@@ -502,33 +502,29 @@ void SmokeUniverse::puff(vec2 p, vec2 v, float r, float grow, float life, float 
 void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
     case GameEvent::Lock: {
-        // A little smoke breathed out from under the piece, to both sides.
+        // One soft, flat layer of smoke pushed out from under the piece, spreading along the stack.
+        if (ev.cells.empty()) break;
+        float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f;
         for (auto& q : ev.cells) {
-            bool under = false;
-            for (auto& o : ev.cells)
-                if (o.x == q.x && o.y == q.y + 1) under = true;
-            if (under) continue;
             const vec3 p = layout::cellPos((float)q.x, (float)q.y);
-            for (int s = -1; s <= 1; s += 2)
-                puff(v2(p.x + 0.35f * s, p.y - 0.45f), v2(0.55f * s + rng_.range(-0.15f, 0.15f), rng_.range(0.05f, 0.2f)),
-                     0.32f, 1.2f, rng_.range(0.9f, 1.3f), 0.32f);
+            x0 = std::min(x0, p.x); x1 = std::max(x1, p.x); y0 = std::min(y0, p.y);
         }
+        const float hw = 0.5f * (x1 - x0) + 0.6f;
+        puff(v2(0.5f * (x0 + x1), y0 - 0.4f), v2(0.f, 0.08f), hw, 0.9f, 1.4f, 0.26f, 0.f, 0.32f / hw);
         break;
     }
     case GameEvent::HardDrop: {
         if (ev.count < 2) break;
-        // the smoke drawn down in the piece's wake
+        // one long soft wake where the piece fell, drawn down after it
+        float x0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
         for (auto& q : ev.cells) {
-            bool top = true;
-            for (auto& o : ev.cells)
-                if (o.x == q.x && o.y < q.y) top = false;
-            if (!top) continue;
             const vec3 p = layout::cellPos((float)q.x, (float)q.y);
-            const int n = std::min(ev.count, 8);
-            for (int k = 1; k <= n; k += 2)
-                puff(v2(p.x + rng_.range(-0.2f, 0.2f), p.y + 0.4f + k), v2(rng_.range(-0.15f, 0.15f), -0.6f), 0.3f, 0.6f,
-                     0.7f, 0.16f * (1.f - k / (float)(n + 2)), 0.02f * k, 1.6f);
+            x0 = std::min(x0, p.x); x1 = std::max(x1, p.x); y1 = std::max(y1, p.y);
         }
+        const float len = (float)std::min(ev.count, 10);
+        const float hw = 0.5f * (x1 - x0) + 0.35f;
+        puff(v2(0.5f * (x0 + x1), y1 + 0.5f + 0.5f * len), v2(0.f, -0.5f), hw, 0.5f, 0.8f, 0.14f, 0.f,
+             (0.5f * len + 0.3f) / hw);
         break;
     }
     case GameEvent::Clear: {
@@ -549,10 +545,11 @@ void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
             d.delay = along * 0.03f + rng_.range(0.f, 0.03f);
             d.seed = rng_.uniform();
             dying_.push_back(d);
-            puff(v2(p.x + rng_.range(-0.25f, 0.25f), p.y + 0.3f), v2(rng_.range(-0.2f, 0.2f), rng_.range(0.9f, 1.6f)),
-                 0.42f, 1.4f, rng_.range(2.0f, 2.8f), tetris ? 0.5f : 0.42f, d.delay + 0.12f, 1.9f, 0);
         }
         for (int i = 0; i < nr; i++) sweeps_.push_back({rows[i], -0.03f * i, dir});
+        // the row burns off into one sheet of smoke curling up through the beam
+        for (int i = 0; i < nr; i++)
+            puff(v2(0.f, rows[i] + 0.3f), v2(0.f, 1.1f), 5.4f, 0.35f, 2.4f, tetris ? 0.4f : 0.32f, 0.15f + 0.04f * i, 0.16f);
         if (tetris) {
             // a smoke ring rolls up out of the well, the smoke is blown outward, the light opens
             puff(v2(0.f, rows[0] + 2.f), v2(0.f, 5.5f), 2.2f, 1.3f, 4.5f, 0.85f, 0.2f, 1.f, 1);

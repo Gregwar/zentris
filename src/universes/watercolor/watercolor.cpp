@@ -533,7 +533,7 @@ void WatercolorUniverse::onEvent(const GameEvent& ev, const Game&) {
             Lifted l;
             l.x = p.x; l.y = p.y; l.t = 0.f; l.type = std::clamp(c.type, 0, 6);
             const float along = dir > 0.f ? (float)c.x : (float)(Game::W - 1 - c.x);
-            l.delay = along * 0.035f;
+            l.delay = along * 0.018f;
             lifted_.push_back(l);
             if (std::find(rows.begin(), rows.end(), c.y) == rows.end()) rows.push_back(c.y);
         }
@@ -621,9 +621,9 @@ void WatercolorUniverse::simulate(const Game& game, const MusicState& music, flo
 
     // Effects age.
     for (auto& l : lifted_) l.t += wdt;
-    lifted_.erase(std::remove_if(lifted_.begin(), lifted_.end(), [](const Lifted& l) { return l.t > l.delay + 1.6f; }), lifted_.end());
+    lifted_.erase(std::remove_if(lifted_.begin(), lifted_.end(), [](const Lifted& l) { return l.t > l.delay + 0.6f; }), lifted_.end());
     for (auto& s : strokes_) s.t += wdt;
-    strokes_.erase(std::remove_if(strokes_.begin(), strokes_.end(), [](const Stroke& s) { return s.t > 3.5f; }), strokes_.end());
+    strokes_.erase(std::remove_if(strokes_.begin(), strokes_.end(), [](const Stroke& s) { return s.t > 0.9f; }), strokes_.end());
     for (auto& r : running_) r.t += dt;
     running_.erase(std::remove_if(running_.begin(), running_.end(), [](const Running& r) { return r.t > r.delay + 3.2f; }), running_.end());
     for (auto& b : blooms_) b.t += wdt;
@@ -682,13 +682,13 @@ void WatercolorUniverse::buildBoard(const Game& g) {
     // Cleared cells being lifted by the brush (each cell alone: the row's wash is broken by the stroke).
     for (const Lifted& l : lifted_) {
         const float t = l.t - l.delay;
-        const float k = saturate(t / 0.22f);
-        const float a = 1.f - smoothstepf(0.5f, 1.6f, t);
+        const float k = saturate(t / 0.14f);
+        const float a = 1.f - smoothstepf(0.15f, 0.6f, t);
         cell(l.x, l.y, 0.5f, 0, pieceK(l.type), a, 1, 0.f, (float)l.type * 1.7f, k, bodyCol(l.type), body);
     }
     // The tide marks of the lifting strokes.
     for (const Stroke& s : strokes_) {
-        const float a = smoothstepf(0.15f, 0.5f, s.t) * (1.f - smoothstepf(1.5f, 3.5f, s.t)) * 0.8f;
+        const float a = smoothstepf(0.05f, 0.2f, s.t) * (1.f - smoothstepf(0.35f, 0.9f, s.t)) * 0.5f;
         cell(0.f, s.y, 0.5f, 0, s.K, a, 5, 0.f, s.y * 0.37f + s.dir, (float)Game::W);
     }
     // Game over: the stack running down the tilted sheet.
