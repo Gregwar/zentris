@@ -148,6 +148,9 @@ public:
     // frame, viewer); else the universe performs its own in-universe transition, in about `seconds`. impact 0..1:
     // how strongly a rising change hits (1: into a drop).
     virtual void setLevel(int level, float energy, float seconds, float impact) = 0;
+    // The first downbeat of a drop (the song rises into a peak), on the beat itself (setLevel came ~0.5 s before):
+    // the universe's signature hit, 0..1. The peak that follows should stay alive and punchy with the music.
+    virtual void drop(float strength) { (void)strength; }
     // A new section inside the same level (chorus -> chorus...), or a level up: a light refresh, 0..1.
     virtual void refresh(float strength) { (void)strength; }
     virtual void onEvent(const GameEvent& ev, const Game& game) = 0;

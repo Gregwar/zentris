@@ -149,12 +149,14 @@ void SceneViewer::change(int row, int dir) {
         const bool rising = lv[section_] > level_;
         level_ = lv[section_];
         R_.setLevel(level_, levelEnergy(level_), rising ? 1.8f : 4.5f, rising && level_ == 2 ? 1.f : 0.5f);
+        if (rising && level_ == 2) R_.drop(1.f);
         break;
     }
     case ROW_LEVEL: {
         const int old = level_;
         level_ = (level_ + dir + 3) % 3;
         R_.setLevel(level_, levelEnergy(level_), level_ > old ? 1.8f : 4.5f, level_ == 2 ? 1.f : 0.5f);
+        if (level_ == 2 && old < 2) R_.drop(1.f);
         break;
     }
     case ROW_TRANSITION:
@@ -365,6 +367,7 @@ void SceneViewer::onKey(int key, int action, int mods) {
     case GLFW_KEY_B: if (press) { game_.debugChargeBonus(); game_.activateBonus(); } break;
     case GLFW_KEY_X: if (press) tetris(); break;
     case GLFW_KEY_L: if (press) R_.levelUp(); break;
+    case GLFW_KEY_K: if (press) R_.drop(1.f); break;
     case GLFW_KEY_D:
         if (press) { typing_ = true; skipChar_ = true; } // the 'd' itself is not typed
         break;

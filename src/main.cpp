@@ -107,6 +107,7 @@ private:
     // Song phases: detected sections, with long sections split into sub-phases so the scene keeps evolving.
     SongPlan plan_;
     int lastPhase_ = 0;
+    double dropAt_ = -1; // song time of the next drop hit (the first downbeat of a peak), -1 none
     float skipToast_ = 0;
     float hit_ = 0;
     int lastSeg_ = 0;          // for soft refreshes between same-level sections
@@ -849,6 +850,7 @@ int App::run() {
                         lastPhase_ = nxt;
                         float impact = rising ? (to.level >= 2 ? 1.f : 0.5f) : 0.f;
                         R_.setLevel(to.level, to.energy, rising ? 1.8f : 4.5f, impact);
+                        dropAt_ = rising && to.level >= 2 ? to.start : -1.0;
                         // Optional (--universe-on-peak): a long song may also move to another universe when it
                         // rises into a peak, after a minute in the current one.
                         if (opt_.universeOnPeak && rising && to.level >= 2 && universeAge_ > 60.f && forcedUniverse_ < 0 &&
@@ -862,6 +864,14 @@ int App::run() {
                         std::printf("[app] scene level %d (%s, energy %.2f)%s\n", to.level, segmentName(sg.kind),
                                     sg.energy, rising ? " rising" : "");
                     }
+                }
+                // The drop hit, on the peak's first downbeat (a seek past it or back cancels it).
+                if (dropAt_ >= 0 && songTime_ >= dropAt_) {
+                    if (songTime_ - dropAt_ < 0.25) {
+                        R_.drop(1.f);
+                        std::printf("[app] drop\n");
+                    }
+                    dropAt_ = -1;
                 }
             }
         } else {
@@ -907,12 +917,14 @@ int App::run() {
             }
         }
         if (shotMode && !clipMode && track_) {
-            // Test hook: ZEN_FX=slow:N or tetris:N plays that special animation ZEN_FX_AT seconds before each shot.
+            // Test hook: ZEN_FX=slow:N, tetris:N or drop plays that special animation ZEN_FX_AT seconds before each shot.
             static const char* fxEnv = std::getenv("ZEN_FX");
             static const float fxAt = std::getenv("ZEN_FX_AT") ? (float)std::atof(std::getenv("ZEN_FX_AT")) : 6.f;
             if (fxEnv && shotSettle < 12.f - fxAt && shotSettle + dt >= 12.f - fxAt) {
                 int idx = std::atoi(std::strchr(fxEnv, ':') ? std::strchr(fxEnv, ':') + 1 : "0") + shotsTaken;
-                if (std::strncmp(fxEnv, "slow", 4) == 0) {
+                if (std::strncmp(fxEnv, "drop", 4) == 0) {
+                    R_.drop(1.f);
+                } else if (std::strncmp(fxEnv, "slow", 4) == 0) {
                     R_.forceFx(idx, -1);
                     game_.debugChargeBonus();
                 } else {

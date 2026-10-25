@@ -120,6 +120,7 @@ void Renderer::setLevel(int level, float energy, float seconds, float impact) {
     each([&](Universe& u) { u.setLevel(level, energy, seconds, impact); });
 }
 void Renderer::refresh(float strength) { each([&](Universe& u) { u.refresh(strength); }); }
+void Renderer::drop(float strength) { each([&](Universe& u) { u.drop(strength); }); }
 void Renderer::onEvent(const GameEvent& ev, const Game& game) { each([&](Universe& u) { u.onEvent(ev, game); }); }
 void Renderer::kick(float amount) { each([&](Universe& u) { u.kick(amount); }); }
 void Renderer::levelUp() { each([&](Universe& u) { u.levelUp(); }); }

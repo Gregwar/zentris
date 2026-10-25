@@ -48,6 +48,7 @@ public:
     // ---- Song phase and game, forwarded to the universe(s).
     void setLevel(int level, float energy, float seconds, float impact);
     void refresh(float strength);
+    void drop(float strength);
     void onEvent(const GameEvent& ev, const Game& game);
     void kick(float amount);
     void levelUp();
