@@ -211,7 +211,7 @@ std::vector<HudText> SceneViewer::buildHud() {
     std::vector<HudText> hud;
     std::vector<HudRect> panels;
     // Bottom left: the universe and its variant (the game shows them there too).
-    hud.push_back({R_.label(), 28 * s, h - 50.f * s, 1.3f * s, 0.6f});
+    hud.push_back({R_.label(), 28 * s, h - 50.f * s, 1.3f * s, 0.6f, false, false, HUD_UNIVERSE});
     if (R_.changing()) {
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%s %3.0f%%", R_.transitionName(), 100.f * R_.changeProgress());

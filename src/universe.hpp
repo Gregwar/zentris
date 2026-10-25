@@ -37,6 +37,18 @@ struct MusicState {
     bool hasSong = false;    // false while no song plays (no beat grid)
 };
 
+// What a HUD line is, so a universe can give each kind its own typography (letter spacing, weight, a word of its
+// own after the universe's name...). The text, anchor and size stay the host's (the layout contract).
+enum HudRole {
+    HUD_PLAIN,    // anything else (toasts, hints, menus)
+    HUD_TITLE,    // the song's title
+    HUD_INFO,     // tempo and key under the title
+    HUD_SECTION,  // the song section (VERSE, DROP...)
+    HUD_UNIVERSE, // "UNIVERSE · VARIANT"
+    HUD_LABEL,    // HOLD, NEXT, SCORE, LINES...
+    HUD_VALUE,    // the numbers under the labels
+};
+
 struct HudText {
     std::string text;
     float x, y;       // pixels (top-left origin); negative x = right aligned from the right edge
@@ -44,6 +56,7 @@ struct HudText {
     float alpha;
     bool accent = false;
     bool center = false;
+    HudRole role = HUD_PLAIN;
 };
 
 // A filled rectangle under the HUD text (pixels, top-left origin): the universe's backdrop tone (dark on dark

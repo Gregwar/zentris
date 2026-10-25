@@ -172,9 +172,13 @@ the intensity inside that world, never a different world.
 
 A universe is picked for each song from its footprint (each universe says how well it suits a song: tempo,
 brightness, density...) and the run's seed, never the same one twice in a row; `--universe` forces one, T / Y
-moves on to the next. Every universe ships a few curated **variants** (VECTOR: four phosphors, P1 green, P3 amber,
-P4 white, P22 rose), picked per song (VECTOR: from the key) or forced (`--universe VECTOR:AMBER`); the bottom-left
-corner shows `UNIVERSE · VARIANT`.
+moves on to the next. Every universe ships a few curated **variants**, picked per song or forced
+(`--universe VECTOR:AMBER`, `--universe SUMI:AIZOME`); the bottom-left corner shows `UNIVERSE · VARIANT`.
+
+- **VECTOR**: phosphor beams on a dark CRT. Four phosphors (P1 green, P3 amber, P4 white, P22 rose), from the key.
+- **SUMI**: ink on washi paper. Eight inks (SUMI & SHU, AIZOME & OCHRE, SEPIA & CELADON, MURASAKI & GOLD,
+  MATCHA & RUST, KAKI & CHARCOAL, and two lacquer negatives, URUSHI & SILVER and YORU & GOLD), from the key's hue
+  (night songs sometimes take a negative). Slow motion turns the print to its negative.
 
 ### Transitions between universes
 
@@ -212,7 +216,9 @@ the stack turns plain, in their own tones; so the two halves meet in a neutral s
 3. Implement the interface. The universe owns all its GL resources (created in `init`, freed in its destructor)
    and draws the whole frame into the framebuffer `render` is given (not necessarily the window: during a
    transition it is a texture): world, well, stack, piece, ghost, previews, bonus gauge, effects, and the HUD text
-   (`Frame::hud`, `Frame::panels`) in its own typography (`ugl::hudLeft` resolves the alignment). `setSong` picks
+   (`Frame::hud`, `Frame::panels`) in its own typography (`ugl::hudLeft` resolves the alignment; each line's
+   `HudRole` says what it is, so a universe can space, weigh or extend each kind its own way: SUMI adds the
+   level's name after its own). `setSong` picks
    the variant (`look.variant >= 0` forces it; avoid `look.avoidVariant`, the one on screen when the universe
    follows itself); `setLevel` stages calm / mid / peak with its own in-universe change;
    `refresh`, `onEvent` (locks, hard drops, clears, Tetris, top out), `setBonus` (slow motion), `levelUp` and
@@ -246,7 +252,7 @@ ideas for the end. Universes marked ✅ exist, the others are ideas waiting to b
 
 | # | Universe | Look | How the music plays it | Status |
 |---|---|---|---|---|
-| 1 | SUMI | Ink on washi paper, sumi black + one vermilion seal; brushed pieces told apart by ink treatment | Beats diffuse ink in the paper; calm = faint far mountain, peak = ensō brush circle and red sun; a clear is one brush stroke | in progress |
+| 1 | SUMI | Ink on washi paper, sumi black + one vermilion seal; brushed pieces told apart by ink treatment | Beats diffuse ink in the paper; calm = faint far mountain, peak = ensō brush circle and red sun; a clear is one brush stroke | ✅ |
 | 2 | VECTOR | Phosphor beams on black CRT glass, one phosphor per song, persistence trails; pieces are line glyphs | Calm = a lone oscilloscope trace; mid = scrolling vector grid; peak = spectrum mountains, Lissajous, beam overdrive; clears shatter into vector debris | ✅ |
 | 3 | DIORAMA | Sunlit clay miniature: the board on a floating island, soft shadows, tilt-shift | Phases are times of day (dawn, day, golden hour); kicks ripple the water; cleared blocks tumble into the sea; slow motion is a moonlit night | in progress |
 | 4 | PIXEL | Native 320×180 pixel art, 16-color palette, Bayer dithering, parallax layers | Sprites animate on the beat; peak adds parallax layers and weather; clears are pixel explosions | |
