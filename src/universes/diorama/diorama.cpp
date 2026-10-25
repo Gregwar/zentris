@@ -964,7 +964,7 @@ TransitionHints DioramaUniverse::hints() const {
         h.ink = hex(0xFFF9EF);
         h.light = false;
     }
-    h.styles = TS_TILES | TS_REBUILD | TS_RIPPLE;
+    h.styles = TS_REBUILD | TS_RIPPLE; // not TILES: scattered flipping cards over the island are too busy
     return h;
 }
 
@@ -1019,7 +1019,7 @@ void DioramaUniverse::splash(vec3 pos, float strength) {
     }
 }
 
-void DioramaUniverse::spawnBody(vec3 pos, int type, vec3 vel, float delay, float spin) {
+void DioramaUniverse::spawnBody(vec3 pos, int type, vec3 vel, float delay, float spin, float life) {
     if (bodies_.size() >= 400) return;
     Body b;
     b.pos = pos;
@@ -1028,7 +1028,8 @@ void DioramaUniverse::spawnBody(vec3 pos, int type, vec3 vel, float delay, float
     b.angle = 0;
     b.spin = spin;
     b.delay = delay;
-    b.life = 7.f;
+    b.life = life;
+    b.shrink = std::min(0.6f, life);
     b.scale = 1.f;
     b.type = type;
     b.wet = false;
@@ -1053,24 +1054,33 @@ void DioramaUniverse::onEvent(const GameEvent& ev, const Game& game) {
         bool dropped = false;
         for (auto& c : ev.cells)
             if (c.y >= 0 && c.y < Game::H && game.cell(c.x, c.y).dropped) dropped = true;
-        // A puff of dust where the piece settles (its bottom faces), bigger after a hard drop.
-        for (auto& c : ev.cells) {
-            if (inPiece(c.x, c.y + 1)) continue;
-            vec3 p = cellPos((float)c.x, (float)c.y) + vec3(0, -0.5f, 0.35f);
-            spawnDust(p, vec3(0, 0.15f, 0.4f), dropped ? 3 : 2, dropped ? 1.3f : 0.8f);
+        // One puff of dust pushed out from under the piece where it settles (along its bottom faces, outward
+        // from their middle), bigger after a hard drop.
+        std::vector<vec3> contact;
+        for (auto& c : ev.cells)
+            if (!inPiece(c.x, c.y + 1)) contact.push_back(cellPos((float)c.x, (float)c.y) + vec3(0, -0.5f, 0.35f));
+        if (contact.empty()) break;
+        float x0 = 1e9f, x1 = -1e9f, yb = 1e9f;
+        for (auto& p : contact) { x0 = std::min(x0, p.x - 0.5f); x1 = std::max(x1, p.x + 0.5f); yb = std::min(yb, p.y); }
+        const float xm = 0.5f * (x0 + x1);
+        const int n = dropped ? 7 : 4;
+        for (int i = 0; i < n; i++) {
+            // spread along the lowest contact, the outer grains pushed out the most
+            const float u = n > 1 ? (float)i / (n - 1) : 0.5f;
+            const float x = lerpf(x0 + 0.2f, x1 - 0.2f, u), side = (x - xm) / std::max(0.5f, 0.5f * (x1 - x0));
+            spawnDust(vec3(x, yb, 0.35f), vec3(side * 1.2f, 0.1f, 0.35f), 1, dropped ? 1.2f : 0.75f);
         }
         break;
     }
     case GameEvent::Clear: {
-        // Cleared blocks pop off the tower and tumble down: onto the island, into the sea.
+        // Cleared blocks pop off the tower toward the viewer and shrink away as they tumble (gone in ~0.5 s).
         const bool tetris = ev.count >= 4;
         for (auto& c : ev.cells) {
             vec3 p = cellPos((float)c.x, (float)c.y);
             float side = (c.x - 4.5f) / 4.5f;
             vec3 vel(side * rng_.range(2.0f, 3.6f) + rng_.range(-0.5f, 0.5f), rng_.range(4.5f, 7.5f) + (tetris ? 1.5f : 0.f),
                      rng_.range(4.f, 6.5f));
-            spawnBody(p, c.type, vel, std::fabs(c.x - 4.5f) * 0.03f + rng_.range(0.f, 0.04f), rng_.range(4.f, 10.f));
-            if ((c.x + c.y) % 2 == 0) spawnDust(p + vec3(0, -0.4f, 0.4f), vec3(side, 0.2f, 0.5f), 2, 0.9f);
+            spawnBody(p, c.type, vel, std::fabs(c.x - 4.5f) * 0.012f + rng_.range(0.f, 0.03f), rng_.range(4.f, 10.f), 0.45f);
         }
         rings_.push_back({0.f, 0.35f + 0.15f * ev.count});
         if (tetris) {
@@ -1078,7 +1088,7 @@ void DioramaUniverse::onEvent(const GameEvent& ev, const Game& game) {
             float yc = 0;
             for (auto& c : ev.cells) yc += cellPos(0, (float)c.y).y;
             yc /= (float)ev.cells.size();
-            for (int i = 0; i < 110 && parts_.size() < 3000; i++) {
+            for (int i = 0; i < 50 && parts_.size() < 3000; i++) {
                 Particle p;
                 p.kind = i % 3 == 0 ? 1 : 2;
                 p.pos = vec3(rng_.range(-4.5f, 4.5f), yc + rng_.range(-1.5f, 1.5f), rng_.range(0.3f, 1.2f));
@@ -1086,7 +1096,7 @@ void DioramaUniverse::onEvent(const GameEvent& ev, const Game& game) {
                 float sp = rng_.range(6.f, 13.f);
                 p.vel = vec3(std::cos(a) * sp * 0.9f, std::sin(a) * sp, rng_.range(1.f, 5.f));
                 p.color = p.kind == 1 ? lerp(env_.piece[i % 7], vec3(1.f, 0.92f, 0.94f), 0.55f) : env_.piece[i % 7];
-                p.maxLife = p.life = rng_.range(2.6f, 3.8f);
+                p.maxLife = p.life = rng_.range(1.1f, 1.7f);
                 p.size = p.kind == 1 ? rng_.range(0.2f, 0.28f) : rng_.range(0.13f, 0.19f);
                 p.rot = rng_.range(0.f, TAU);
                 p.rotV = rng_.range(-6.f, 6.f);
@@ -1109,7 +1119,7 @@ void DioramaUniverse::onEvent(const GameEvent& ev, const Game& game) {
         for (auto& c : ev.cells) {
             vec3 p = cellPos((float)c.x, (float)c.y);
             vec3 vel(rng_.range(-1.5f, 1.5f) + (c.x - 4.5f) * 0.35f, rng_.range(0.5f, 2.5f), rng_.range(2.5f, 4.8f));
-            spawnBody(p, c.type, vel, 0.25f + (c.y - topRow) * 0.075f + rng_.range(0.f, 0.12f), rng_.range(2.f, 6.f));
+            spawnBody(p, c.type, vel, 0.25f + (c.y - topRow) * 0.075f + rng_.range(0.f, 0.12f), rng_.range(2.f, 6.f), 7.f);
         }
         break;
     }
@@ -1252,7 +1262,7 @@ void DioramaUniverse::simulate(const Game& game, const MusicState& music, float 
             b.pos += b.vel * dt;
             b.angle += b.spin * 0.3f * dt;
         }
-        if (b.life < 0.6f) b.scale = std::max(0.f, b.life / 0.6f);
+        if (b.life < b.shrink) b.scale = std::max(0.f, b.life / b.shrink);
         if (b.life <= 0.f || b.pos.y < WATER_Y - 3.f) { b = bodies_.back(); bodies_.pop_back(); continue; }
         i++;
     }

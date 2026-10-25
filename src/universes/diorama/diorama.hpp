@@ -63,7 +63,7 @@ private:
     void spawnDust(vec3 pos, vec3 dir, int n, float strength);
     void splash(vec3 pos, float strength);
     void addRipple(float x, float z, float strength);
-    void spawnBody(vec3 pos, int type, vec3 vel, float delay, float spin);
+    void spawnBody(vec3 pos, int type, vec3 vel, float delay, float spin, float life);
     void startLight(float tod, int world, float seconds, float impact);
 
     int samples_ = 4;
@@ -110,7 +110,7 @@ private:
     float focus_ = 1.f;
 
     // Effects.
-    struct Body { vec3 pos, vel, axis; float angle, spin, delay, life, scale; int type; bool wet; vec3 color; };
+    struct Body { vec3 pos, vel, axis; float angle, spin, delay, life, shrink, scale; int type; bool wet; vec3 color; };
     std::vector<Body> bodies_;
     struct Particle { vec3 pos, vel, color; float life, maxLife, size, rot, rotV; int kind; float grav, drag, alpha; };
     std::vector<Particle> parts_;
