@@ -202,6 +202,18 @@ moves on to the next. Every universe ships a few curated **variants**, picked pe
   night, a tracking band, a VCR display), game over rewinds the tape, stops it, then static; it leaves and enters
   by a VHS tracking dissolve. Its HUD fonts are Audiowide and Mr Dafoe (SIL Open Font License,
   `src/universes/synthwave/OFL-*.txt`).
+- **CLOUDSCAPE**: above an endless sea of clouds, no ground, only sky: a ray-marched sea of cumulus tops fading
+  into the haze, the well and the HUD columns floating panes of frosted glass, the pieces glazed porcelain tiles
+  catching the sky's light. Eight skies (DAWN, AZURE NOON, GOLDEN HOUR, STORM VIOLET, POLAR NIGHT with aurora, ROSE
+  SUNSET, MONSOON, BLUE HOUR), from the key, mode, brightness and dynamics (`--universe cloudscape:storm`). Calm is a
+  still, hazy sea of clouds, mid drifts the clouds with the tempo (a glide on each beat) while flocks of birds cross
+  the distance flapping on the beat and gentle beams fall from the sun, peak raises the camera while towering cumulus
+  grow out of the sea, god rays stream through their gaps and the kicks light them from inside. A lock breathes a
+  puff of mist, a cleared row dissolves into mist drifting away on the wind, a Tetris parts the high veil and the sun
+  bursts through, slow motion is night above the clouds (the moon, stars, silver cloud tops), game over drops the
+  stack through the sea of clouds as the mist rises; it leaves and enters with the clouds closing in. The sky is drawn
+  at a reduced resolution (at most 540 lines), the rays at a quarter of that. Its HUD fonts are EB Garamond Italic
+  and Lato (SIL Open Font License, `src/universes/cloudscape/OFL-*.txt`).
 
 ### Transitions between universes
 
@@ -287,7 +299,7 @@ ideas for the end. Universes marked ✅ exist, the others are ideas waiting to b
 | 3 | DIORAMA | Sunlit clay miniature: the board on a floating island, soft shadows, tilt-shift | Phases are times of day (dawn, day, golden hour); kicks ripple the water; cleared blocks tumble into the sea; slow motion is a moonlit night | ✅ |
 | 4 | PIXEL | Native 320×180 pixel art, 16-color palette, Bayer dithering, parallax layers | Sprites animate on the beat; peak adds parallax layers and weather; clears are pixel explosions | ✅ |
 | 5 | SYNTHWAVE | Sunset grid, chrome letters, palm silhouettes, gradient sun | The sun's bands breathe; the grid speed follows the tempo; peak = car lights racing to the horizon | ✅ |
-| 6 | CLOUDSCAPE | Above the clouds, volumetric light, endless sky | Calm = still dawn sea of clouds; peak = towering cumulus and sun rays; clears drift away as mist | |
+| 6 | CLOUDSCAPE | Above the clouds, volumetric light, endless sky | Calm = still dawn sea of clouds; peak = towering cumulus and sun rays; clears drift away as mist | ✅ |
 | 7 | ABYSS | Deep-sea darkness, bioluminescent jelly pieces, marine snow | Creatures pulse their light with the beat; peak brings a giant glowing whale passing by; clears burst into plankton sparks | |
 | 8 | POLAR NIGHT | Snowfield under the stars, aurora ribbons | Aurora ribbons follow the frequency bands; peak fills the sky; clears turn to powder snow | |
 | 9 | WATERCOLOR | Wet watercolor on cold-press paper, pigment granulation, blooms | Beats drop pigment into wet washes; peak adds saturated glazes; clears are lifted with a wet brush | |
