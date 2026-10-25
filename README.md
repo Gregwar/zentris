@@ -192,16 +192,19 @@ moves on to the next. Every universe ships a few curated **variants**, picked pe
   ash, leaves) and a foreground that hops by whole pixels. Locks squash, clears explode into pixels, a Tetris fires
   pixel fireworks across the screen, slow motion swaps to a night palette, and a game over crumbles the stack
   grain by grain. Its two pixel fonts are drawn by hand in `src/universes/pixel/font.cpp`.
-- **SYNTHWAVE**: a sunset drive on a neon grid: a gradient sun with slit bands over a mirror floor, wire mountains,
-  palm silhouettes, the well a dark glass monolith in front of the sun, glossy chrome-edged neon tiles, finished like a
-  tape (bloom, grain, a slight chroma bleed). Eight palettes (OUTRUN, MIAMI, CYBER NIGHT, BLOOD MOON, GOLDEN HOUR,
-  ICE DAWN, PURPLE STORM, LILAC HAZE), from the key, mode and brightness. Calm is dusk (the sun half set, stars, a
-  slow dim grid), mid scrolls the grid on the beat while the sun's bands breathe and the palms sway, peak is the night
-  drive (car light streaks racing to the horizon, lasers, the grid pulsing with the kicks, chrome glints). A cleared
-  row slides away as a streak of light, a Tetris flares the sun under a lens flare, slow motion is a paused tape (cyan
-  night, a tracking band, a VCR display), game over rewinds the tape, stops it, then static; it leaves and enters
-  by a VHS tracking dissolve. Its HUD fonts are Audiowide and Mr Dafoe (SIL Open Font License,
-  `src/universes/synthwave/OFL-*.txt`).
+- **SYNTHWAVE**: a night drive, shot like a film (Drive, The Midnight): one soft sun (or moon) low on the horizon
+  to one side, deep haze, a wet road that mirrors it in a long broken column, a few fine grid lines running into
+  the fog, street lamps passing, the well a slab of smoked glass with hairline rails. The pieces are frosted glass
+  lit from inside (a soft inner glow, a thin bright rim). Finished like film: bloom with a little halation,
+  anamorphic streaks on the brightest lights, a filmic curve with rich blacks, a fine grain. Eight nights
+  (MIDNIGHT, SODIUM, MOONLIGHT, TAIL LIGHTS in the rain, VIOLET FOG, MINT DAWN, CITY LIGHTS, ROSE DUSK), from the
+  key, mode and brightness. Calm is a quiet empty road (the sun nearly set, thick fog, the floor still), mid drives
+  forward with the tempo (the lines scroll, lamps pass, light pulses run into the fog on the beat), peak is the
+  fast drive (head- and tail-light trails, the haze lit up, flares blooming on the kicks). A cleared row leaves as
+  a light trail toward the sun, a Tetris flares the sun and the lens, slow motion is a time stretch (letterbox, the
+  night drained of color, a timecode), game over turns the lights off row by row while the camera tilts down into
+  the fog; it leaves and enters through the fog. Its HUD font is Sora (SIL Open Font License,
+  `src/universes/synthwave/OFL-Sora.txt`).
 
 ### Transitions between universes
 
@@ -286,7 +289,7 @@ ideas for the end. Universes marked ✅ exist, the others are ideas waiting to b
 | 2 | VECTOR | Phosphor beams on black CRT glass, one phosphor per song, persistence trails; pieces are line glyphs | Calm = a lone oscilloscope trace; mid = scrolling vector grid; peak = spectrum mountains, Lissajous, beam overdrive; clears shatter into vector debris | ✅ |
 | 3 | DIORAMA | Sunlit clay miniature: the board on a floating island, soft shadows, tilt-shift | Phases are times of day (dawn, day, golden hour); kicks ripple the water; cleared blocks tumble into the sea; slow motion is a moonlit night | ✅ |
 | 4 | PIXEL | Native 320×180 pixel art, 16-color palette, Bayer dithering, parallax layers | Sprites animate on the beat; peak adds parallax layers and weather; clears are pixel explosions | ✅ |
-| 5 | SYNTHWAVE | Sunset grid, chrome letters, palm silhouettes, gradient sun | The sun's bands breathe; the grid speed follows the tempo; peak = car lights racing to the horizon | ✅ |
+| 5 | SYNTHWAVE | Cinematic night drive: a soft low sun in the haze, a wet road, fine lines into the fog, frosted glass pieces | The road moves with the tempo; light pulses on the beat; peak = light trails and anamorphic flares on the kicks | ✅ |
 | 6 | CLOUDSCAPE | Above the clouds, volumetric light, endless sky | Calm = still dawn sea of clouds; peak = towering cumulus and sun rays; clears drift away as mist | |
 | 7 | ABYSS | Deep-sea darkness, bioluminescent jelly pieces, marine snow | Creatures pulse their light with the beat; peak brings a giant glowing whale passing by; clears burst into plankton sparks | |
 | 8 | POLAR NIGHT | Snowfield under the stars, aurora ribbons | Aurora ribbons follow the frequency bands; peak fills the sky; clears turn to powder snow | |
