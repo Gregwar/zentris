@@ -231,6 +231,22 @@ moves on to the next. Every universe ships a few curated **variants**, picked pe
   motion puts every light out but the pieces' and an anglerfish's lure, and a game over sinks the stack into the
   dark, its lights going out one by one; it leaves and enters with the water closing over it. Its HUD fonts are
   Cantarell Light and EB Garamond Italic (SIL Open Font License, `src/universes/abyss/OFL-*.txt`).
+- **POLAR NIGHT**: a snowfield under the stars: snowy ranges and a dark treeline on the horizon, a deep starry sky
+  (the Milky Way faint across it) and the aurora, ray-marched as curtains with a bright lower edge, fine rays and a
+  diffuse top; each ribbon follows a group of frequency bands (the far, low one the bass, the nearer, higher ones the
+  highs) and its light falls on the snow and the pieces. The well is a sheet of dark ice with a hairline rim; the
+  pieces are clear tinted ice (a dense core, light gathered along the edges, a crisp rim of frost, faint fractures),
+  each piece one body of ice. Eight nights (EMERALD, VIOLET VEIL, CRIMSON, ARCTIC TEAL, MOONLIT, BLUE HOUR, SOLAR
+  STORM, ICE FOG with a 22° moon halo), each with its own seven ices, from the key, mode, brightness, dynamics and
+  density (`--universe polar:crimson`). Calm is a still night (one faint ribbon low on the horizon, a few flakes), mid
+  wakes several curtains folding with the tempo and rippling on the beat while the snow falls, peak fills the sky
+  (curtains overhead, the camera looking up, surges of light running along them on the kicks, blowing snow over the
+  drifts). A lock freezes the piece with a breath of frost and puffs powder, a cleared row turns to snow and crumbles
+  into powder blown by the wind, a Tetris is an auroral substorm, slow motion freezes time (the snowflakes hang and
+  glint, the aurora barely moves, the colors drain to silver, frost creeps in at the screen's edges), game over
+  freezes the stack white from the bottom up, then it crumbles while blowing snow buries the field; it leaves and
+  enters through a whiteout of blowing snow. The world is drawn at a reduced resolution (at most 540 lines). Its HUD
+  font is Josefin Sans (SIL Open Font License, `src/universes/polar/OFL-JosefinSans.txt`).
 
 ### Transitions between universes
 
@@ -318,7 +334,7 @@ ideas for the end. Universes marked ✅ exist, the others are ideas waiting to b
 | 5 | SYNTHWAVE | Cinematic night drive: a soft low sun in the haze, a wet road, fine lines into the fog, frosted glass pieces | The road moves with the tempo; light pulses on the beat; peak = light trails and anamorphic flares on the kicks | ✅ |
 | 6 | CLOUDSCAPE | Above the clouds, volumetric light, endless sky | Calm = still dawn sea of clouds; peak = towering cumulus and sun rays; clears drift away as mist | ✅ |
 | 7 | ABYSS | Deep-sea darkness, bioluminescent jelly pieces, marine snow | Creatures pulse their light with the beat; peak brings a giant glowing whale passing by; clears burst into plankton sparks |✅ |
-| 8 | POLAR NIGHT | Snowfield under the stars, aurora ribbons | Aurora ribbons follow the frequency bands; peak fills the sky; clears turn to powder snow | |
+| 8 | POLAR NIGHT | Snowfield under the stars, aurora ribbons, clear ice pieces | Aurora ribbons follow the frequency bands; peak fills the sky; clears turn to powder snow; slow motion freezes the falling snow | ✅ |
 | 9 | WATERCOLOR | Wet watercolor on cold-press paper, pigment granulation, blooms | Beats drop pigment into wet washes; peak adds saturated glazes; clears are lifted with a wet brush | |
 | 10 | SMOKE | Volumetric smoke and one hard spotlight, minimal | The smoke swirls with the bass; peak = more light cuts through | |
 | 11 | WHITE ROOM | Pure white space, soft shadows only, product-design minimalism | Shadows lengthen with the phases; beats press the blocks gently | |
