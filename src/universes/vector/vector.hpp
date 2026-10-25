@@ -12,6 +12,7 @@ public:
     void setSong(const SongLook& look, float seconds) override;
     void setLevel(int level, float energy, float seconds, float impact) override;
     void refresh(float strength) override;
+    void drop(float strength) override;
     void onEvent(const GameEvent& ev, const Game& game) override;
     void setBonus(bool on) override;
     void levelUp() override;
@@ -96,6 +97,19 @@ private:
     float overdrive_ = 0, kick_ = 0, flashWell_ = 0;
     float throb_ = 0;
     float camDolly_ = 0;
+
+    // ---- Peak: the drop hit and the living peak (see drop() and render()).
+    float dropT_ = 99.f, dropAmt_ = 0;     // seconds since the drop hit, and its strength
+    float slam_ = 0;                       // the mountains slammed up by the drop (decays over ~1 s)
+    float peakWait_ = -1.f;                // rising into a peak: seconds waiting for the drop (-1: none)
+    float drive_ = 0;                      // how hard the peak reacts (peak presence x energy x tempo)
+    float punch_ = 0;                      // per-beat / per-kick punch envelope (fast attack, fast decay)
+    float scrollShown_ = 0;                // scroll_ with the per-beat surge
+    long long lastBeat_ = -1;              // beat index seen last frame
+    int bar_ = 0;                          // bars counted at peak (the Lissajous figure, the ridges change on each)
+    float barT_ = 9.f;                     // seconds since the last downbeat
+    float beatT_ = 9.f;                    // seconds since the last beat
+    bool downLast_ = false;                // the last beat was a downbeat (harder punch)
 
     // ---- Game state seen by the universe.
     bool inverted_ = false;
