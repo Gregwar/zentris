@@ -2,8 +2,8 @@
 //
 // One world: no ground, only sky and cloud. The camera floats above a sea of cumulus tops stretching to a hazy
 // horizon; the light is soft, volumetric, with atmospheric perspective carrying the scale. The well is a floating
-// pane of frosted glass, its two HUD columns smaller panes beside it; the pieces are glazed porcelain tiles catching
-// the sky's light, with a crisp rim on the side facing the sun.
+// pane of frosted glass (only the blur of the sky behind it, no frame), its two HUD columns smaller panes beside it;
+// the pieces are flat, soft-colored rounded tiles with a whisper of gradient.
 //
 // The song drives the sky: calm is a still sea of clouds in haze (barely drifting, pastel, the light low), mid
 // drifts the clouds with the tempo (a glide on each beat), flocks of birds cross the distance flapping on the beat
@@ -745,10 +745,6 @@ void CloudscapeUniverse::buildBirds() {
 }
 
 void CloudscapeUniverse::buildBoard(const Game& g) {
-    std::vector<Tile> shadows;
-    auto shadow = [&](float x, float y, float s, float alpha) {
-        shadows.push_back({{x + 0.1f * s, y - 0.16f * s, 0.62f * s, 0.62f * s}, {0, 0, 0, alpha}, {5.f, -1.f, 0.f, 0.f}, {s, 0, 0, 0}});
-    };
     // Locked cells.
     for (int y = Game::HIDDEN; y < Game::H; y++)
         for (int x = 0; x < Game::W; x++) {
@@ -756,7 +752,6 @@ void CloudscapeUniverse::buildBoard(const Game& g) {
             if (c.type < 0) continue;
             const vec3 p = layout::cellPos((float)x, y - g.rowOffset(y));
             const float age = c.flash > 0.f ? (1.f - c.flash) * Game::LOCK_FX_SECONDS : -1.f;
-            shadow(p.x, p.y, 1.f, 1.f);
             tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age);
         }
     // Cleared cells dissolving into mist; a topped-out stack falling through the clouds.
@@ -804,7 +799,6 @@ void CloudscapeUniverse::buildBoard(const Game& g) {
         for (auto& c : cells) {
             if (c[1] < Game::HIDDEN - 1) continue;
             const vec3 w = layout::cellPos(c[0] + dx, c[1] + dy);
-            shadow(w.x, w.y, 1.f, 0.8f);
             tile(w.x, w.y, 0.5f, 0.5f, col, 1.f, 3);
         }
     }
@@ -821,7 +815,6 @@ void CloudscapeUniverse::buildBoard(const Game& g) {
         }
         for (auto& c : cells) {
             const vec2 pos = v2(center.x + (c[0] - (minx + maxx) * 0.5f) * sc, center.y - (c[1] - (miny + maxy) * 0.5f) * sc);
-            shadow(pos.x, pos.y, sc, alpha);
             tile(pos.x, pos.y, 0.5f * sc, 0.5f * sc, cur_.piece[type], alpha, 3, -1.f, 0.f, 0.f, sc);
         }
     };
@@ -837,7 +830,6 @@ void CloudscapeUniverse::buildBoard(const Game& g) {
         tile(gc.x, gc.y, R * 1.3f, R * 1.3f, vec3(1.f), 1.f, 4, -1.f, 0.f, 0.f, saturate(gaugeShown_),
              g.bonusReady() ? 1.f : 0.f, g.bonusActive() ? 1.f : 0.f, R);
     }
-    tiles_.insert(tiles_.begin(), shadows.begin(), shadows.end());
 }
 
 void CloudscapeUniverse::buildFx() {
@@ -1192,7 +1184,7 @@ void CloudscapeUniverse::render(const Frame& f, GLuint fbo) {
         const float rayGain = (0.12f + 0.25f * wm + 0.75f * wp + 0.12f * beatGlow_ * wm + 0.6f * rayPulse_) * (1.f - 0.4f * cur_.moon);
         set3f(progComp_, "uRayCol", lerp(cur_.sun, cur_.glow, 0.6f) * cur_.sunGain * 0.95f);
         set1f(progComp_, "uRayGain", rayGain);
-        set1f(progComp_, "uFrostAmt", 0.32f);
+        set1f(progComp_, "uFrostAmt", 0.16f);
         set1f(progComp_, "uPaneAlpha", 1.f);
         set1f(progComp_, "uTime", worldTime_);
         set2f(progComp_, "uSunScr", sunScr.x, sunScr.y);

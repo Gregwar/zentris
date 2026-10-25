@@ -202,18 +202,19 @@ moves on to the next. Every universe ships a few curated **variants**, picked pe
   night, a tracking band, a VCR display), game over rewinds the tape, stops it, then static; it leaves and enters
   by a VHS tracking dissolve. Its HUD fonts are Audiowide and Mr Dafoe (SIL Open Font License,
   `src/universes/synthwave/OFL-*.txt`).
-- **CLOUDSCAPE**: above an endless sea of clouds, no ground, only sky: a ray-marched sea of cumulus tops fading
-  into the haze, the well and the HUD columns floating panes of frosted glass, the pieces glazed porcelain tiles
-  catching the sky's light. Eight skies (DAWN, AZURE NOON, GOLDEN HOUR, STORM VIOLET, POLAR NIGHT with aurora, ROSE
-  SUNSET, MONSOON, BLUE HOUR), from the key, mode, brightness and dynamics (`--universe cloudscape:storm`). Calm is a
-  still, hazy sea of clouds, mid drifts the clouds with the tempo (a glide on each beat) while flocks of birds cross
-  the distance flapping on the beat and gentle beams fall from the sun, peak raises the camera while towering cumulus
-  grow out of the sea, god rays stream through their gaps and the kicks light them from inside. A lock breathes a
-  puff of mist, a cleared row dissolves into mist drifting away on the wind, a Tetris parts the high veil and the sun
-  bursts through, slow motion is night above the clouds (the moon, stars, silver cloud tops), game over drops the
-  stack through the sea of clouds as the mist rises; it leaves and enters with the clouds closing in. The sky is drawn
-  at a reduced resolution (at most 540 lines), the rays at a quarter of that. Its HUD fonts are EB Garamond Italic
-  and Lato (SIL Open Font License, `src/universes/cloudscape/OFL-*.txt`).
+- **CLOUDSCAPE**: above an endless sea of clouds, no ground, only sky: a ray-marched sea of cumulus tops fading into
+  the haze, the well and the HUD columns floating panes of frosted glass (only the blur of the sky behind them, no
+  frame), the pieces flat, soft-colored rounded tiles. Eight skies (DAWN, AZURE NOON, GOLDEN HOUR, STORM VIOLET,
+  POLAR NIGHT with aurora, ROSE SUNSET, MONSOON, BLUE HOUR), from the key, mode, brightness and dynamics
+  (`--universe cloudscape:storm`). Calm is a still, hazy sea of clouds, mid drifts the clouds with the tempo (a
+  glide on each beat) while flocks of birds cross the distance flapping on the beat and gentle beams fall from the
+  sun, peak raises the camera while towering cumulus grow out of the sea, god rays stream through their gaps and the
+  kicks light them from inside. A lock breathes a puff of mist, a cleared row dissolves into mist drifting away on
+  the wind, a Tetris parts the high veil and the sun bursts through, slow motion is night above the clouds (the
+  moon, stars, silver cloud tops), game over drops the stack through the sea of clouds as the mist rises; it leaves
+  and enters with the clouds closing in. The sky is drawn at a reduced resolution (at most 540 lines), the rays at a
+  quarter of that. Its HUD fonts are EB Garamond Italic and Lato (SIL Open Font License,
+  `src/universes/cloudscape/OFL-*.txt`).
 
 ### Transitions between universes
 

@@ -375,9 +375,9 @@ void main() {
     // the floating panes of frosted glass: the well and the two HUD columns
     float sW = paneSd(p, uWell, 0.32);
     float sL = paneSd(p, uColL, 0.5), sR = paneSd(p, uColR, 0.5);
-    float inW = 1.0 - smoothstep(-uPx, uPx, sW);
-    float inC = 1.0 - smoothstep(-uPx, uPx, min(sL, sR));
-    float inside = max(inW, inC * 0.75);
+    float inW = 1.0 - smoothstep(-1.5 * uPx, 1.5 * uPx, sW);
+    float inC = 1.0 - smoothstep(-1.5 * uPx, 1.5 * uPx, min(sL, sR));
+    float inside = max(inW, inC);
     if (inside > 0.0) {
         vec3 blur = textureLod(uCloud, uv, 4.2).rgb * 0.6 + textureLod(uCloud, uv, 3.0).rgb * 0.4;
         blur += uRayCol * rays * uRayGain * 0.5;
@@ -388,17 +388,6 @@ void main() {
         float grain = texture(uNoise, p * 0.9).b * 0.5 + texture(uNoise, p * 2.7).r * 0.5;
         frost *= 0.97 + 0.06 * grain;
         col = mix(col, frost, inside * uPaneAlpha);
-    }
-    // rims: a crisp line of light around each pane, brighter on the side facing the light
-    {
-        float rimW = exp(-pow(sW / (1.1 * uPx + 0.012), 2.0));
-        float litW = 0.45 + 0.55 * max(dot(paneGrad(p, uWell, 0.32), uSunScr), 0.0);
-        float rimL = exp(-pow(sL / (1.0 * uPx + 0.01), 2.0)) * (0.35 + 0.45 * max(dot(paneGrad(p, uColL, 0.5), uSunScr), 0.0));
-        float rimR = exp(-pow(sR / (1.0 * uPx + 0.01), 2.0)) * (0.35 + 0.45 * max(dot(paneGrad(p, uColR, 0.5), uSunScr), 0.0));
-        float inner = exp(-max(-sW, 0.0) * 5.0) * inW * 0.1;
-        col += uRim * (rimW * litW + inner + rimL + rimR) * uPaneAlpha;
-        // a soft glow of light around the well
-        col += uRim * exp(-max(sW, 0.0) * 1.6) * (1.0 - inW) * 0.05 * uPaneAlpha;
     }
     // quiet behind the corner where the universe's name is written
     {
@@ -485,33 +474,15 @@ uniform vec3 uSkyTint, uSunTint, uShadow, uMist, uRim, uGaugeSun, uGaugeMoon, uG
 uniform float uNight, uBridge, uTime;
 uniform vec3 uBridgeInk;
 
-float tileSd(vec2 p, float s) { return sdRound(p, vec2(0.455 * s), 0.17 * s); }
+float tileSd(vec2 p, float s) { return sdRound(p, vec2(0.43 * s), 0.12 * s); }
 
-// A tile of glazed porcelain: a soft pillow lit by the sky above and the sun, a frosted glaze, a crisp rim of light.
-vec3 porcelain(vec2 p, float s, vec3 pc, float sd) {
-    float e = 0.01 * s;
-    vec2 g = vec2(tileSd(p + vec2(e, 0.0), s) - sd, tileSd(p + vec2(0.0, e), s) - sd) / e;
-    float bev = 0.2 * s;
-    float k = 1.0 - smoothstep(0.0, bev, -sd);
-    vec3 n = normalize(vec3(g * k * k * 1.4, 1.0));
-    vec3 L = normalize(vec3(uSunScr * 0.8, 0.75));
-    float dif = max(dot(n, L), 0.0);
-    float sky = 0.6 + 0.4 * n.y;
-    float inner = smoothstep(0.0, 0.3 * s, -sd);
-    vec3 body = mix(pc * 0.9, mix(pc, vec3(1.0), 0.16), inner * 0.7);
-    vec3 col = body * (0.58 * sky * uSkyTint + 0.52 * dif * uSunTint);
-    // the glaze: a soft highlight on the side facing the light
-    vec3 h = normalize(L + vec3(0.0, 0.0, 1.0));
-    col += uSunTint * pow(max(dot(n, h), 0.0), 18.0) * 0.22;
-    // frost: a fine grain in the glaze
-    col *= 0.96 + 0.08 * texture(uNoise, vWorld * 0.53 + v2.y * 0.0).a;
-    // the rim of light, crisp, on the lit side; a darker lip on the other
-    float rim = exp(-pow((sd + 0.016 * s) / (0.012 * s + uPx * 0.8), 2.0));
-    float side = dot(normalize(g + 1e-5), uSunScr);
-    col += mix(uSunTint, vec3(1.0), 0.6) * rim * (0.15 + 0.75 * max(side, 0.0));
-    col *= 1.0 - 0.28 * rim * max(-side, 0.0);
-    // at night the glaze glows faintly from inside (readable under the moon)
-    col += pc * uNight * 0.22 * (0.4 + 0.6 * inner);
+// A flat tile: a soft-colored rounded square, a whisper of vertical gradient (lighter at the top), no relief.
+vec3 flatTile(vec2 p, float s, vec3 pc) {
+    float ty = clamp(p.y / (0.43 * s), -1.0, 1.0);
+    vec3 col = pc * (0.96 + 0.07 * ty);
+    col = mix(col, col * uSkyTint, 0.15);
+    // at night the colors glow faintly (readable under the moon)
+    col += pc * uNight * 0.18;
     return col;
 }
 
@@ -528,16 +499,17 @@ void main() {
         float sd = tileSd(p, s);
         float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, sd);
         if (cov <= 0.0) discard;
-        vec3 col = porcelain(p, s, pc, sd);
+        vec3 col = flatTile(p, s, pc);
         if (kind == 0 && age >= 0.0) {
             // lock: a cool breath of light through the glaze, fading
             float fl = exp(-age * 4.0);
-            col = mix(col, mix(pc, vec3(1.0), 0.65) * 1.3, fl * 0.55);
+            col = mix(col, mix(pc, vec3(1.0), 0.6) * 1.15, fl * 0.6);
         }
         // falling through the sea of clouds (game over): into the mist
         col = mix(col, uMist, v2.w);
         col = mix(col, uBridgeInk, bridgeK);
-        frag = vec4(col * cov * alpha, cov * alpha);
+        float a = cov * alpha * 0.94; // a slight translucency: the sky breathes through
+        frag = vec4(col * a, a);
         return;
     }
     if (kind == 5) {
@@ -551,9 +523,9 @@ void main() {
     if (kind == 1) {
         // ghost: a breath of mist outlined in light
         float sd = tileSd(p, 1.0);
-        float line = exp(-pow(sd / (0.025 + px), 2.0));
-        float fill = (1.0 - smoothstep(-px, px, sd)) * 0.18;
-        vec3 col = mix(pc, vec3(1.0), 0.2) * line + pc * fill;
+        float line = (1.0 - smoothstep(0.012, 0.012 + px * 1.2, abs(sd + 0.02))) * 0.45;
+        float fill = (1.0 - smoothstep(-px, px, sd)) * 0.16;
+        vec3 col = pc * (line + fill);
         float a = (line * 0.85 + fill) * alpha * (1.0 - uBridge);
         frag = vec4(col * alpha * (1.0 - uBridge), a);
         return;
@@ -568,7 +540,7 @@ void main() {
         float th = k * 1.25 - 0.1;
         float keep = smoothstep(th, th + 0.08, n);
         float edge = exp(-pow((n - th) / 0.05, 2.0)) * (1.0 - k);
-        vec3 col = porcelain(p, 1.0, pc, sd);
+        vec3 col = flatTile(p, 1.0, pc);
         col = mix(col, uMist * 1.15, smoothstep(0.0, 0.6, k));
         col += vec3(1.0) * edge * 0.8;
         float a = cov * max(keep, edge * 0.8) * alpha * (1.0 - uBridge);
