@@ -5,7 +5,8 @@
 // of frequency bands (the far, low ribbon the bass, the nearer and higher ones the mids and the highs), brightening,
 // growing taller and rippling with them, and its light falls on the snow and on the pieces. The well is a sheet of
 // dark ice with a hairline rim and frost at its foot; the pieces are clear, tinted ice (a dense core, light gathered
-// along the edges, a crisp rim of frost, faint fractures), one body of ice per piece.
+// along the edges, a crisp rim of frost, faint fractures), the cells of one piece one body of ice (two pieces never
+// join, a thin seam stays between them).
 //
 // Calm is a still night (one faint ribbon low on the horizon, the stars, a few flakes drifting), mid wakes the
 // aurora (several curtains, folds drifting with the tempo, a light ripple on each beat) and the snow falls, peak
@@ -483,11 +484,18 @@ void PolarUniverse::cellToPowder(float x, float y, float delay, float wind, floa
 // =====================================================================================================
 
 void PolarUniverse::onEvent(const GameEvent& ev, const Game&) {
-    // same-kind neighbours inside an event's cells (cleared rows, a topped-out stack): one body of ice
+    // the cells of one piece inside an event's cells (cleared rows, a topped-out stack): one body of ice
+    auto idAt = [&](int x, int y, int type) {
+        if (x < 0 || x >= Game::W || y < 0 || y >= Game::H) return -1;
+        const IceCell& ic = ice_[y][x];
+        return ic.type == type ? ic.id : -1;
+    };
     auto maskOf = [&](const GameEvent::CellInfo& c) {
         int m = 0;
+        const int id = idAt(c.x, c.y, c.type);
+        if (id < 0) return 0;
         for (auto& o : ev.cells) {
-            if (o.type != c.type) continue;
+            if (o.type != c.type || idAt(o.x, o.y, o.type) != id) continue;
             if (o.y == c.y && o.x == c.x - 1) m |= 1;
             if (o.y == c.y && o.x == c.x + 1) m |= 2;
             if (o.x == c.x && o.y == c.y - 1) m |= 4;
@@ -497,6 +505,12 @@ void PolarUniverse::onEvent(const GameEvent& ev, const Game&) {
     };
     switch (ev.type) {
     case GameEvent::Lock: {
+        // the piece's cells keep its identity (they join into one body of ice, never with another piece)
+        {
+            const int id = pieceCounter_++;
+            for (auto& c : ev.cells)
+                if (c.y >= 0 && c.y < Game::H && c.x >= 0 && c.x < Game::W) ice_[c.y][c.x] = {id, c.type};
+        }
         // a puff of powder from under the piece
         for (auto& q : ev.cells) {
             bool under = false;
@@ -542,6 +556,20 @@ void PolarUniverse::onEvent(const GameEvent& ev, const Game&) {
             dying_.push_back(d);
             cellToPowder(p.x, p.y, d.delay + 0.18f, wind, tetris ? 1.4f : 1.f);
         }
+        {
+            bool cleared[Game::H] = {};
+            for (auto& c : ev.cells)
+                if (c.y >= 0 && c.y < Game::H) cleared[c.y] = true;
+            IceCell next[Game::H][Game::W];
+            int dst = Game::H - 1;
+            for (int y = Game::H - 1; y >= 0; y--) {
+                if (cleared[y]) continue;
+                for (int x = 0; x < Game::W; x++) next[dst][x] = ice_[y][x];
+                dst--;
+            }
+            for (int y = 0; y < Game::H; y++)
+                for (int x = 0; x < Game::W; x++) ice_[y][x] = next[y][x];
+        }
         if (tetris) {
             stormT_ = 0.f;
             surge_ = std::max(surge_, 1.5f);
@@ -568,6 +596,8 @@ void PolarUniverse::onEvent(const GameEvent& ev, const Game&) {
             d.seed = rng_.uniform();
             dying_.push_back(d);
         }
+        for (auto& row : ice_)
+            for (auto& c : row) c = IceCell{};
         overT_ = 0.f;
         break;
     }
@@ -690,11 +720,14 @@ void PolarUniverse::tile(float x, float y, float hw, float hh, const vec3& c, fl
 }
 
 void PolarUniverse::buildBoard(const Game& g) {
-    auto typeAt = [&](int x, int y) {
-        if (x < 0 || x >= Game::W || y < 0 || y >= Game::H) return -1;
-        return (int)g.cell(x, y).type;
+    // Which piece a locked cell belongs to (-1: unknown, e.g. a stack inherited from another universe: never joined).
+    auto idAt = [&](int x, int y) {
+        if (x < 0 || x >= Game::W || y < Game::HIDDEN || y >= Game::H) return -1;
+        const int t = g.cell(x, y).type;
+        const IceCell& ic = ice_[y][x];
+        return t >= 0 && ic.type == t ? ic.id : -1;
     };
-    // Locked cells: same-kind neighbours are one body of ice.
+    // Locked cells: the cells of one piece are one body of ice.
     for (int y = Game::HIDDEN; y < Game::H; y++)
         for (int x = 0; x < Game::W; x++) {
             const Cell& c = g.cell(x, y);
@@ -702,10 +735,13 @@ void PolarUniverse::buildBoard(const Game& g) {
             const vec3 p = layout::cellPos((float)x, y - g.rowOffset(y));
             const float age = c.flash > 0.f ? (1.f - c.flash) * Game::LOCK_FX_SECONDS : -1.f;
             int mask = 0;
-            if (typeAt(x - 1, y) == c.type) mask |= 1;
-            if (typeAt(x + 1, y) == c.type) mask |= 2;
-            if (typeAt(x, y - 1) == c.type && g.rowOffset(y - 1) == g.rowOffset(y)) mask |= 4;
-            if (typeAt(x, y + 1) == c.type && g.rowOffset(y + 1) == g.rowOffset(y)) mask |= 8;
+            const int id = idAt(x, y);
+            if (id >= 0) {
+                if (idAt(x - 1, y) == id) mask |= 1;
+                if (idAt(x + 1, y) == id) mask |= 2;
+                if (idAt(x, y - 1) == id && std::fabs(g.rowOffset(y - 1) - g.rowOffset(y)) < 0.01f) mask |= 4;
+                if (idAt(x, y + 1) == id && std::fabs(g.rowOffset(y + 1) - g.rowOffset(y)) < 0.01f) mask |= 8;
+            }
             tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask);
         }
     // Cleared cells turning to snow; a topped-out stack freezing white, then crumbling.
@@ -1174,7 +1210,7 @@ void PolarUniverse::render(const Frame& f, GLuint fbo) {
         set4f(progComp_, "uColL", layout::LEFT_COLUMN[0], layout::LEFT_COLUMN[1] - 2.9f, layout::LEFT_COLUMN[2], layout::LEFT_COLUMN[3]);
         set4f(progComp_, "uColR", layout::RIGHT_COLUMN[0], layout::RIGHT_COLUMN[1] - 1.3f, layout::RIGHT_COLUMN[2], layout::RIGHT_COLUMN[3]);
         set3f(progComp_, "uRim", lerp(cur_.frost, cur_.aurA, 0.35f) * (0.7f + 0.4f * beatGlow_ * wm) + aurLight_ * 2.f);
-        set3f(progComp_, "uIce", lerp(cur_.zenith, cur_.shade, 0.4f) * 0.6f + aurLight_ * 0.25f);
+        set3f(progComp_, "uIce", lerp(cur_.zenith, cur_.shade, 0.3f) * 0.45f + vec3(ugl::luma(aurLight_)) * 0.15f);
         set3f(progComp_, "uFrostCol", lerp(cur_.frost, cur_.snow, 0.3f) * 0.8f + aurLight_);
         set3f(progComp_, "uAurLight", aurLight_);
         set3f(progComp_, "uSnow", lerp(cur_.snow, cur_.frost, 0.3f) * 0.75f);

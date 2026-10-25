@@ -236,7 +236,7 @@ moves on to the next. Every universe ships a few curated **variants**, picked pe
   diffuse top; each ribbon follows a group of frequency bands (the far, low one the bass, the nearer, higher ones the
   highs) and its light falls on the snow and the pieces. The well is a sheet of dark ice with a hairline rim; the
   pieces are clear tinted ice (a dense core, light gathered along the edges, a crisp rim of frost, faint fractures),
-  each piece one body of ice. Eight nights (EMERALD, VIOLET VEIL, CRIMSON, ARCTIC TEAL, MOONLIT, BLUE HOUR, SOLAR
+  the cells of a piece one body of ice (two pieces never join, a thin seam stays between them). Eight nights (EMERALD, VIOLET VEIL, CRIMSON, ARCTIC TEAL, MOONLIT, BLUE HOUR, SOLAR
   STORM, ICE FOG with a 22° moon halo), each with its own seven ices, from the key, mode, brightness, dynamics and
   density (`--universe polar:crimson`). Calm is a still night (one faint ribbon low on the horizon, a few flakes), mid
   wakes several curtains folding with the tempo and rippling on the beat while the snow falls, peak fills the sky

@@ -325,8 +325,9 @@ void main() {
         float inW = 1.0 - smoothstep(-1.0 * uPx, 1.0 * uPx, sW);
         if (inW > 0.0) {
             vec3 blur = textureLod(uSky, uv, 4.0).rgb * 0.55 + textureLod(uSky, uv, 2.5).rgb * 0.45;
+            blur = mix(blur, vec3(dot(blur, vec3(0.2126, 0.7152, 0.0722))), 0.6);   // the glass mutes the sky
             float k = clamp((p.y - uWell.y) / (uWell.w - uWell.y), 0.0, 1.0);
-            vec3 ice = blur * 0.5 + uIce * (0.65 + 0.35 * k);
+            vec3 ice = blur * 0.32 + uIce * (0.65 + 0.35 * k);
             // frost grows up from the foot of the well, faint
             float fd = p.y - uWell.y;
             float fp = texture(uNoise, p * 0.09).r * 0.7 + texture(uNoise, p * 0.3).b * 0.3;
@@ -427,14 +428,14 @@ uniform vec3 uBridgeInk;
 // The block's outline: a rounded square, reaching past the cell's edge on the sides where a block of the same kind
 // touches it (a piece is one body of ice). top: how far the body's upper edge is (far when joined above).
 float iceSd(vec2 p, int mask, float s, out float top) {
-    vec2 lo = vec2(-0.45 * s), hi = vec2(0.45 * s);
+    vec2 lo = vec2(-0.465 * s), hi = vec2(0.465 * s);
     if ((mask & 1) != 0) lo.x = -0.9 * s;
     if ((mask & 2) != 0) hi.x = 0.9 * s;
     if ((mask & 4) != 0) hi.y = 1.6 * s;
     if ((mask & 8) != 0) lo.y = -0.9 * s;
     top = (hi.y - p.y) / s;
     vec2 c = (lo + hi) * 0.5, h = (hi - lo) * 0.5;
-    return sdRound(p - c, h, 0.11 * s);
+    return sdRound(p - c, h, 0.07 * s);
 }
 float iceSd(vec2 p, int mask, float s) { float t; return iceSd(p, mask, s, t); }
 

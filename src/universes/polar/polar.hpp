@@ -112,6 +112,10 @@ private:
     struct Dying { float x, y, t, delay; int type, mask; bool over, crumbled; float seed; };
     std::vector<Dying> dying_;
     struct Glint { vec2 p; float t, life, size; };
+    // The piece each locked cell came from (from the Lock events): a piece's cells join, two pieces never do.
+    struct IceCell { int id = -1, type = -1; };
+    IceCell ice_[Game::H][Game::W];
+    int pieceCounter_ = 0;
     std::vector<Glint> glints_;
 
     // ---- Game state seen by the universe.
