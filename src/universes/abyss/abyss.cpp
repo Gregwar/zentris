@@ -8,9 +8,9 @@
 // The song sets how much lives here: calm is deep silence (snow, a few distant lights, god rays far above), mid
 // brings jellyfish and siphonophores drifting and pulsing their light on the beat and schools of fish as specks of
 // light, peak brings a giant whale with bioluminescent spots passing slowly behind the well, plankton clouds
-// flaring with the kicks and light ripples. A lock makes the piece flare and sends a ring of plankton light; a
-// cleared row bursts into plankton sparks that drift up; a Tetris sends a bloom wave of light up the whole water
-// column; slow motion puts every light out but the pieces' (long slow glows) and an anglerfish's lure; game over
+// flaring with the kicks and light ripples. A lock makes the piece flare briefly and stirs a few motes from under
+// it; a cleared row's jelly breaks into points of light (a brief burst of sparks); a Tetris makes the plankton bloom
+// all through the water at once; slow motion puts every light out but the pieces' (long slow glows) and an anglerfish's lure; game over
 // sinks the stack into the dark, its lights going out one by one. It leaves and enters by the water closing over it,
 // the distant lights going out one by one.
 //
@@ -412,7 +412,7 @@ void AbyssUniverse::setBonus(bool on) {
 
 void AbyssUniverse::levelUp() {
     flash_ = std::max(flash_, 0.8f);
-    rings_.push_back({0.f, 0.f, 0.f, 2.2f, 1.f, 16.f, pal_.glow});
+    bloom_ = std::max(bloom_, 0.5f);
 }
 
 vec2 AbyssUniverse::project(const vec3& p) const { return layout::project(vp_, p, width_, height_); }
@@ -489,36 +489,31 @@ void AbyssUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
     case GameEvent::Lock: {
         if (ev.cells.empty()) break;
-        // A ring of plankton light leaves the piece, and its outline sheds a few motes.
-        vec2 c = v2(0, 0);
-        for (auto& q : ev.cells) {
-            vec3 p = layout::cellPos((float)q.x, (float)q.y);
-            c = c + v2(p.x, p.y);
+        // The piece flares softly (in its own cells); at the contact, a few motes of plankton stirred up from under it.
+        {
+            int bottom = -1;
+            for (auto& q : ev.cells) bottom = std::max(bottom, q.y);
+            float x0 = 1e9f, x1 = -1e9f;
+            for (auto& q : ev.cells)
+                if (q.y == bottom) { x0 = std::min(x0, (float)q.x); x1 = std::max(x1, (float)q.x); }
+            const vec3 a = layout::cellPos(x0, (float)bottom), b = layout::cellPos(x1, (float)bottom);
+            const vec3 col = pal_.piece[std::clamp(ev.cells[0].type, 0, 6)];
+            const int n = 3 + (int)(x1 - x0) * 2;
+            for (int i = 0; i < n; i++) {
+                Spark s;
+                s.x = rng_.range(a.x - 0.4f, b.x + 0.4f);
+                s.y = a.y - 0.48f;
+                s.vx = (s.x - (a.x + b.x) * 0.5f) * 0.9f + rng_.range(-0.2f, 0.2f);
+                s.vy = rng_.range(0.05f, 0.35f);
+                s.t = 0.f; s.life = rng_.range(0.4f, 0.7f); s.delay = 0.f; s.size = rng_.range(0.035f, 0.055f);
+                s.col = lerp(col, vec3(1.f), 0.2f); s.twinkle = rng_.range(0.f, 10.f); s.kind = 1;
+                sparks_.push_back(s);
+            }
         }
-        c = c * (1.f / ev.cells.size());
-        const vec3 col = pal_.piece[std::clamp(ev.cells[0].type, 0, 6)];
-        rings_.push_back({c.x, c.y, 0.f, 1.3f, 0.8f, 3.6f, col});
-        for (int i = 0; i < 14; i++) {
-            const float a = i / 14.f * TAU + rng_.range(-0.2f, 0.2f);
-            Spark s;
-            s.x = c.x + std::cos(a) * 1.0f;
-            s.y = c.y + std::sin(a) * 1.0f;
-            const float sp = rng_.range(1.6f, 2.8f);
-            s.vx = std::cos(a) * sp;
-            s.vy = std::sin(a) * sp;
-            s.t = 0.f; s.life = rng_.range(0.9f, 1.5f); s.delay = 0.f; s.size = rng_.range(0.05f, 0.08f);
-            s.col = lerp(col, vec3(1.f), 0.2f); s.twinkle = rng_.range(0.f, 10.f); s.kind = 1;
-            sparks_.push_back(s);
-        }
-        lockGlow_ = 1.f;
         break;
     }
     case GameEvent::Clear: {
         const bool tetris = ev.count >= 4;
-        std::vector<int> rows;
-        for (auto& c : ev.cells)
-            if (std::find(rows.begin(), rows.end(), c.y) == rows.end()) rows.push_back(c.y);
-        for (int r : rows) rowFlash_.push_back({layout::cellPos(0, (float)r).y, 0.f, pal_.glow});
         for (auto& c : ev.cells) {
             const vec3 p = layout::cellPos((float)c.x, (float)c.y);
             const int type = std::clamp(c.type, 0, 6);
@@ -527,37 +522,32 @@ void AbyssUniverse::onEvent(const GameEvent& ev, const Game&) {
             d.vx = d.vy = 0.f; d.type = type; d.mask = 0; d.sink = false;
             dying_.push_back(d);
             // the row bursts into plankton sparks drifting up
-            const int n = tetris ? 7 : 6;
+            const int n = tetris ? 4 : 3;
             for (int i = 0; i < n; i++) {
                 Spark s;
                 s.x = p.x + rng_.range(-0.45f, 0.45f);
                 s.y = p.y + rng_.range(-0.45f, 0.45f);
                 const float a = rng_.range(0.f, TAU);
-                const float sp = rng_.range(0.4f, 2.4f);
+                const float sp = rng_.range(0.4f, 1.8f);
                 s.vx = std::cos(a) * sp;
-                s.vy = std::sin(a) * sp + rng_.range(0.4f, 1.4f);
-                s.t = 0.f; s.life = rng_.range(2.2f, 4.5f); s.delay = d.delay; s.size = rng_.range(0.04f, 0.1f);
+                s.vy = std::sin(a) * sp + rng_.range(0.3f, 0.9f);
+                s.t = 0.f; s.life = rng_.range(0.5f, 0.9f); s.delay = d.delay; s.size = rng_.range(0.04f, 0.1f);
                 s.col = lerp(pal_.piece[type], pal_.glow, rng_.range(0.f, 0.5f));
                 s.twinkle = rng_.range(0.f, 10.f); s.kind = 0;
                 sparks_.push_back(s);
             }
         }
         if (tetris) {
-            // a bloom wave through the whole water column: the plankton lights up as the front passes
+            // the plankton blooms all through the water at once (no front sweeping the screen): bursts of light
             tetrisT_ = 0.f;
-            const float bot = viewC_.y - viewH_.y, span = 2.f * viewH_.y + 8.f;
-            for (int i = 0; i < 260; i++) {
+            const float bot = viewC_.y - viewH_.y;
+            for (int i = 0; i < 220; i++) {
                 Spark s;
                 s.x = rng_.range(-viewH_.x, viewH_.x);
                 s.y = rng_.range(bot, viewC_.y + viewH_.y);
-                // the front's height over time: bot - 3 + span * smoothstep(0, 2.6, t)
-                const float k = saturate((s.y - bot + 3.f) / span);
-                float a = 0.f, b = 2.6f; // invert the smoothstep (bisection): when the front reaches it
-                for (int j = 0; j < 18; j++) { const float m = (a + b) * 0.5f; (smoothstepf(0.f, 2.6f, m) < k ? a : b) = m; }
-                const float tt = (a + b) * 0.5f;
                 s.vx = rng_.range(-0.3f, 0.3f);
                 s.vy = rng_.range(0.2f, 0.9f);
-                s.t = 0.f; s.life = rng_.range(1.6f, 3.2f); s.delay = tt; s.size = rng_.range(0.04f, 0.11f);
+                s.t = 0.f; s.life = rng_.range(1.0f, 2.0f); s.delay = rng_.range(0.f, 0.35f); s.size = rng_.range(0.04f, 0.11f);
                 s.col = lerp(pal_.glow, pal_.glow2, rng_.uniform()); s.twinkle = rng_.range(0.f, 10.f); s.kind = 0;
                 sparks_.push_back(s);
             }
@@ -651,7 +641,6 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
     for (int i = 0; i < 4; i++) ripAge_[i] += wdt;
     bloom_ = approach(bloom_, 0.f, 1.2f, dt);
     flash_ = approach(flash_, 0.f, 1.5f, dt);
-    lockGlow_ = approach(lockGlow_, 0.f, 2.f, dt);
     tetrisT_ += dt;
 
     // Marine snow sinks slowly, wandering.
@@ -745,9 +734,6 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
     if (sparks_.size() > 1800) sparks_.erase(sparks_.begin(), sparks_.begin() + (sparks_.size() - 1800));
     for (Ring& r : rings_) r.t += dt;
     rings_.erase(std::remove_if(rings_.begin(), rings_.end(), [](const Ring& r) { return r.t > r.life; }), rings_.end());
-    for (RowFlash& r : rowFlash_) r.t += dt;
-    rowFlash_.erase(std::remove_if(rowFlash_.begin(), rowFlash_.end(), [](const RowFlash& r) { return r.t > 0.8f; }),
-                    rowFlash_.end());
     for (Dying& d : dying_) {
         d.t += dt;
         if (d.sink) {
@@ -1040,7 +1026,7 @@ void AbyssUniverse::buildFx() {
     const float world = 1.f - saturate(bridge_.amount);
     // The well's glass walls: two faint threads of light, a ledge at the bottom.
     {
-        const vec3 c = pal_.glow * (0.22f + 0.1f * lockGlow_ + 0.12f * beatGlow_) * (1.f - 0.6f * slow_);
+        const vec3 c = pal_.glow * (0.22f + 0.12f * beatGlow_) * (1.f - 0.6f * slow_);
         const float a = 0.8f * (1.f - 0.5f * saturate(bridge_.amount));
         sprite(back_, 3, v2(-WELL_X, WELL_BOT), v2(-WELL_X, WELL_TOP), 0.02f, c, a);
         sprite(back_, 3, v2(WELL_X, WELL_BOT), v2(WELL_X, WELL_TOP), 0.02f, c, a);
@@ -1058,11 +1044,6 @@ void AbyssUniverse::buildFx() {
         const float R = lerpf(r.r0, r.r1, 1.f - (1.f - k) * (1.f - k));
         const float a = (1.f - k) * (1.f - k) * world;
         sprite(fx_, 2, v2(r.x, r.y), v2(0, 0), R, r.col * 1.1f, a, 0.1f + 0.15f * k, r.x * 7.f + r.y);
-    }
-    for (const RowFlash& r : rowFlash_) {
-        const float k = r.t / 0.8f;
-        const float a = (1.f - k) * (1.f - k) * world;
-        sprite(fx_, 3, v2(-WELL_X + 0.2f, r.y), v2(WELL_X - 0.2f, r.y), 0.12f * (1.f - k) + 0.02f, lerp(r.col, vec3(1.f), 0.4f) * 1.2f, a);
     }
 }
 
@@ -1396,11 +1377,7 @@ void AbyssUniverse::render(const Frame& f, GLuint fbo) {
         set3f(progTile_, "uGlow", pal_.glow);
         set3f(progTile_, "uGlow2", pal_.glow2);
         set3f(progTile_, "uDeep", pal_.deep);
-        {
-            const float span = 2.f * viewH_.y + 8.f, bot = viewC_.y - viewH_.y;
-            set1f(progTile_, "uWaveY", bot - 3.f + span * smoothstepf(0.f, 2.6f, tetrisT_));
-            set1f(progTile_, "uWave", 1.f - smoothstepf(2.f, 3.5f, tetrisT_));
-        }
+        set1f(progTile_, "uWave", smoothstepf(0.f, 0.15f, tetrisT_) * (1.f - smoothstepf(0.3f, 2.f, tetrisT_)));
         glBindVertexArray(tileVao_);
         glBindBuffer(GL_ARRAY_BUFFER, tileVbo_);
         glBufferData(GL_ARRAY_BUFFER, tiles_.size() * sizeof(Tile), tiles_.data(), GL_STREAM_DRAW);

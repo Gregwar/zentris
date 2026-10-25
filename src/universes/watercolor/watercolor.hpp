@@ -108,8 +108,6 @@ private:
     // ---- Effects.
     struct Lifted { float x, y, t, delay; int type; };       // a cleared cell being lifted
     std::vector<Lifted> lifted_;
-    struct Stroke { float y, t, dir; vec3 K; };              // the tide mark of a lifting stroke
-    std::vector<Stroke> strokes_;
     struct Running { float x, y, t, delay; int type; float seed; }; // game over: the stack running down
     std::vector<Running> running_;
     struct Dot { vec2 p; float r, t, life; vec3 K; };        // spatter on the well's paper

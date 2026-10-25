@@ -139,17 +139,11 @@ void main() {
     float rip = rippleAt(p);
     col += uGlow * rip * 0.09;
     col *= 1.0 + rip * 0.5;
-    // The Tetris: a bloom wave of light rising through the whole water column.
-    if (uTetris < 4.0) {
-        float span = 2.0 * uView.w + 8.0;
-        float y0 = bot - 3.0 + span * smoothstep(0.0, 2.6, uTetris);
-        float d = p.y - y0;
+    // The Tetris: the plankton blooms all through the water at once, in living patches, then dims.
+    if (uTetris < 3.0) {
         float n = fbm3(p * vec2(0.12, 0.3) + vec2(0.0, -uTime * 0.4));
-        d += (n - 0.5) * 3.5;                              // a ragged, living front
-        float band = exp(-d * d / 7.0);
-        float trail = d < 0.0 ? exp(d * 0.18) : 0.0;
-        float fade = 1.0 - smoothstep(2.4, 4.0, uTetris);
-        col += uTetrisCol * (band * 0.3 + trail * 0.1) * fade * (0.4 + 1.2 * n);
+        float env = smoothstep(0.0, 0.15, uTetris) * (1.0 - smoothstep(0.3, 2.6, uTetris));
+        col += uTetrisCol * env * 0.16 * (0.3 + 1.4 * n * n);
     }
     col += uGlow * uFlash * 0.05 * (0.5 + t);
 
@@ -554,7 +548,7 @@ void main() {
         // A translucent gelatinous block lit from within.
         float s = v3.x;
         float light = v3.y;
-        float fl = age >= 0.0 ? exp(-age * 2.6) : 0.0;           // lock flare
+        float fl = age >= 0.0 ? exp(-age * 5.0) * 0.45 : 0.0;    // lock flare: brief, in the piece itself
         float jig = age >= 0.0 ? sin(age * 17.0) * exp(-age * 5.0) : 0.0;  // the jelly settling
         float wob = 0.010 * s * (1.0 + 1.5 * fl + (kind == 3 ? 0.6 : 0.0));
         p += wob * vec2(sin(uTime * 2.3 + vWorld.y * 2.1 + vWorld.x), cos(uTime * 1.9 + vWorld.x * 2.4 - vWorld.y));
@@ -571,7 +565,7 @@ void main() {
         vec2 q = vLocal / s;
         // the light: slow breathing in slow motion, the beat, the Tetris wave passing
         light *= 1.0 + 0.14 * uBeat + uSlow * 0.4 * sin(uTime * 0.8 + vWorld.y * 0.25 + vWorld.x * 0.1);
-        light += uWave * 1.4 * exp(-pow((vWorld.y - uWaveY) / 1.6, 2.0));
+        light += uWave * 0.6;
         float rim = exp(-din / 0.028);
         float rim2 = exp(-pow((din - 0.085) / 0.022, 2.0)) * 0.3;
         float core = exp(-dot(q, q) / 0.10);

@@ -133,9 +133,7 @@ private:
     std::vector<Ring> rings_;
     struct Dying { float x, y, t, delay, out, vx, vy; int type, mask; bool sink; };
     std::vector<Dying> dying_;
-    struct RowFlash { float y, t; vec3 col; };
-    std::vector<RowFlash> rowFlash_;
-    float tetrisT_ = 99.f, lockGlow_ = 0.f;
+    float tetrisT_ = 99.f;
 
     // ---- Game state seen by the universe.
     bool slowOn_ = false;

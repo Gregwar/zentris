@@ -387,7 +387,6 @@ void main() {
     vec2 ext = vec2(0.72);
     if (kind > 1.5 && kind < 2.5) ext = vec2(0.72, 0.72 + a2.w * 2.4);   // running down (game over)
     if (kind > 3.5 && kind < 4.5) ext = vec2(1.25);                       // the gauge
-    if (kind > 4.5) ext = vec2(0.5 * a2.w + 0.4, 0.7);                    // a lift stroke (a row)
     vec2 l = aCorner * ext;
     if (kind > 1.5 && kind < 2.5) l.y = l.y < 0.0 ? -(0.72 + a2.w * 2.4) : 0.72;
     vec2 p = a0.xy + l * a0.z * 2.0;
@@ -445,20 +444,6 @@ void main() {
         float cov = disc * below * v1.a;
         float gf = clamp(1.0 + uGran * 2.0 * (0.52 - h), 0.0, 2.0);
         outPigment(K * d * gf, cov, vec3(0.0), 0.0);
-        return;
-    }
-
-    if (kind > 4.5) {
-        // ---- the tide mark a wet brush leaves when it lifts a row: two faint ragged lines, a bloom at the end
-        float half_ = 0.5 * v2.w;
-        float y = q.y;
-        float top = 0.5 + 0.06 * (fbm(vec2(wp.x * 1.3, seed)) - 0.5) * 2.0;
-        float bot = -0.5 + 0.06 * (fbm(vec2(wp.x * 1.3, seed + 5.0)) - 0.5) * 2.0;
-        float lines = (exp(-abs(y - top) / 0.02) + exp(-abs(y - bot) / 0.02)) * 0.5;
-        float span = smoothstep(half_ + 0.3, half_ - 0.2, abs(q.x));
-        float inside = smoothstep(top + 0.02, top - 0.02, y) * smoothstep(bot - 0.02, bot + 0.02, y);
-        float d = (lines * 0.8 + inside * 0.18 * fbm(vec2(wp.x * 0.5, wp.y * 8.0))) * span;
-        outPigment(K * d, v1.a, vec3(0.0), 0.0);
         return;
     }
 
@@ -520,11 +505,11 @@ void main() {
     float rim = exp(-max(de, 0.0) / rimW) * (0.6 + 0.5 * fbm(nw * 4.0 + 1.0));
     dens += rim * (1.0 - wet) * 0.85;
     dens *= 1.0 + 0.18 * wet;
-    // lifted (a cleared row): the brush takes the pigment back in streaks
+    // lifted (a cleared cell): its pigment dissolves back into the paper, the thinnest of it first
     float lifted = kind > 0.5 && kind < 1.5 ? v2.w : 0.0;
     if (lifted > 0.0) {
-        float streak = nz(vec2(wp.x * 0.4 + seed, wp.y * 12.0));
-        dens *= mix(1.0, 0.08 + 0.35 * streak * streak, lifted);
+        float g = fbm(nw * 1.7 + seed * 3.1) * 0.7 + nz(nw * 6.0 + seed) * 0.3;
+        dens *= smoothstep(lifted * 1.2 - 0.15, lifted * 1.2 + 0.05, g);
     }
     // inside one piece the cells stay countable: a faint lighter hairline where two strokes meet, a touch of
     // pigment pooled along it
