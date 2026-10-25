@@ -1,6 +1,7 @@
 #pragma once
-// SYNTHWAVE's shaders (see synthwave.cpp). Everything is drawn in linear HDR (neon cores go above 1 and bloom),
-// then tone-mapped, grained and lightly bled in the tape post.
+// SYNTHWAVE's shaders (see synthwave.cpp). Everything is drawn in linear HDR (the sun, the lights and the neon
+// rims go above 1), then graded like film in the post: bloom with a little halation, anamorphic streaks, a filmic
+// curve with rich blacks and a soft highlight rolloff, a fine grain.
 
 namespace synthwave_shaders {
 
@@ -14,22 +15,22 @@ float vnoise(vec2 p) {
     vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(hash12(i), hash12(i + vec2(1, 0)), u.x), mix(hash12(i + vec2(0, 1)), hash12(i + vec2(1, 1)), u.x), u.y);
 }
-float fbm(vec2 p) {
+float fbm3(vec2 p) {
     float s = 0.0, a = 0.5;
-    for (int i = 0; i < 4; i++) { s += a * vnoise(p); p = p * 2.03 + vec2(1.7, 9.2); a *= 0.5; }
-    return s;
+    for (int i = 0; i < 3; i++) { s += a * vnoise(p); p = p * 2.03 + vec2(1.7, 9.2); a *= 0.5; }
+    return s / 0.875;
 }
-// Ridged 1D noise: sharp peaks for the mountain ranges.
 float ridge1(float x) {
     float s = 0.0, a = 0.55, f = 1.0;
-    for (int i = 0; i < 5; i++) { s += a * (1.0 - abs(vnoise1(x * f) * 2.0 - 1.0)); f *= 2.07; a *= 0.47; }
+    for (int i = 0; i < 4; i++) { s += a * (1.0 - abs(vnoise1(x * f) * 2.0 - 1.0)); f *= 2.07; a *= 0.47; }
     return s;
 }
+float sq(float x) { return x * x; }
 float sdBox(vec2 p, vec2 b) { vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
 float sdRound(vec2 p, vec2 b, float r) { vec2 d = abs(p) - b + r; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r; }
 )";
 
-// ---------------------------------------------------------------- the world: sky, sun, mountains, floor
+// ---------------------------------------------------------------- the world: sky, sun, haze, the wet floor
 
 inline const char* WORLD_FS = R"(#version 330 core
 in vec2 vUv;
@@ -37,214 +38,179 @@ out vec4 frag;
 uniform vec4 uView;          // center xy, half extents (board units)
 uniform float uHorizon;      // board y of the horizon
 uniform vec4 uSun;           // center xy, radius, gain
-uniform vec2 uBands;         // band scroll, breathe 0..1
+uniform float uMoon;         // 1: a cold moon (smaller, crisper, higher)
 uniform float uLv;           // 0 calm .. 2 peak (continuous)
 uniform float uTime, uScroll, uPx;
 uniform vec4 uKickAge, uKickAmp;
-uniform float uCars, uLasers, uStars, uClouds, uFlash, uGridGain, uSlow;
-uniform vec3 uSkyTop, uSkyMid, uSkyLow, uNight, uSunTop, uSunBot, uGrid, uAcc2, uMount, uFloor, uHaze;
+uniform float uCars, uRain, uSkyline, uStars, uFog, uHazeLit, uGridGain, uBars, uTrail;
+uniform vec3 uSkyTop, uHaze, uSunCore, uSunEdge, uFloor, uGrid, uAcc;
 uniform vec4 uWell;          // x0 y0 x1 y1 (board)
 uniform vec4 uColL, uColR;   // HUD columns (board)
+uniform float uRail;         // the well's rails: brightness
 uniform float uBridge;
 uniform vec3 uBridgeCol;
 uniform float uSeed;
 
-const float GA = 2.3, GB = 30.0; // floor grid: lateral and depth scales
+const float GA = 1.15, GB = 18.0; // floor: lateral and depth scales (few, wide lines)
 
 float wMid() { return smoothstep(0.2, 1.0, uLv); }
 float wPeak() { return smoothstep(1.1, 2.0, uLv); }
 
-vec3 skyGrad(float t) {
-    vec3 c = mix(uSkyLow, uSkyMid, smoothstep(0.0, 0.42, t));
-    c = mix(c, uSkyTop, smoothstep(0.3, 1.0, t));
-    // night drive: the upper sky deepens
-    c = mix(c, uNight, wPeak() * 0.75 * smoothstep(0.15, 0.85, t));
-    // dusk: a little dimmer overall
-    c *= mix(0.78, 1.0, wMid());
-    return c;
-}
-
-float starField(vec2 p, float scale, float density) {
-    vec2 g = p * scale;
-    vec2 id = floor(g);
-    vec2 f = fract(g) - 0.5;
-    float h = hash12(id + uSeed);
-    if (h > density) return 0.0;
-    vec2 o = (vec2(hash12(id + 3.1), hash12(id + 7.7)) - 0.5) * 0.7;
-    float d = length(f - o) / scale;
-    float size = mix(0.012, 0.05, pow(hash12(id + 1.3), 4.0));
-    float tw = 0.55 + 0.45 * sin(uTime * (0.8 + 2.5 * hash12(id + 9.1)) + h * 60.0);
-    float core = 1.0 - smoothstep(size, size + 1.5 * uPx, d);
-    float glow = exp(-d / (size * 2.5 + 0.02)) * 0.1;
-    return (core + glow) * tw * (0.4 + 1.6 * hash12(id + 5.5));
-}
-
-// The sun: emission and coverage (0 where the slit bands let the sky through).
-vec3 sunAt(vec2 p, out float cover) {
+// The light of the sun: its soft disc (cover) and its glow, sharpened or softened (the floor sees it blurred).
+vec3 sunLight(vec2 p, float soft, out float cover) {
     vec2 q = (p - uSun.xy) / uSun.z;
     float r = length(q);
-    float aa = 1.5 * uPx / uSun.z;
-    float disc = 1.0 - smoothstep(1.0 - aa, 1.0, r);
-    float v = q.y;
-    float vh = clamp((uHorizon - uSun.y) / uSun.z, -1.0, 0.9);
-    float t = (v - vh) / (1.0 - vh);  // 0 at the horizon .. 1 at the crown
-    float u = 0.56 - t;               // below the first band
-    float gap = 0.0;
-    if (u > 0.0) {
-        float k = u * 9.0 * (1.0 - vh) * 0.5 + uBands.x;
-        float f = fract(k);
-        float fw = max(fwidth(k), 1e-4);
-        float frac = clamp(0.08 + u * 0.95, 0.0, 0.62) * (0.8 + 0.5 * uBands.y);
-        gap = (1.0 - smoothstep(frac - fw, frac + fw, f)) * smoothstep(0.0, fw * 1.5, f + fw * 0.5);
-    }
-    cover = disc * (1.0 - gap);
-    float g = smoothstep(0.0, 1.0, t);
-    vec3 c = mix(uSunBot, uSunTop, g * g * (0.6 + 0.4 * g));
-    c *= 1.0 + 0.35 * smoothstep(0.6, 1.0, t); // a hotter crown
-    return c * uSun.w;
+    float edge = mix(0.09, 0.015, uMoon) + soft;
+    cover = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, r);
+    // the disc: a hot core rolling to the limb, the lower half reddened by the air
+    vec3 c = mix(uSunEdge, uSunCore, pow(1.0 - smoothstep(0.0, 1.05, r), 0.6));
+    c = mix(c, uSunEdge * 1.1, smoothstep(0.1, -1.0, q.y) * 0.55 * (1.0 - uMoon));
+    if (uMoon > 0.5) c *= 0.88 + 0.12 * smoothstep(0.35, 0.65, fbm3(q * 2.3 + 4.0)); // faint maria
+    vec3 disc = c * mix(0.7 + 0.8 * pow(max(1.0 - r * r, 0.0), 1.5) + 1.6 * exp(-r * r * 9.0), 1.6, uMoon) * cover;
+    float rr = max(r - 1.0, 0.0);
+    vec3 glow = uSunEdge * (exp(-rr * 3.0) * 0.45 + exp(-rr * 0.8) * 0.12 + exp(-rr * 0.2) * 0.025) * (1.0 - cover);
+    return (disc + glow) * uSun.w;
 }
 
-float farRidge(float x) { return (0.9 + 2.6 * ridge1(x * 0.16 + 11.0 + uSeed * 0.37)) * smoothstep(3.0, 13.0, abs(x)); }
-float nearRidge(float x) { return (0.25 + 1.5 * ridge1(x * 0.26 + 47.0 + uSeed * 0.21)) * smoothstep(7.0, 17.0, abs(x)); }
+// Two thin strata crossing the low sky (the only bands near the sun): darker against the glow, a lit lining.
+float strata(vec2 p) {
+    float h = p.y - uHorizon;
+    float s = 0.0;
+    for (int i = 0; i < 2; i++) {
+        float fi = float(i);
+        float y0 = mix(1.1, 2.6, fi) + 0.35 * (vnoise1(p.x * 0.05 + fi * 7.0 + uSeed) - 0.5) + uSun.y - uHorizon - 0.2;
+        float th = (0.07 + 0.09 * vnoise1(p.x * 0.11 + fi * 3.0 + uTime * 0.01)) * mix(1.0, 1.8, fi);
+        float m = exp(-sq((h - y0) / th)) * smoothstep(0.25, 0.7, vnoise1(p.x * 0.07 - uTime * 0.008 + fi * 11.0));
+        s += m * (0.55 - 0.25 * fi);
+    }
+    return s;
+}
 
-// Everything above the horizon (also seen mirrored in the floor).
+float farHills(float x) { return (0.25 + 0.9 * ridge1(x * 0.11 + 11.0 + uSeed * 0.37)) * smoothstep(2.0, 16.0, abs(x)); }
+
 vec3 skyCol(vec2 p, bool refl) {
     float H = uHorizon;
     float h = p.y - H;
     float top = uView.y + uView.w;
     float t = clamp(h / max(top - H, 1.0), 0.0, 1.0);
-    vec3 col = skyGrad(t);
-    float sunVis = 1.0;
-    // stars: dusk and night
-    if (!refl) {
-        float st = starField(p, 1.5, 0.06) + 0.35 * starField(p + 31.7, 3.1, 0.035);
-        col += vec3(0.85, 0.85, 1.0) * st * uStars * smoothstep(1.0, 6.0, h);
-    }
-    // lasers (peak): a fan from the vanishing point
-    if (uLasers > 0.001) {
-        vec2 d = p - vec2(0.0, H);
-        float len = length(d);
-        float ang = atan(d.y, d.x);
-        float l = 0.0;
-        for (int i = 0; i < 6; i++) {
-            float fi = float(i);
-            float a = 1.5708 + (fi - 2.5) * 0.36 + 0.22 * sin(uTime * (0.31 + 0.07 * fi) + fi * 1.7);
-            float dist = abs(sin(ang - a)) * len;
-            l += exp(-dist / (0.035 + len * 0.004)) * smoothstep(0.0, 4.0, len) * exp(-len * 0.05);
+    // the night: near black above, the haze's color only low on the horizon
+    vec3 col = uSkyTop * (1.0 - 0.5 * t) + uHaze * (exp(-h * 0.38) * 0.75 + exp(-h * 0.1) * 0.05);
+    if (!refl && uStars > 0.001) {
+        vec2 g = p * 1.1;
+        vec2 id = floor(g), f = fract(g) - 0.5;
+        float hs = hash12(id + uSeed);
+        if (hs < 0.035) {
+            vec2 o = (vec2(hash12(id + 3.1), hash12(id + 7.7)) - 0.5) * 0.7;
+            float d = length(f - o) / 1.1;
+            float tw = 0.6 + 0.4 * sin(uTime * (0.5 + 1.5 * hash12(id + 9.1)) + hs * 90.0);
+            col += vec3(0.8, 0.85, 1.0) * exp(-d * d / (uPx * uPx * 1.2)) * tw * 0.5 * uStars * smoothstep(3.0, 9.0, h);
         }
-        col += mix(uAcc2, uGrid, 0.35) * l * uLasers * 0.9;
     }
-    // the sun and its halo
     float cover;
-    vec3 sc = sunAt(p, cover);
-    float r = length(p - uSun.xy) / uSun.z;
-    col += uSunBot * exp(-max(r - 1.0, 0.0) * 3.0) * 0.35 * uSun.w * (1.0 - cover);
-    col += uSunBot * exp(-max(r - 1.0, 0.0) * 0.9) * 0.10 * uSun.w;
-    col = mix(col, sc, cover);
-    // cloud streaks drifting across (heavier in some variants)
-    if (uClouds > 0.001) {
-        float n = fbm(vec2(p.x * 0.06 + uTime * 0.012, p.y * 0.42 + 3.0));
-        float n2 = fbm(vec2(p.x * 0.11 - uTime * 0.02, p.y * 0.9 + 9.0));
-        float band = smoothstep(1.2, 3.0, h) * (1.0 - smoothstep(7.5, 12.0, h));
-        float m = smoothstep(0.5, 0.64, n * 0.7 + n2 * 0.45) * band * uClouds;
-        float lit = smoothstep(0.6, 0.52, n * 0.7 + n2 * 0.45 - 0.05);
-        vec3 cc = uMount * 0.7 + uSkyMid * 0.25 + uSunBot * 0.3 * lit * uSun.w;
-        col = mix(col, cc, m * 0.35);
-    }
-    // the mountain ranges: far (hazy, wireframed) and near (dark)
-    float hf = farRidge(p.x);
-    if (h < hf) {
-        float depth = hf - h;
-        vec3 mc = mix(uMount, uSkyLow, 0.32) * 0.9;
-        mc = mix(mc, uMount, smoothstep(0.0, 2.5, depth) * 0.6);
-        // a wire mesh following the slopes
-        float k1 = depth * 1.7, k2 = p.x * 0.9 + depth * 0.35;
-        float w1 = abs(fract(k1) - 0.5) / max(fwidth(k1), 1e-4);
-        float w2 = abs(fract(k2) - 0.5) / max(fwidth(k2), 1e-4);
-        float wire = max(1.0 - smoothstep(0.5, 1.5, w1), 1.0 - smoothstep(0.5, 1.5, w2));
-        mc += uGrid * wire * 0.06 * wMid() * smoothstep(0.0, 0.6, depth) * exp(-depth * 1.2);
-        mc += uSunTop * exp(-depth * 9.0) * 0.55; // the rim the sun lights
-        col = mc;
-    }
-    float hn = nearRidge(p.x);
-    if (h < hn) {
-        float depth = hn - h;
-        vec3 mc = uMount * 0.55;
-        mc += uHaze * exp(-depth * 10.0) * 0.4;
-        col = mc;
+    vec3 sun = sunLight(p, refl ? 0.25 : 0.0, cover);
+    float st = refl ? 0.0 : strata(p);
+    col = col * (1.0 - cover) + sun * (1.0 - 0.6 * st * cover);
+    // the strata: dim bands, their lower edge lit by the sun behind them
+    float sd = length(p - uSun.xy) / uSun.z;
+    col = mix(col, col * 0.55 + uSunEdge * 0.06 * uSun.w * exp(-max(sd - 1.0, 0.0) * 0.6), st * (1.0 - cover) * 0.7);
+    // distant hills, nearly lost in the haze
+    float hf = farHills(p.x) * (1.0 - uSkyline);
+    if (h < hf) col = mix(col, uSkyTop * 0.5 + uHaze * 0.35, 0.8 * smoothstep(0.0, 0.05, hf - h));
+    // a city on the horizon: blocks and a few lit windows
+    if (uSkyline > 0.001) {
+        float bx = floor(p.x * 1.6);
+        float bh = (0.25 + 1.5 * pow(hash11(bx * 1.37 + uSeed), 2.2)) * smoothstep(1.5, 9.0, abs(p.x)) * (1.0 - smoothstep(16.0, 24.0, abs(p.x)));
+        if (h < bh) {
+            vec3 b = uSkyTop * 0.4 + uHaze * 0.22;
+            vec2 w = vec2(p.x * 9.0, h * 7.0);
+            float lit = step(0.78, hash12(floor(w) + bx)) * step(0.25, fract(w.x)) * step(0.3, fract(w.y));
+            b += mix(uAcc, vec3(1.0, 0.8, 0.55), hash12(floor(w) * 1.3)) * lit * 0.35 * (refl ? 0.6 : 1.0);
+            col = mix(col, b, uSkyline);
+        }
     }
     return col;
 }
 
-float kickPulse(float d) {
+float kickPulse(float z) {
     float s = 0.0;
     for (int i = 0; i < 4; i++) {
         float a = uKickAge[i];
         if (a > 3.0) continue;
-        float front = a * 16.0;
-        float w = 0.25 + 0.12 * front;
-        s += exp(-pow((d - front) / w, 2.0)) * exp(-a * 1.6) * uKickAmp[i];
+        float front = a * 9.0;
+        s += exp(-sq((z - front) / (0.4 + 0.5 * front))) * exp(-a * 1.3) * uKickAmp[i];
     }
     return s;
 }
 
-// Light streaks of cars on the floor's lanes (peak): taillights racing to the horizon, headlights coming.
-vec3 cars(float gx, float gz, float d) {
+// Light trails of cars (peak): tail lights receding, headlights coming, long exposures on the lanes.
+vec3 cars(float gx, float zr, float d) {
     vec3 acc = vec3(0.0);
-    float fz = fwidth(gz);
+    float fz = fwidth(zr);
     for (int i = 0; i < 4; i++) {
         float fi = float(i);
         float side = i < 2 ? -1.0 : 1.0;
-        float lane = side * (i == 0 || i == 3 ? 6.2 : 4.4);
-        bool away = (i == 1 || i == 3);        // inner lanes recede, outer ones come
-        float S = 7.0 + 3.0 * fi;
-        float v = away ? 9.0 + 2.0 * fi : 6.0;
+        bool away = (i == 1 || i == 2);
+        float lane = side * (away ? 1.7 : 2.35);
+        float S = 9.0 + 4.0 * fi;
+        float v = away ? 4.0 + 1.5 * fi : 7.0;
         float head = (away ? uTime * v : -uTime * v) + fi * 13.0;
-        float back = away ? (head - gz) : (gz - head);
+        float back = away ? (head - zr) : (zr - head);
         float cell = floor(back / S);
         back = (back / S - cell) * S;
-        if (hash11(cell * 7.13 + fi * 3.1) > 0.75) continue;
-        float lat = min(abs(gx - lane - 0.16), abs(gx - lane + 0.16)) * d / GA;
-        float size = 0.04 + 0.09 * d / 9.0;
-        float lw = exp(-pow(lat / size, 2.0));
-        float trail = exp(-back * (away ? 0.45 : 1.2)) * 1.1 + exp(-back * 7.0) * 3.0;
-        vec3 c = away ? vec3(1.0, 0.12, 0.10) : vec3(1.0, 0.82, 0.62);
-        acc += c * lw * trail * (1.0 - smoothstep(S * 0.08, S * 0.3, fz));
+        if (hash11(cell * 7.13 + fi * 3.1) > 0.7) continue;
+        float lat = min(abs(gx - lane - 0.06), abs(gx - lane + 0.06)) * d / GA;
+        float size = 0.02 + 0.012 * d;
+        float lw = exp(-sq(lat / size));
+        float len = (away ? 0.35 : 0.9) / mix(1.0, 3.5, uTrail);
+        float trail = exp(-back * len) * 0.8 + exp(-back * 6.0) * 0.6;
+        vec3 c = away ? vec3(1.0, 0.08, 0.06) : vec3(1.0, 0.86, 0.7);
+        acc += c * lw * trail * (1.0 - smoothstep(S * 0.1, S * 0.35, fz));
     }
     return acc;
+}
+
+vec3 hazeCol(vec2 p) {
+    float sx = abs(p.x - uSun.x);
+    return uHaze * 0.55 + uSunEdge * uSun.w * (exp(-sx * 0.16) * 0.28 + 0.03);
 }
 
 vec3 floorCol(vec2 p) {
     float H = uHorizon;
     float d = max(H - p.y, 1e-3);
+    float zr = GB / d;                 // depth (not scrolled)
     float gx = p.x * GA / d;
-    float gz = GB / d + uScroll;
-    float wm = wMid(), wp = wPeak();
-    // the mirror: the sky and the sun reflected, broken by ripples
-    float rip = sin(GB / d * 2.6 + uTime * 0.8) * 0.5 + sin(GB / d * 6.1 - uTime * 1.4) * 0.3;
-    vec2 rp = vec2(p.x + rip * 0.05 * d, H + d * 0.85);
-    vec3 refl = skyCol(rp, true);
-    float fres = mix(0.06, 0.42, exp(-d * 0.55));
-    float bars = 0.45 + 0.55 * smoothstep(0.08, 0.2, abs(fract(GB / d * 0.5 + uTime * 0.05) - 0.5));
-    vec3 col = uFloor * (0.7 + 0.5 * exp(-d * 0.5)) + refl * fres * bars;
-    // the grid
-    vec2 g = vec2(gx, gz);
+    float gz = zr + uScroll;
+    float vis = exp(-zr * uFog * 0.085); // how much of the floor the fog lets through
+    // wet asphalt: dark, with long streaky reflections
+    float wet = vnoise(vec2(p.x * 2.4, zr * 0.35 + uScroll * 0.35));
+    vec3 col = uFloor * (0.55 + 0.45 * wet);
+    float rip = (vnoise(vec2(p.x * 0.8, gz * 2.0)) - 0.5);
+    vec2 rp = vec2(p.x + rip * 0.25 * d * 0.3, H + d * 0.8);
+    float fres = 0.18 + 0.6 * exp(-d * 0.3);
+    col += skyCol(rp, true) * fres * (0.65 + 0.5 * wet);
+    // the sun's long reflection: a column broken into bright streaks
+    float sx = abs(p.x - uSun.x) / (uSun.z * (0.45 + 0.07 * d));
+    float brk = smoothstep(0.25, 0.85, vnoise(vec2(p.x * 1.5, gz * 3.0 + uTime * 0.3)));
+    col += uSunEdge * mix(1.0, 1.6, brk) * exp(-sx * sx * 2.0) * exp(-d * 0.22) * 0.9 * uSun.w * (0.5 + 0.8 * brk);
+    col += uSunCore * exp(-sx * sx * 9.0) * exp(-d * 0.5) * brk * 0.8 * uSun.w;
+    // the grid: few, fine lines, gone in the fog
+    vec2 g = vec2(gx * 0.5, gz);   // a line every other lane
     vec2 fw = max(fwidth(g), vec2(1e-4));
     vec2 dist = abs(fract(g + 0.5) - 0.5) / fw;
-    float lw = mix(0.6, 1.6, smoothstep(0.0, 9.0, d)) * max(1.0, 1.0 / (uPx * 45.0));
-    float fadeX = 1.0 - smoothstep(0.12, 0.45, fw.x), fadeZ = 1.0 - smoothstep(0.12, 0.45, fw.y);
+    float fadeX = 1.0 - smoothstep(0.08, 0.3, fw.x), fadeZ = 1.0 - smoothstep(0.08, 0.3, fw.y);
+    float lw = max(0.8, 1.0 / (uPx * 60.0));
     float lx = (1.0 - smoothstep(lw * 0.5, lw * 0.5 + 1.0, dist.x)) * fadeX;
     float lz = (1.0 - smoothstep(lw * 0.5, lw * 0.5 + 1.0, dist.y)) * fadeZ;
-    float bx = abs(fract(gx + 0.5) - 0.5) * d / GA;          // board units to the line
-    float bz = abs(fract(gz + 0.5) - 0.5) * d * d / GB;
-    float glow = exp(-bx * 7.0) * fadeX + exp(-bz * 7.0) * fadeZ;
-    float pulse = kickPulse(d);
-    float gain = uGridGain * (1.0 + 2.2 * pulse);
-    float near = smoothstep(0.0, 0.9, d);
-    col += uGrid * (max(lx, lz) * 1.5 + glow * 0.16) * gain * near;
-    // the lit band of a kick runs across the floor
-    col += uGrid * pulse * 0.10 * near;
-    if (uCars > 0.001) col += cars(gx, gz, d) * uCars * 4.0;
+    float bx = abs(fract(gx * 0.5 + 0.5) - 0.5) * 2.0 * d / GA;
+    float glow = exp(-bx * 14.0) * fadeX * 0.35;
+    float pulse = kickPulse(zr);
+    float near = smoothstep(0.0, 1.2, d) * mix(0.18, 1.0, smoothstep(8.0, 2.5, d));
+    float gain = uGridGain * (1.0 + 2.5 * pulse) * vis;
+    col += uGrid * (lx * 0.75 + lz * 0.22 + glow) * gain * near;
+    col += uGrid * pulse * 0.025 * vis * near;
+    if (uCars > 0.001) col += cars(gx, zr, d) * uCars * 5.0 * mix(1.0, vis, 0.5);
+    // fog over the far floor
+    col = mix(col, hazeCol(p) * (0.6 + 0.6 * uHazeLit), (1.0 - vis) * 0.85);
     return col;
 }
 
@@ -253,46 +219,65 @@ void main() {
     float H = uHorizon;
     vec3 col = p.y >= H ? skyCol(p, false) : floorCol(p);
     float h = p.y - H;
-    // the horizon's glow
-    col += uHaze * (exp(-abs(h) * 1.1) * 0.35 + exp(-abs(h) * 7.0) * 0.8) * (0.7 + 0.5 * wMid());
-    // a flash (a strong rise, lightning): the sky lights up
-    col += (uSunTop * 0.35 + uHaze * 0.25) * uFlash * smoothstep(-3.0, 8.0, h);
+    // the haze on the horizon: a lit veil drifting, thicker with uFog, lit up by the peaks
+    float drift = fbm3(vec2(p.x * 0.07 + uTime * 0.015, h * 0.45 + 2.0));
+    float veil = exp(-abs(h + 0.3) * mix(0.75, 0.45, uFog * 0.5)) * (0.55 + 0.7 * drift);
+    col += hazeCol(p) * veil * (0.35 + 0.25 * uFog) * (0.75 + 0.9 * uHazeLit);
+    // rain (some variants): fine slanted streaks, lit where the light is
+    if (uRain > 0.001) {
+        vec2 rp = vec2(p.x + p.y * 0.12, p.y);
+        float col0 = floor(rp.x * 5.0);
+        float sp = 20.0 + 8.0 * hash11(col0);
+        float y = rp.y * 0.9 + uTime * sp * 0.12 + hash11(col0 * 3.7) * 40.0;
+        float seg = fract(y * 0.35);
+        float dx = abs(fract(rp.x * 5.0) - 0.5) / 5.0;
+        float r = exp(-dx * dx / (uPx * uPx * 0.35)) * smoothstep(0.0, 0.05, seg) * (1.0 - smoothstep(0.05, 0.4, seg));
+        r *= step(0.7, hash11(col0 * 1.9 + floor(y * 0.35)));
+        float lit = exp(-length(p - uSun.xy) * 0.09) + 0.15;
+        col += hazeCol(p) * r * uRain * 0.35 * lit;
+    }
 
-    // quiet behind the HUD columns
+    // quiet behind the HUD columns and the corner where the universe's name is written
     float cl = sdBox(p - (uColL.xy + uColL.zw) * 0.5, (uColL.zw - uColL.xy) * 0.5);
     float cr = sdBox(p - (uColR.xy + uColR.zw) * 0.5, (uColR.zw - uColR.xy) * 0.5);
-    float cm = 1.0 - smoothstep(-0.6, 1.4, min(cl, cr));
-    col *= 1.0 - 0.42 * cm;
-    // and behind the corner where the universe's name is written
+    col *= 1.0 - 0.35 * (1.0 - smoothstep(-0.6, 1.6, min(cl, cr)));
     vec2 corner = vec2(uView.x - uView.z, uView.y - uView.w);
-    col *= 1.0 - 0.5 * exp(-length((p - corner) * vec2(0.09, 0.32)) * 2.2);
-    // the dark glass well: a shadow around it, the world dimly seen through it
+    col *= 1.0 - 0.45 * exp(-length((p - corner) * vec2(0.09, 0.32)) * 2.2);
+
+    // the well: smoked frosted glass, the world dim through it, the sun's light diffused in it
     vec2 wc = (uWell.xy + uWell.zw) * 0.5, wh = (uWell.zw - uWell.xy) * 0.5;
     float sw = sdBox(p - wc, wh);
-    col *= 1.0 - 0.45 * exp(-max(sw, 0.0) * 0.9) * step(0.0, sw);
     float inside = 1.0 - smoothstep(-uPx, uPx, sw);
-    inside *= 1.0 - smoothstep(uWell.w - 2.6, uWell.w, p.y) * 0.85;
-    vec3 glass = col * 0.07 + uSkyTop * 0.10 + uNight * 0.08;
-    // a faint cell grid and a soft sheen on the glass
+    float topFade = smoothstep(uWell.w - 2.2, uWell.w, p.y);
+    inside *= 1.0 - topFade * 0.9;
+    vec3 glass = col * 0.18 + uSkyTop * 0.25 + uHaze * 0.04;
+    glass += uSunEdge * exp(-abs(p.x - uSun.x) * 0.12 - abs(p.y - uSun.y) * 0.15) * 0.05 * uSun.w;
     vec2 cg = abs(fract(p - wc + 0.5) - 0.5) / max(fwidth(p), vec2(1e-4));
-    float cell = 1.0 - smoothstep(0.4, 1.4, min(cg.x, cg.y));
-    glass += uGrid * cell * 0.018;
-    glass += vec3(0.9, 0.85, 1.0) * 0.008 * smoothstep(0.6, 0.0, abs((p.x - wc.x) * 0.5 + (p.y - wc.y) * 0.18 - 1.2));
+    glass += uGrid * (1.0 - smoothstep(0.3, 1.2, min(cg.x, cg.y))) * 0.006;
     col = mix(col, glass, inside);
+    // its rails: hairlines lit from below, fading upward
+    float rx = abs(abs(p.x - wc.x) - wh.x) / uPx;
+    float ry = (p.y - uWell.y) / (uWell.w - uWell.y);
+    float rail = (1.0 - smoothstep(0.5, 1.6, rx)) * step(uWell.y - uPx, p.y) * step(p.y, uWell.w - 1.0)
+               * mix(1.0, 0.12, smoothstep(0.0, 0.9, ry));
+    float base = (1.0 - smoothstep(0.5, 1.6, abs(p.y - uWell.y) / uPx)) * step(abs(p.x - wc.x), wh.x);
+    col += uGrid * (rail + base * 1.2) * uRail;
+    col += uGrid * exp(-abs(p.y - uWell.y) * 3.0) * step(abs(p.x - wc.x), wh.x + 0.3) * step(p.y, uWell.y) * 0.05 * uRail;
 
-    // the bridge (a change of universe): a VHS tracking dissolve, band by band, to the plain backdrop
+    // the bridge (a change of universe): the fog takes the world, in drifting folds
     if (uBridge > 0.0) {
-        float band = floor(gl_FragCoord.y / 7.0);
-        float n = hash11(band * 1.37 + floor(uTime * 9.0) * 0.17);
-        float n2 = hash11(floor(gl_FragCoord.y / 37.0) * 3.1);
-        float w = smoothstep(0.0, 1.0, uBridge * 1.6 - 0.3 + (n * 0.3 + n2 * 0.3 - 0.3));
+        float n = fbm3(p * 0.16 + vec2(uTime * 0.05, 0.0));
+        float w = smoothstep(n - 0.3, n + 0.3, uBridge * 1.6 - 0.3);
         col = mix(col, uBridgeCol, w);
     }
+    // letterbox (slow motion)
+    float bh = 0.075 * uBars;
+    if (vUv.y < bh || vUv.y > 1.0 - bh) col = vec3(0.0);
     frag = vec4(col, 1.0);
 }
 )";
 
-// ---------------------------------------------------------------- flat colored triangles (palms, OSD, panels)
+// ---------------------------------------------------------------- flat colored triangles (panels)
 
 inline const char* SHAPE_VS = R"(#version 330 core
 layout(location = 0) in vec2 aPos;
@@ -310,12 +295,12 @@ void main() {
 inline const char* SHAPE_FS = R"(#version 330 core
 in vec4 vCol;
 out vec4 frag;
-void main() { frag = vCol; }
+void main() { frag = vec4(vCol.rgb * vCol.a, vCol.a); }
 )";
 
 // ---------------------------------------------------------------- tiles: the stack, the piece, previews, gauge
 
-// a0: center xy, half size xy (board). a1: rgb, alpha. a2: kind, age, aux, seed. a3: extra.
+// a0: center xy, half size xy (board). a1: rgb, alpha. a2: kind, age, aux, 0. a3: extra.
 inline const char* TILE_VS = R"(#version 330 core
 layout(location = 0) in vec2 aCorner;
 layout(location = 1) in vec4 a0;
@@ -340,18 +325,10 @@ in vec2 vWorld;
 flat in vec4 v0, v1, v2, v3;
 out vec4 frag;
 uniform float uPx;           // board units per pixel
-uniform vec3 uSkyTop, uSkyLow, uSunTop, uSunBot, uGrid, uAcc2;
+uniform vec3 uSkyTop, uSunCore, uSunEdge, uGrid, uAcc;
 uniform float uBridge;
 uniform vec3 uBridgeInk;
 uniform float uTime;
-
-// The chrome ramp: a pale sky above a dark horizon line, warm ground below.
-vec3 chrome(float t) {
-    vec3 c = mix(vec3(0.95, 0.97, 1.0), mix(uSkyTop, vec3(0.25, 0.35, 0.9), 0.5) * 0.9, smoothstep(0.0, 0.5, t));
-    c = mix(c, vec3(0.06, 0.03, 0.10), smoothstep(0.47, 0.52, t));
-    c = mix(c, mix(uSunBot, uSunTop, smoothstep(0.55, 1.0, t)) * 1.1, smoothstep(0.52, 0.6, t));
-    return c;
-}
 
 void main() {
     int kind = int(v2.x + 0.5);
@@ -361,107 +338,85 @@ void main() {
     vec2 p = vLocal;
     float px = uPx;
     if (kind == 0 || kind == 3) {
-        // A glossy neon tile with a chrome bevel.
-        float s = v3.x;                       // cell scale (previews are smaller)
-        vec2 b = vec2(0.46 * s);
-        float sd = sdRound(p, b, 0.12 * s);
-        float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, sd);
+        // Smoked frosted glass lit from inside: a dark tinted face, a soft inner glow, a thin bright rim.
+        // v3.x: cell scale (previews are smaller), v3.y: light (1 on, 0 off: the lights going out).
+        float s = v3.x;
+        float on = v3.y;
+        vec2 b = vec2(0.455 * s);
+        float sd = sdRound(p, b, 0.07 * s);
+        float cov = 1.0 - smoothstep(-px * 0.6, px * 0.6, sd);
         if (cov <= 0.0) discard;
-        float e = 0.10 * s;
-        vec2 q = p / b;                       // -1..1
-        float ty = 0.5 - 0.5 * q.y;           // 0 top .. 1 bottom
-        // face: a deep-to-bright neon gradient, the sky reflected in its upper half, a crisp horizon line
-        vec3 deep = pc * 0.22, bright = pc * 0.95 + 0.02;
-        vec3 face = mix(bright, deep, smoothstep(0.0, 1.0, ty));
-        float hz = 0.42 + 0.05 * q.x;
-        vec3 skyRef = mix(mix(pc, vec3(1.0), 0.3), pc * 0.7, smoothstep(0.0, hz, ty));
-        face = mix(face, skyRef, (1.0 - smoothstep(hz - 0.02, hz + 0.01, ty)) * 0.55);
-        face *= 1.0 - 0.35 * (1.0 - smoothstep(0.0, 0.04, abs(ty - hz - 0.02)));
-        // gloss: a soft diagonal streak, top left
-        float gl = exp(-pow((q.x * 0.8 + q.y * 0.6 - 0.75) / 0.14, 2.0)) * smoothstep(0.2, 0.9, -q.x * 0.4 + q.y * 0.9 + 0.3);
-        face += vec3(1.0) * gl * 0.22;
-        // inner neon line
-        float inner = exp(-pow((sd + e + 0.035 * s) / (0.018 * s + px), 2.0));
-        face += pc * inner * 1.1;
-        // chrome bevel, lit from the top left
-        vec2 n = normalize(vec2(abs(p.x) > abs(p.y) ? sign(p.x) : 0.0, abs(p.y) >= abs(p.x) ? sign(p.y) : 0.0) + q * 0.5);
-        float lit = dot(n, normalize(vec2(-0.45, 0.9))) * 0.5 + 0.5;
-        vec3 bev = chrome(1.0 - lit) * mix(vec3(1.0), pc * 1.3 + 0.2, 0.35);
-        float inBev = smoothstep(-e - px, -e + px, sd);
-        vec3 col = mix(face, bev, inBev);
-        col += vec3(1.0) * exp(-pow((sd + 0.012 * s) / (0.012 * s + px), 2.0)) * 0.35 * lit;
+        vec2 q = p / b;
+        float live = kind == 3 ? 1.0 : 0.82;   // the falling piece burns a little brighter
+        // face: smoked glass, lighter toward the top, the sun's side faintly warmer
+        vec3 face = uSkyTop * 0.6 + pc * (0.1 + 0.07 * (q.y * 0.5 + 0.5)) * live;
+        // the inner glow, from the rim inward
+        vec2 aq = abs(q);
+        float m = pow(pow(aq.x, 6.0) + pow(aq.y, 6.0), 1.0 / 6.0);   // a soft squircle: no corner seams
+        float inner = exp(-(1.0 - min(m, 1.0)) * 2.6);
+        face += pc * inner * 0.4 * live * on;
+        // the rim: a hairline of light just inside the edge, hotter on top
+        float rim = exp(-sq((sd + 0.035 * s) / (0.012 * s + px * 0.7)));
+        float topLit = 0.75 + 0.45 * smoothstep(-0.4, 1.0, q.y);
+        vec3 col = face + mix(pc, vec3(1.0), 0.25) * rim * 1.35 * topLit * live * on;
+        // a faint sheen on the glass, top left
+        col += vec3(1.0) * 0.025 * smoothstep(-0.2, 1.2, q.y - q.x * 0.3) * cov;
+        // the light off: only the smoked glass, its rim a dim memory
+        col = mix(uSkyTop * 0.5 + pc * 0.03 + pc * rim * 0.12, col, on);
         if (kind == 0 && age >= 0.0) {
-            // lock: the outline flares neon, a chrome glint sweeps across the piece
-            float fl = exp(-age * 5.0);
-            col += mix(pc, vec3(1.0), 0.5) * fl * (inBev * 1.6 + 0.35);
-            float g = (vWorld.x - vWorld.y * 0.6) * 0.5 - (age * 9.0 - 3.0) + v2.z;
-            col += vec3(1.0, 0.97, 0.92) * exp(-g * g / 0.05) * smoothstep(0.8, 0.0, age) * 1.6;
+            // lock: the rim flares and settles, a breath of light inside
+            float fl = exp(-age * 6.0);
+            col += mix(pc, vec3(1.0), 0.4) * fl * (rim * 2.2 + inner * 0.6 + 0.08);
         }
-        // the bridge: a plain block in the bridge's ink
         col = mix(col, uBridgeInk, smoothstep(0.2, 0.85, uBridge));
-        frag = vec4(col * cov * alpha, cov * alpha);
+        float a = cov * alpha * mix(0.9, 1.0, inner);
+        frag = vec4(col * a, a);
         return;
     }
     if (kind == 1) {
-        // Ghost: a thin neon outline, a breath of fill.
-        vec2 b = vec2(0.44);
-        float sd = sdRound(p, b, 0.1);
-        float line = 1.0 - smoothstep(0.02, 0.02 + px * 1.2, abs(sd));
-        float fill = (1.0 - smoothstep(-px, px, sd)) * 0.07;
-        vec3 col = pc * (line * 1.1 + fill);
-        float a = (line * 0.9 + fill) * alpha * (1.0 - uBridge);
-        frag = vec4(col * alpha * (1.0 - uBridge), a);
+        // Ghost: a faint hairline, nothing else.
+        vec2 b = vec2(0.445);
+        float sd = sdRound(p, b, 0.07);
+        float line = 1.0 - smoothstep(0.0, px * 1.2, abs(sd + 0.03));
+        vec3 col = pc * line * 0.45;
+        frag = vec4(col * alpha * (1.0 - uBridge), line * 0.4 * alpha * (1.0 - uBridge));
         return;
     }
     if (kind == 2) {
-        // A cleared cell sliding away as a streak of light: v3.x = direction, v3.y = progress 0..1.
+        // A cleared cell leaving as a light trail: v3.x = direction, v3.y = progress 0..1.
         float dir = v3.x, k = v3.y;
         float hw = v0.z;
-        // tile body at the leading end, a tail behind it
-        float lead = dir * p.x;                 // along the motion, -hw..hw
-        float body = 0.46;
-        float tailLen = 2.0 * hw - 2.0 * body;
-        float x = lead - (hw - 2.0 * body) + body; // >0 inside the body region
+        float lead = dir * p.x;
         float vy = abs(p.y);
-        float cy = 1.0 - smoothstep(0.42 * (1.0 - 0.6 * k), 0.42 * (1.0 - 0.6 * k) + px, vy);
-        float along = clamp((lead + hw) / max(2.0 * hw, 1e-3), 0.0, 1.0); // 0 tail end .. 1 head
-        float core = exp(-vy * vy / (0.012 + 0.02 * (1.0 - k)));
-        vec3 hot = mix(pc, vec3(1.0), 0.55);
-        vec3 col = hot * (pow(along, 2.5) * 2.4 * cy + core * pow(along, 1.2) * 1.5);
-        float a = (pow(along, 2.5) * cy + core * along * 0.5) * alpha * (1.0 - k * k);
-        frag = vec4(col * alpha * (1.0 - k * k) * (1.0 - uBridge), clamp(a, 0.0, 1.0) * (1.0 - uBridge));
+        float along = clamp((lead + hw) / max(2.0 * hw, 1e-3), 0.0, 1.0);
+        float core = exp(-vy * vy / (0.002 + 0.012 * (1.0 - k)));
+        vec3 hot = mix(pc, vec3(1.0), 0.45);
+        float fade = 1.0 - k * k;
+        vec3 col = hot * core * (along * along * along * 3.0 + along * 0.4) * fade;
+        frag = vec4(col * alpha * (1.0 - uBridge), 0.0);
         return;
     }
     if (kind == 4) {
-        // The bonus gauge: a little sun rising as lines are cleared (v3.x level, v3.y ready, v3.z active).
+        // The bonus gauge: a hairline ring, a soft light rising inside as lines are cleared
+        // (v3.x level, v3.y ready, v3.z active, v3.w radius).
         float R = v3.w;
         vec2 q = p / R;
         float r = length(q);
         float aa = px / R * 1.5;
-        float disc = 1.0 - smoothstep(1.0 - aa, 1.0, r);
+        float disc = 1.0 - smoothstep(0.92 - aa, 0.92, r);
         float lvl = v3.x;
-        float fillY = -1.0 + 2.0 * lvl;
-        float filled = 1.0 - smoothstep(fillY - aa, fillY + aa, q.y);
-        float u = 0.3 - q.y;
-        float gap = 0.0;
-        if (u > 0.0) {
-            float f = fract(u * 3.2 - uTime * 0.15 * (0.5 + v3.y));
-            float fr = clamp(u * 0.3, 0.0, 0.5);
-            gap = 1.0 - smoothstep(fr - 0.05, fr + 0.05, f);
-        }
-        vec3 sunCol = mix(uSunBot, uSunTop, smoothstep(-0.9, 0.9, q.y));
-        if (v3.z > 0.5) sunCol = mix(uAcc2, vec3(1.0), smoothstep(-0.9, 0.9, q.y) * 0.6);
-        float pulse = v3.y * (0.75 + 0.25 * sin(uTime * 4.0));
-        filled *= disc;
-        vec3 col = sunCol * (1.4 + 1.2 * pulse) * filled * (1.0 - gap);
-        float ring = exp(-pow((r - 1.0) / (0.035 + aa), 2.0));
-        vec3 rc = mix(uGrid, uSunTop, v3.y);
-        col += rc * ring * (0.9 + 1.2 * pulse);
-        col += mix(uGrid, uSunBot, v3.y) * exp(-max(r - 1.0, 0.0) * 6.0) * (0.15 + 0.5 * pulse) * (1.0 - disc);
-        float a = max(disc * mix(0.55, 1.0, filled * (1.0 - gap)), ring);
-        vec3 glassC = uSkyTop * 0.15;
-        col = mix(glassC, col, max(filled * (1.0 - gap), ring)) * disc + col * (1.0 - disc);
-        col = mix(col, uBridgeInk * disc, uBridge);
+        float fillY = -0.92 + 1.84 * lvl;
+        float filled = (1.0 - smoothstep(fillY - aa, fillY + aa, q.y)) * disc;
+        float pulse = v3.y * (0.7 + 0.3 * sin(uTime * 3.0));
+        vec3 lc = v3.z > 0.5 ? uAcc : mix(uSunEdge, uSunCore, smoothstep(-0.9, 0.9, q.y) * 0.5);
+        vec3 col = lc * filled * (0.35 + 0.25 * smoothstep(-1.0, 1.0, q.y) + 0.8 * pulse);
+        float surface = exp(-sq((q.y - fillY) / (0.02 + aa))) * disc * step(0.01, lvl) * step(lvl, 0.99);
+        col += mix(lc, vec3(1.0), 0.3) * surface * 1.2;
+        float ring = exp(-sq((r - 1.0) / (0.012 + aa)));
+        col += mix(uGrid * 0.6, mix(lc, vec3(1.0), 0.3) * 1.8, v3.y) * ring;
+        col += lc * exp(-max(r - 1.0, 0.0) * 5.0) * 0.3 * pulse * (1.0 - disc);
+        float a = max(disc * 0.75, ring);
+        col = mix(col + uSkyTop * 0.4 * disc * (1.0 - filled), uBridgeInk * a, uBridge);
         frag = vec4(col * alpha, a * alpha);
         return;
     }
@@ -469,7 +424,7 @@ void main() {
 }
 )";
 
-// ---------------------------------------------------------------- neon lines and star glints (additive)
+// ---------------------------------------------------------------- light lines and anamorphic glints (additive)
 
 // a0: a.xy, b.xy (board). a1: rgb intensity. a2: width (board), glow (board), kind, alpha.
 inline const char* LINE_VS = R"(#version 330 core
@@ -485,7 +440,9 @@ void main() {
     float ext = a2.x * 0.5 + a2.y * 3.0;
     vec2 p;
     if (int(a2.z + 0.5) == 1) {
-        p = a + aCorner * a2.x;             // a star: center a, radius = width
+        p = a + aCorner * vec2(a2.x * 4.0, a2.x);   // a glint: center a, size = width, stretched sideways
+    } else if (int(a2.z + 0.5) == 2) {
+        p = a + aCorner * a2.x;                     // a round light: center a, radius = width
     } else {
         vec2 d = b - a;
         float l = length(d);
@@ -509,14 +466,19 @@ void main() {
     vec3 c = v1.rgb;
     float alpha = v2.w;
     if (kind == 1) {
-        // a four-pointed glint: two thin rays and a hot core
+        // an anamorphic glint: a hot core and a long thin horizontal streak
         vec2 q = (vP - v0.xy) / v2.x;
-        float r = length(q);
-        float rays = exp(-abs(q.y) * 40.0) * (1.0 - smoothstep(0.0, 1.0, abs(q.x)))
-                   + exp(-abs(q.x) * 40.0) * (1.0 - smoothstep(0.0, 1.0, abs(q.y)));
-        float diag = (exp(-abs(q.x - q.y) * 50.0) + exp(-abs(q.x + q.y) * 50.0)) * (1.0 - smoothstep(0.0, 0.45, r)) * 0.4;
-        float core = exp(-r * r / 0.004) * 2.0 + exp(-r * 7.0) * 0.4;
-        frag = vec4(c * (rays + diag + core) * alpha, 0.0);
+        float core = exp(-dot(q, q) / 0.004) * 2.0 + exp(-length(q) * 9.0) * 0.35;
+        float streak = exp(-abs(q.y) / max(uPx / v2.x * 0.8, 0.01)) * exp(-abs(q.x) * 1.1) * 0.9;
+        frag = vec4(c * (core + streak) * alpha, 0.0);
+        return;
+    }
+    if (kind == 2) {
+        // a round light in the fog (lamps): core and halo
+        float r = length(vP - v0.xy) / v2.x;
+        float l = exp(-r * r * 60.0) * 2.0 + exp(-r * 5.0) * 0.25;
+        l *= 1.0 - smoothstep(0.8, 1.0, r);
+        frag = vec4(c * l * alpha, 0.0);
         return;
     }
     vec2 a = v0.xy, b = v0.zw;
@@ -526,8 +488,7 @@ void main() {
     float w = v2.x * 0.5;
     float core = 1.0 - smoothstep(w, w + uPx, d);
     float glow = exp(-d / max(v2.y, 1e-4));
-    // white-hot core, colored glow
-    vec3 col = mix(c, vec3(length(c) * 0.6), 0.45) * core + c * glow * 0.55;
+    vec3 col = mix(c, vec3(length(c) * 0.6), 0.35) * core + c * glow * 0.45;
     frag = vec4(col * alpha, 0.0);
 }
 )";
@@ -537,52 +498,37 @@ void main() {
 inline const char* TEXT_VS = R"(#version 330 core
 layout(location = 0) in vec2 aPos;   // pixels, top-left origin
 layout(location = 1) in vec2 aUv;
-layout(location = 2) in float aLy;   // 0 at the cap line .. 1 at the baseline
+layout(location = 2) in float aLy;
 uniform vec2 uRes;
 out vec2 vUv;
-out float vLy;
 void main() {
     vUv = aUv;
-    vLy = aLy;
     gl_Position = vec4(aPos.x / uRes.x * 2.0 - 1.0, 1.0 - aPos.y / uRes.y * 2.0, 0.0, 1.0);
 }
 )";
 inline const char* TEXT_FS = R"(#version 330 core
 in vec2 vUv;
-in float vLy;
 out vec4 frag;
 uniform sampler2D uFont;
-uniform int uMode;          // 0 chrome, 1 neon, 2 plain
-uniform vec3 uColor, uGlow, uOutline, uSkyTop, uSunTop, uSunBot;
-uniform float uAlpha, uGlowAmt, uOutlineW, uBias, uBridge;
+uniform vec3 uColor, uGlow;
+uniform float uAlpha, uGlowAmt, uShadow, uBias, uBridge;
 uniform vec3 uBridgeInk;
-vec3 chrome(float t) {
-    vec3 c = mix(vec3(1.0, 1.0, 1.0), mix(uSkyTop, vec3(0.30, 0.45, 1.0), 0.6) * 1.1, smoothstep(0.05, 0.52, t));
-    c = mix(c, vec3(0.07, 0.03, 0.12), smoothstep(0.50, 0.54, t));
-    c = mix(c, mix(uSunBot, uSunTop, smoothstep(0.58, 1.05, t)) * 1.25, smoothstep(0.54, 0.64, t));
-    return c;
-}
 void main() {
     float d = texture(uFont, vUv).r;
-    float w = max(fwidth(d), 1e-3) * 0.75;
+    float w = max(fwidth(d), 1e-3) * 0.7;
     float fill = smoothstep(0.5 - uBias - w, 0.5 - uBias + w, d);
-    float outl = smoothstep(0.5 - uBias - uOutlineW - w, 0.5 - uBias - uOutlineW + w, d);
-    float glow = smoothstep(0.0, 0.5, d);
-    glow = glow * glow * uGlowAmt;
-    vec3 fc;
-    if (uMode == 0) fc = chrome(vLy);
-    else if (uMode == 1) fc = mix(uColor, vec3(1.0), 0.55 * smoothstep(0.5, 0.75, d)) * 1.25;
-    else fc = uColor;
-    fc = mix(fc, uBridgeInk, uBridge);
-    vec3 col = mix(uOutline, fc, fill);
-    float a = max(fill, outl);
-    // premultiplied: the solid letters, then the additive glow
-    vec3 outc = col * a + uGlow * glow * (1.0 - a) * (1.0 - uBridge);
-    frag = vec4(outc * uAlpha, a * uAlpha);
+    // a soft dark shadow under the letters (legible over the light), and an optional glow
+    float sh = smoothstep(0.18, 0.5, d) * uShadow;
+    float glow = smoothstep(0.1, 0.5, d);
+    glow = glow * glow * uGlowAmt * (1.0 - uBridge);
+    vec3 fc = mix(uColor, uBridgeInk, uBridge);
+    float a = max(fill, sh * 0.55);
+    vec3 col = fc * fill + uGlow * glow * (1.0 - fill);
+    frag = vec4(col * uAlpha, a * uAlpha);
 }
 )";
 
-// ---------------------------------------------------------------- bloom and the tape post
+// ---------------------------------------------------------------- bloom, streaks and the film post
 
 inline const char* DOWN_FS = R"(#version 330 core
 in vec2 vUv;
@@ -615,75 +561,71 @@ void main() {
     frag = vec4(c / 16.0, 1.0);
 }
 )";
+// The anamorphic streak: a horizontal blur at a quarter resolution, in passes of growing reach.
+inline const char* STREAK_FS = R"(#version 330 core
+in vec2 vUv;
+out vec4 frag;
+uniform sampler2D uTex;
+uniform float uStep;        // texels between taps (uv)
+uniform float uThreshold;   // > 0 on the first pass
+void main() {
+    vec3 c = vec3(0.0);
+    float wsum = 0.0;
+    for (int i = -6; i <= 6; i++) {
+        float w = exp(-abs(float(i)) * 0.42);
+        vec3 s = texture(uTex, vUv + vec2(float(i) * uStep, 0.0)).rgb;
+        if (uThreshold > 0.0) {
+            float m = max(s.r, max(s.g, s.b));
+            s *= max(m - uThreshold, 0.0) / max(m, 1e-4);
+        }
+        c += s * w;
+        wsum += w;
+    }
+    frag = vec4(c / wsum, 1.0);
+}
+)";
 
 inline const char* POST_FS = R"(#version 330 core
 in vec2 vUv;
 out vec4 frag;
-uniform sampler2D uScene, uBloom;
+uniform sampler2D uScene, uBloom, uStreak;
 uniform vec2 uRes;
-uniform float uTime, uFade, uDim, uSlow, uBridge, uBloomAmt, uExposure;
-uniform float uRewind, uStatic, uSqueeze;   // game over: tape rewinding, static, the picture collapsing
-uniform vec4 uWellUv;                       // the well (uv): the tape's tracking leaves it alone
-uniform vec3 uSlowTint;
-float bandNoise(float y, float t) { return hash11(floor(y) * 1.13 + floor(t) * 7.7); }
+uniform float uTime, uFade, uDim, uSlow, uBridge, uBloomAmt, uStreakAmt, uExposure, uOver;
+uniform vec3 uStreakTint, uShadowTint;
+uniform vec4 uWellUv;
 void main() {
     vec2 uv = vUv;
-    float t = uTime;
-    // the picture collapsing to a line (tape stopped)
-    if (uSqueeze > 0.0) {
-        uv.y = 0.5 + (uv.y - 0.5) / max(1.0 - uSqueeze * 0.985, 0.015);
-        if (uv.y < 0.0 || uv.y > 1.0) { frag = vec4(vec3(0.0), 1.0); return; }
-    }
-    float yPix = uv.y * uRes.y;
-    // tracking: a band rolling up the picture (slow motion), many while rewinding, a few on the bridge
-    float shift = 0.0;
-    float trackBand = 0.0;
-    {
-        float pos = fract(t * 0.07) * 1.4 - 0.2;
-        float b = exp(-pow((uv.y - pos) / 0.035, 2.0));
-        trackBand = b * uSlow;
-        float jag = (vnoise(vec2(yPix * 0.35, t * 30.0)) - 0.5);
-        shift += b * uSlow * jag * 0.012;
-        shift += (bandNoise(yPix / 3.0, t * 24.0) - 0.5) * 0.04 * uRewind * step(0.55, vnoise(vec2(yPix * 0.02, t * 6.0)));
-        shift += uRewind * 0.012 * sin(uv.y * 30.0 + t * 40.0);
-    }
+    vec3 c = texture(uScene, uv).rgb;
+    vec3 bloom = texture(uBloom, uv).rgb;
+    // bloom with a touch of halation: the glow around highlights leans red
+    c += bloom * uBloomAmt * vec3(1.08, 0.92, 0.88);
     float inWell = step(uWellUv.x, uv.x) * step(uv.x, uWellUv.z) * step(uWellUv.y, uv.y) * step(uv.y, uWellUv.w);
-    shift *= mix(1.0, 0.15, inWell);
-    uv.x += shift;
-    // chroma bleed: the tape smears red and blue sideways a little
-    float bleed = (0.35 + 2.5 * uSlow + 5.0 * uRewind) / uRes.x * (1.0 - uBridge);
-    vec3 c;
-    c.r = texture(uScene, uv + vec2(bleed, 0.0)).r;
-    c.g = texture(uScene, uv).g;
-    c.b = texture(uScene, uv - vec2(bleed, 0.0)).b;
-    c += texture(uBloom, uv).rgb * uBloomAmt * mix(1.0, 0.45, inWell);
+    c += texture(uStreak, uv).rgb * uStreakTint * uStreakAmt * (1.0 - 0.5 * inWell);
     vec3 raw = c; // the bridge is shown as is (both universes meet on the same color)
-    // slow motion: a desaturated cyan night, the tape paused
+    // slow motion: the night drained of color, cooler, a little darker
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    c = mix(c, l * uSlowTint * 1.25 + c * 0.12, uSlow * 0.72);
-    c += vec3(0.6, 0.8, 0.9) * trackBand * 0.25 * (0.5 + 0.5 * vnoise(vec2(uv.x * 200.0, t * 40.0)));
-    // tone: soft shoulder per channel, neon cores roll into white
-    c *= uExposure;
-    vec3 over = max(c - 1.0, 0.0);
-    c += (over.r + over.g + over.b) * 0.16;
-    const float K = 0.62;
-    c = mix(c, K + (1.0 - K) * (1.0 - exp(-(c - K) / (1.0 - K))), step(K, c));
+    c = mix(c, l * vec3(0.78, 0.9, 1.1) * 1.05 + c * 0.2, uSlow * 0.6);
+    // the lights going out (game over)
+    c *= uExposure * (1.0 - 0.82 * uOver);
+    // film: a gentle toe (rich blacks) and a long shoulder (highlights roll into white)
+    vec3 x = max(c, 0.0) * 1.1;
+    vec3 tm = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
+    c = tm;
+    // a whisper of the palette in the shadows
+    float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    c += uShadowTint * 0.0025 * (1.0 - smoothstep(0.0, 0.2, lum));
     // vignette
     vec2 q = vUv - 0.5;
-    c *= 1.0 - 0.35 * dot(q, q) * 1.6 * (1.0 - uBridge);
+    c *= 1.0 - 0.55 * pow(max(dot(q * vec2(1.0, 1.2), q * vec2(1.0, 1.2)) * 2.2, 0.0), 1.4) * (1.0 - uBridge);
     c = mix(c, raw, uBridge);
-    // static (game over)
-    if (uStatic > 0.0) {
-        float n = hash12(floor(gl_FragCoord.xy / 2.0) + floor(t * 50.0) * 13.1);
-        float lines = 0.85 + 0.15 * sin(yPix * 1.3 + t * 80.0);
-        c = mix(c, vec3(n * 0.9 + 0.05) * vec3(0.85, 0.9, 1.0) * lines, uStatic);
-    }
-    // film grain, restrained
-    float g = hash12(gl_FragCoord.xy + fract(t * 7.13) * 431.0) - 0.5;
-    c += g * 0.008 * (1.0 - uBridge * 0.8);
+    // fine grain
+    float g = hash12(gl_FragCoord.xy + fract(uTime * 7.13) * 431.0) - 0.5;
+    c += g * 0.02 * (0.08 + lum) * (1.0 - uBridge * 0.8);
     c *= 1.0 - uDim * 0.55;
     c *= uFade;
-    frag = vec4(pow(max(c, 0.0), vec3(1.0 / 2.2)), 1.0);
+    // dithered to 8 bits: no banding in the long dark gradients of the haze
+    float dh = hash12(gl_FragCoord.xy * 1.37 + fract(uTime * 3.1) * 97.0) - 0.5;
+    frag = vec4(pow(max(c, 0.0), vec3(1.0 / 2.2)) + dh / 255.0, 1.0);
 }
 )";
 

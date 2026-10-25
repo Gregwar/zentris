@@ -1,26 +1,28 @@
-// SYNTHWAVE: a sunset drive on a neon grid.
+// SYNTHWAVE: a night drive, shot like a film.
 //
-// One world: a big gradient sun with slit bands over a mirror floor crossed by a perspective neon grid, wire
-// mountains and palm silhouettes on the sides, a dark glass well standing in front of the sun like a monolith.
-// Surfaces are filled and glossy (airbrushed skies, chrome, glossy neon tiles), finished by a tape: soft bloom,
-// film grain and a slight chroma bleed.
+// One world, one light: a soft sun (or moon) low on the horizon to one side, deep haze, a wet road surface that
+// mirrors it in a long broken column, a few fine grid lines running into the fog, street lamps passing. The well
+// is a slab of smoked frosted glass with hairline rails lit from below; the pieces are dark frosted glass lit from
+// inside (a soft inner glow and a thin bright rim). Finished like film: bloom with a little halation, anamorphic
+// streaks on the brightest lights, a filmic curve with rich blacks, a fine grain, a vignette.
 //
-// The song drives the drive: calm is dusk (the sun half set, stars, a slow dim grid), mid scrolls the grid on the
-// beat while the sun's bands breathe and the palms sway, peak is the night drive (car light streaks racing to the
-// horizon, lasers, the grid pulsing with the kicks, chrome glints). A lock flashes the piece's neon outline and
-// sweeps a chrome glint across it; a cleared row slides away as a streak of light; a Tetris flares the sun under a
-// chrome title with a lens flare; slow motion is a paused tape (cyan night, a tracking band); game over rewinds the
-// tape, stops it, then static.
+// The song drives the drive: calm is a quiet empty road at night (the sun nearly set, thick fog, the floor still),
+// mid moves forward with the tempo (the lines scroll, the lamps pass, light pulses run into the fog on the beat),
+// peak is the fast drive (head- and tail-light trails, the haze lit up, flares blooming on the kicks). A lock
+// flares the piece's rim, a cleared row leaves as a light trail, a Tetris flares the sun and the lens, slow motion
+// is a time stretch (letterbox, the night drained of color, longer light trails), game over turns the lights off
+// one by one while the camera tilts down into the fog. It leaves and enters through the fog.
 //
 // Layout contract: a flat orthographic view at the reference camera's scale on the board plane (like SUMI), so the
 // well, the previews and the HUD anchors sit exactly where the layout puts them.
 #include "universes/synthwave/synthwave.hpp"
 
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "layout.hpp"
-#include "stb_easy_font.h"
 #include "ugl.hpp"
 #include "universes/registry.hpp"
 #include "universes/synthwave/shaders.hpp"
@@ -30,17 +32,12 @@
 
 namespace {
 
-// Audiowide (block display letters) and Mr Dafoe (brush script), SIL Open Font License, see OFL-*.txt beside
-// this file.
-const unsigned char FONT_BLOCK[] = {
-#include "universes/synthwave/Audiowide-Regular.ttf.inc"
-};
-const unsigned char FONT_SCRIPT[] = {
-#include "universes/synthwave/MrDafoe-Regular.ttf.inc"
+// Sora (a geometric sans), SIL Open Font License, see OFL-Sora.txt beside this file.
+const unsigned char FONT_TTF[] = {
+#include "universes/synthwave/Sora.ttf.inc"
 };
 
 namespace shaders = synthwave_shaders;
-using ugl::U;
 using ugl::set1f;
 using ugl::set1i;
 using ugl::set2f;
@@ -54,80 +51,71 @@ GLuint compile(const char* vs, const char* fs, const char* name) {
     return ugl::program(vs, f.c_str(), name);
 }
 
-constexpr float HORIZON = -3.6f;        // board y of the horizon
-constexpr float SUN_R = 9.2f;
+constexpr float HORIZON = -4.3f;         // board y of the horizon
+constexpr float GA = 1.15f, GB = 18.f;   // the floor's perspective (as in WORLD_FS)
 constexpr float WELL_X = 5.1f, WELL_BOT = -10.1f, WELL_TOP = 10.08f;
 
 vec2 v2(float x, float y) { return vec2{x, y}; }
 vec2 operator+(vec2 a, vec2 b) { return {a.x + b.x, a.y + b.y}; }
 vec2 operator-(vec2 a, vec2 b) { return {a.x - b.x, a.y - b.y}; }
 vec2 operator*(vec2 a, float k) { return {a.x * k, a.y * k}; }
-float len(vec2 a) { return std::sqrt(a.x * a.x + a.y * a.y); }
-vec2 norm(vec2 a) { float l = len(a); return l > 1e-6f ? a * (1.f / l) : v2(1, 0); }
-float hashf(float x) { float s = std::sin(x * 12.9898f) * 43758.5453f; return s - std::floor(s); }
 
 vec3 hex(unsigned v) { return {((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255.f, (v & 255) / 255.f}; }
 
-// The variants: each a designed palette (sRGB here, linear once loaded). Fields: sky top / mid / horizon, the
-// night sky of the peaks, the sun's crown and base, the grid's neon, the second neon (lasers, labels), mountains,
-// floor, horizon haze, palm silhouettes, the seven piece neons (I O T S Z J L), and how cloudy the sky is.
+// The variants: each a night, graded like a film (sRGB here, linear once loaded). Fields: the sky above, the haze
+// on the horizon, the sun's core and limb, the road, the grid's lines, the accent (HUD, gauge), the lens streak
+// tint, the lamps, the seven piece lights (I O T S Z J L), then fog density, rain, street lamps, a city skyline,
+// a moon instead of the sun, stars.
 struct VariantDef {
     const char* name;
-    unsigned skyTop, skyMid, skyLow, night, sunTop, sunBot, grid, acc2, mount, floor, haze, palm;
+    unsigned skyTop, haze, sunCore, sunEdge, floor, grid, accent, flare, lamp;
     unsigned piece[7];
-    float clouds;
+    float fog, rain, lamps, skyline, moon, stars;
 };
 const VariantDef VARIANTS[] = {
-    {"OUTRUN", 0x170a3a, 0x5c1b7c, 0xff6a6a, 0x07051a, 0xffe46b, 0xff2d8d, 0xff3fd2, 0x35e8ff, 0x2a0c40, 0x12062a,
-     0xff4fa3, 0x0b0414, {0x36e6ff, 0xffd84a, 0xc14bff, 0x48f59a, 0xff3d6e, 0x4f6bff, 0xff8f2e}, 0.25f},
-    {"MIAMI", 0x0a2342, 0x1f7a8c, 0xff9bb8, 0x041226, 0xfff1a8, 0xff5fa2, 0x2ff3e0, 0xff6fb5, 0x0e2f45, 0x061a2a,
-     0xff8fc0, 0x03121c, {0x2ff3e0, 0xffe27a, 0xff6fb5, 0x7cff9b, 0xff5470, 0x5aa8ff, 0xffa65a}, 0.35f},
-    {"CYBER NIGHT", 0x03040f, 0x141a5c, 0x6b3cff, 0x010208, 0x7af7ff, 0x9b4dff, 0x3d7dff, 0xff3fd8, 0x0b0d2e, 0x04061c,
-     0x7a5cff, 0x020310, {0x45f0ff, 0xf5f06a, 0xb65cff, 0x45ffb0, 0xff4f8b, 0x4a72ff, 0xff9a4a}, 0.0f},
-    {"BLOOD MOON", 0x070103, 0x3a0612, 0xd1173a, 0x020001, 0xff9a6b, 0xc4001f, 0xff2442, 0xff9a3d, 0x1a0308, 0x0c0105,
-     0xff2a4f, 0x050102, {0x4be1ff, 0xffcf4a, 0xff4fd8, 0x6dff7a, 0xff2e3e, 0x7a6bff, 0xff8a2e}, 0.3f},
-    {"GOLDEN HOUR", 0x2b1240, 0xa33a4a, 0xffb347, 0x120818, 0xfff7c2, 0xff7a2f, 0xffb347, 0x3fd9ff, 0x3a1530, 0x1a0a16,
-     0xffc46b, 0x140611, {0x4fe3ff, 0xffe066, 0xff5fb0, 0x7ff07a, 0xff4a4a, 0x6f7bff, 0xffa13a}, 0.45f},
-    {"ICE DAWN", 0x0b1a33, 0x2f6d9a, 0xa6f5e1, 0x050c1c, 0xffffff, 0x8ff7d8, 0x7dffd6, 0xc9a6ff, 0x13324a, 0x081628,
-     0xb6fff0, 0x061220, {0x5cf2ff, 0xfff28a, 0xc9a6ff, 0x7dffb0, 0xff6f91, 0x6c8cff, 0xffb36b}, 0.2f},
-    {"PURPLE STORM", 0x0d0418, 0x3b1460, 0xb04bd8, 0x05010c, 0xffb3f0, 0x8a2be2, 0xb04bff, 0x5ef0ff, 0x1a0a2c, 0x0a0414,
-     0xc66bff, 0x06020c, {0x5ef0ff, 0xffe45c, 0xd65cff, 0x5cff9d, 0xff4f7b, 0x6a6dff, 0xff9a47}, 1.0f},
-    {"LILAC HAZE", 0x3b2a6b, 0x9a7fd1, 0xffc6b0, 0x1b1238, 0xfffbe0, 0xff9ec4, 0xff8fd8, 0x7fe9ff, 0x4a3577, 0x22183f,
-     0xffd0e0, 0x1c1233, {0x3fdcff, 0xffd447, 0xb44dff, 0x3ee88a, 0xff3f6f, 0x4a5cff, 0xff8a2a}, 0.5f},
+    {"MIDNIGHT", 0x07050d, 0x3c1442, 0xffd9ea, 0xff2f86, 0x08060c, 0x2fc9c6, 0xff5fa8, 0x6aa8ff, 0xffd2ea,
+     {0x3fe3dd, 0xffc75e, 0xb27bff, 0x63f0a6, 0xff5079, 0x5b7dff, 0xff8f4f}, 1.0f, 0.f, 0.6f, 0.f, 0.f, 0.4f},
+    {"SODIUM", 0x070504, 0x3d200b, 0xfff1cc, 0xff8618, 0x090604, 0xffa646, 0xffb54c, 0xffa860, 0xffa040,
+     {0x4fd2ff, 0xffd668, 0xe36fc6, 0xa6e86a, 0xff5139, 0x6688ff, 0xff9338}, 1.1f, 0.f, 1.0f, 0.f, 0.f, 0.f},
+    {"MOONLIGHT", 0x03050b, 0x16253d, 0xf1f6ff, 0x7aa6ff, 0x04060b, 0x5f8fff, 0x9cc6ff, 0x7aaeff, 0xcfe0ff,
+     {0x66e0ff, 0xf0e391, 0xa592ff, 0x76efc2, 0xff6d8c, 0x5f80ff, 0xffa676}, 1.0f, 0.f, 0.35f, 0.f, 1.f, 1.0f},
+    {"TAIL LIGHTS", 0x060203, 0x320b12, 0xffbca8, 0xe01830, 0x080304, 0xff3549, 0xff4152, 0xff5c66, 0xffb0a0,
+     {0x55d6ff, 0xffc456, 0xd468ff, 0x66ef95, 0xff3d50, 0x6d74ff, 0xff8d3e}, 1.25f, 1.f, 0.5f, 0.f, 0.f, 0.f},
+    {"VIOLET FOG", 0x07040f, 0x2e1b4e, 0xf7dcff, 0x9a4cff, 0x07050e, 0xa477ff, 0xc896ff, 0x9a90ff, 0xe6d0ff,
+     {0x52e2ff, 0xffd36b, 0xd27bff, 0x6af0b0, 0xff5a8a, 0x6c7bff, 0xff9a5c}, 1.7f, 0.f, 0.4f, 0.f, 0.f, 0.2f},
+    {"MINT DAWN", 0x0a1519, 0x2c5552, 0xfffbe8, 0xffa585, 0x071113, 0x6cecc6, 0x84f4d4, 0xffcfb0, 0xfff0d8,
+     {0x5ae3ff, 0xffd977, 0xc58cff, 0x74f0b6, 0xff6a7c, 0x6b8cff, 0xffa25e}, 1.3f, 0.f, 0.3f, 0.f, 0.f, 0.f},
+    {"CITY LIGHTS", 0x03060c, 0x112a3c, 0xd9fbff, 0x28b6e6, 0x04070c, 0x31bfff, 0x3fdcff, 0x5ac6ff, 0xffd9a8,
+     {0x45e6ff, 0xffd05c, 0xc36dff, 0x5ff0a0, 0xff4f7a, 0x5c7aff, 0xff9447}, 0.95f, 0.f, 0.5f, 1.f, 0.f, 0.15f},
+    {"ROSE DUSK", 0x0d0a1e, 0x52223e, 0xffe9c4, 0xff6a4e, 0x0a0710, 0xff8aa0, 0xffa07a, 0xffa890, 0xffd6b8,
+     {0x4fdcff, 0xffcf5a, 0xc86cff, 0x6bed9a, 0xff4b62, 0x6476ff, 0xff9248}, 1.05f, 0.f, 0.45f, 0.f, 0.f, 0.3f},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
-constexpr int STORM = 6;
 
 SynthwaveUniverse::Palette paletteOf(int v) {
     const VariantDef& d = VARIANTS[((v % VARIANT_COUNT) + VARIANT_COUNT) % VARIANT_COUNT];
     auto L = [](unsigned c) { return ugl::toLinear(hex(c)); };
     SynthwaveUniverse::Palette p;
-    p.skyTop = L(d.skyTop); p.skyMid = L(d.skyMid); p.skyLow = L(d.skyLow); p.night = L(d.night);
-    p.sunTop = L(d.sunTop); p.sunBot = L(d.sunBot); p.grid = L(d.grid); p.acc2 = L(d.acc2);
-    p.mount = L(d.mount); p.floor = L(d.floor); p.haze = L(d.haze); p.palm = L(d.palm);
+    p.skyTop = L(d.skyTop); p.haze = L(d.haze); p.sunCore = L(d.sunCore); p.sunEdge = L(d.sunEdge);
+    p.floor = L(d.floor); p.grid = L(d.grid); p.accent = L(d.accent); p.flare = L(d.flare); p.lamp = L(d.lamp);
     for (int i = 0; i < 7; i++) p.piece[i] = L(d.piece[i]);
-    p.clouds = d.clouds;
+    p.fog = d.fog; p.rain = d.rain; p.lamps = d.lamps; p.skyline = d.skyline; p.moon = d.moon; p.stars = d.stars;
     return p;
 }
 
 void lerpPalette(SynthwaveUniverse::Palette& a, const SynthwaveUniverse::Palette& b, float k) {
-    vec3* pa[] = {&a.skyTop, &a.skyMid, &a.skyLow, &a.night, &a.sunTop, &a.sunBot, &a.grid, &a.acc2, &a.mount, &a.floor, &a.haze, &a.palm};
-    const vec3* pb[] = {&b.skyTop, &b.skyMid, &b.skyLow, &b.night, &b.sunTop, &b.sunBot, &b.grid, &b.acc2, &b.mount, &b.floor, &b.haze, &b.palm};
-    for (int i = 0; i < 12; i++) *pa[i] = lerp(*pa[i], *pb[i], k);
+    vec3* pa[] = {&a.skyTop, &a.haze, &a.sunCore, &a.sunEdge, &a.floor, &a.grid, &a.accent, &a.flare, &a.lamp};
+    const vec3* pb[] = {&b.skyTop, &b.haze, &b.sunCore, &b.sunEdge, &b.floor, &b.grid, &b.accent, &b.flare, &b.lamp};
+    for (int i = 0; i < 9; i++) *pa[i] = lerp(*pa[i], *pb[i], k);
     for (int i = 0; i < 7; i++) a.piece[i] = lerp(a.piece[i], b.piece[i], k);
-    a.clouds = lerpf(a.clouds, b.clouds, k);
+    float* fa[] = {&a.fog, &a.rain, &a.lamps, &a.skyline, &a.moon, &a.stars};
+    const float* fb[] = {&b.fog, &b.rain, &b.lamps, &b.skyline, &b.moon, &b.stars};
+    for (int i = 0; i < 6; i++) *fa[i] = lerpf(*fa[i], *fb[i], k);
 }
 
-std::string titleCase(const std::string& s) {
-    std::string o = s;
-    bool start = true;
-    for (char& c : o) {
-        if (std::isalpha((unsigned char)c)) {
-            c = start ? (char)std::toupper((unsigned char)c) : (char)std::tolower((unsigned char)c);
-            start = false;
-        } else start = true;
-    }
-    return o;
+std::string upperCase(std::string s) {
+    for (char& c : s) c = (char)std::toupper((unsigned char)c);
+    return s;
 }
 
 } // namespace
@@ -144,6 +132,7 @@ bool SynthwaveUniverse::init(int width, int height) {
     progText_ = compile(shaders::TEXT_VS, shaders::TEXT_FS, "synthwave text");
     progDown_ = compile(ugl::FULLSCREEN_VS, shaders::DOWN_FS, "synthwave down");
     progUp_ = compile(ugl::FULLSCREEN_VS, shaders::UP_FS, "synthwave up");
+    progStreak_ = compile(ugl::FULLSCREEN_VS, shaders::STREAK_FS, "synthwave streak");
     progPost_ = compile(ugl::FULLSCREEN_VS, shaders::POST_FS, "synthwave post");
 
     const float quad[8] = {-1, -1, 1, -1, -1, 1, 1, 1};
@@ -189,14 +178,13 @@ bool SynthwaveUniverse::init(int width, int height) {
     glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float) * 5, (void*)(sizeof(float) * 4));
     glBindVertexArray(0);
 
-    buildFont(fontBlock_, FONT_BLOCK);
-    buildFont(fontScript_, FONT_SCRIPT);
+    buildFont(font_, FONT_TTF);
     pal_ = paletteOf(0);
     resize(width, height);
     return glGetError() == GL_NO_ERROR;
 }
 
-// Glyphs baked as signed distance fields: they scale cleanly, and the distance gives outlines and neon glows.
+// Glyphs baked as signed distance fields: they scale cleanly, and the distance gives soft shadows and glows.
 void SynthwaveUniverse::buildFont(Font& f, const unsigned char* ttf) {
     stbtt_fontinfo* info = new stbtt_fontinfo;
     if (!stbtt_InitFont(info, ttf, stbtt_GetFontOffsetForIndex(ttf, 0))) {
@@ -263,8 +251,11 @@ void SynthwaveUniverse::destroyTargets() {
     if (sceneFbo_) { glDeleteFramebuffers(1, &sceneFbo_); glDeleteTextures(1, &sceneTex_); }
     for (int i = 0; i < BLOOM_MIPS; i++)
         if (bloomFbo_[i]) { glDeleteFramebuffers(1, &bloomFbo_[i]); glDeleteTextures(1, &bloomTex_[i]); }
+    for (int i = 0; i < 2; i++)
+        if (streakFbo_[i]) { glDeleteFramebuffers(1, &streakFbo_[i]); glDeleteTextures(1, &streakTex_[i]); }
     msFbo_ = msColor_ = sceneFbo_ = sceneTex_ = 0;
     for (int i = 0; i < BLOOM_MIPS; i++) bloomFbo_[i] = bloomTex_[i] = 0;
+    for (int i = 0; i < 2; i++) streakFbo_[i] = streakTex_[i] = 0;
 }
 
 void SynthwaveUniverse::createTargets() {
@@ -282,7 +273,7 @@ void SynthwaveUniverse::createTargets() {
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
     };
     makeTex(sceneFbo_, sceneTex_, width_, height_);
-    // Multisampled scene (palms, tiles and lines get clean edges), resolved into sceneTex_.
+    // Multisampled scene (tiles and lines get clean edges), resolved into sceneTex_.
     GLint maxS = 0;
     glGetIntegerv(GL_MAX_SAMPLES, &maxS);
     samples_ = std::min(4, (int)maxS);
@@ -308,40 +299,43 @@ void SynthwaveUniverse::createTargets() {
         bloomH_[i] = h;
         makeTex(bloomFbo_[i], bloomTex_[i], w, h);
     }
+    // The anamorphic streaks: a quarter of the width, an eighth of the height.
+    streakW_ = std::max(1, width_ / 4);
+    streakH_ = std::max(1, height_ / 8);
+    for (int i = 0; i < 2; i++) makeTex(streakFbo_[i], streakTex_[i], streakW_, streakH_);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 SynthwaveUniverse::~SynthwaveUniverse() {
     destroyTargets();
-    for (GLuint p : {progWorld_, progShape_, progTile_, progLine_, progText_, progDown_, progUp_, progPost_}) glDeleteProgram(p);
+    for (GLuint p : {progWorld_, progShape_, progTile_, progLine_, progText_, progDown_, progUp_, progStreak_, progPost_})
+        glDeleteProgram(p);
     for (GLuint v : {tileVao_, lineVao_, shapeVao_, textVao_}) glDeleteVertexArrays(1, &v);
     for (GLuint b : {quadVbo_, tileVbo_, lineVbo_, shapeVbo_, textVbo_}) glDeleteBuffers(1, &b);
-    for (Font* f : {&fontBlock_, &fontScript_}) {
-        if (f->tex) glDeleteTextures(1, &f->tex);
-        delete (stbtt_fontinfo*)f->info;
-    }
+    if (font_.tex) glDeleteTextures(1, &font_.tex);
+    delete (stbtt_fontinfo*)font_.info;
 }
 
 // =====================================================================================================
 // Song, level, bonus
 // =====================================================================================================
 
-// The variant from the song: the key's hue picks the family, night songs (minor and dark) go to the night
-// palettes, bright major ones to the soft dawns.
+// The variant from the song: the key's hue picks the family, dark minor songs go to the deepest nights (moon,
+// rain, violet fog), bright major ones to the dawns and dusks.
 int SynthwaveUniverse::pickVariant(const SongLook& t) const {
     float h = std::fmod(t.hue / TAU, 1.f);
     if (h < 0) h += 1.f;
     const bool night = t.hasSong && t.minor && t.brightness < 0.45f;
     const bool soft = t.hasSong && !t.minor && t.brightness > 0.55f;
     int v;
-    if (night) v = (h < 0.2f || h > 0.85f) ? 3 : (h < 0.6f ? 2 : 6);
-    else if (soft) v = (h < 0.35f) ? 4 : (h < 0.65f ? 5 : 7);
+    if (night) v = (h < 0.2f || h > 0.85f) ? 3 : (h < 0.6f ? 2 : 4);
+    else if (soft) v = (h < 0.35f) ? 7 : (h < 0.65f ? 5 : 0);
     else if (h < 0.1f || h >= 0.88f) v = 0;
-    else if (h < 0.22f) v = 4;
-    else if (h < 0.38f) v = 5;
-    else if (h < 0.55f) v = 1;
+    else if (h < 0.22f) v = 1;
+    else if (h < 0.38f) v = 7;
+    else if (h < 0.55f) v = 6;
     else if (h < 0.7f) v = 2;
-    else v = (t.seed & 1) ? 6 : 0;
+    else v = (t.seed & 1) ? 4 : 0;
     if (v == t.avoidVariant) v = (v + 1 + (int)(t.seed % 3)) % VARIANT_COUNT;
     return v;
 }
@@ -351,8 +345,14 @@ void SynthwaveUniverse::setSong(const SongLook& look, float seconds) {
     seed_ = look.seed;
     seedF_ = (float)(look.seed % 1000) * 0.137f;
     rng_ = Rng(look.seed ^ 0x5717ull);
-    if (seconds <= 0.f) palSet_ = false; // snap on the first frame
-    else { horizonFlash_ = 1.f; glintBurst(2, 1.f); }
+    sunSide_ = ((look.seed >> 3) & 1) ? 1.f : -1.f;
+    if (seconds <= 0.f) {
+        palSet_ = false; // snap on the first frame
+        sunSideShown_ = sunSide_;
+    } else {
+        horizonFlash_ = 1.f;
+        glintBurst(2, 1.f);
+    }
 }
 
 void SynthwaveUniverse::setLevel(int level, float energy, float seconds, float impact) {
@@ -370,19 +370,20 @@ void SynthwaveUniverse::setLevel(int level, float energy, float seconds, float i
     lvFrom_ = lv_;
     lvTo_ = (float)level;
     lvT_ = 0.f;
-    lvDur_ = std::clamp(seconds, rising ? 0.6f : 1.2f, 4.f);
+    lvDur_ = std::clamp(seconds, rising ? 0.6f : 1.4f, 4.f);
     if (rising) {
-        horizonFlash_ = std::max(horizonFlash_, 0.5f + 0.5f * impact);
+        horizonFlash_ = std::max(horizonFlash_, 0.4f + 0.5f * impact);
         if (level >= 2) {
-            flash_ = std::max(flash_, 0.25f + 0.35f * impact);
-            glintBurst(2 + (int)(3 * impact), 1.f);
+            flash_ = std::max(flash_, 0.3f + 0.5f * impact);
+            flareKick_ = std::max(flareKick_, 0.6f + 0.6f * impact);
+            glintBurst(1 + (int)(2 * impact), 1.f);
         }
     }
 }
 
 void SynthwaveUniverse::refresh(float strength) {
-    horizonFlash_ = std::max(horizonFlash_, 0.5f * strength);
-    if (strength > 0.4f) glintBurst(1, 0.6f);
+    horizonFlash_ = std::max(horizonFlash_, 0.4f * strength);
+    if (strength > 0.4f) flareKick_ = std::max(flareKick_, 0.4f * strength);
 }
 
 void SynthwaveUniverse::setBonus(bool on) {
@@ -392,9 +393,9 @@ void SynthwaveUniverse::setBonus(bool on) {
 }
 
 void SynthwaveUniverse::levelUp() {
-    sunFlare_ = std::max(sunFlare_, 0.6f);
+    sunFlare_ = std::max(sunFlare_, 0.5f);
     horizonFlash_ = 1.f;
-    glintBurst(3, 1.f);
+    glintBurst(2, 1.f);
 }
 
 vec2 SynthwaveUniverse::project(const vec3& p) const { return layout::project(vp_, p, width_, height_); }
@@ -402,31 +403,46 @@ vec2 SynthwaveUniverse::project(const vec3& p) const { return layout::project(vp
 TransitionHints SynthwaveUniverse::hints() const {
     const Palette p = paletteOf(variant_);
     TransitionHints h;
-    h.background = lerp(p.skyTop, p.skyMid, 0.35f) * 0.8f;
-    h.ink = p.grid * 0.85f;
-    h.accent = p.sunBot;
+    h.background = p.skyTop + p.haze * 0.25f;
+    h.ink = lerp(p.grid, vec3(1.f), 0.2f) * 0.8f;
+    h.accent = p.sunEdge;
     h.light = false;
-    h.styles = TS_LUMA | TS_RIPPLE | TS_TILES; // the sun's highlights last, rings on the grid, tiles like a TV wall
+    h.styles = TS_LUMA | TS_INK | TS_RIPPLE; // the lights last, a glowing fog front, a ring in the haze
     return h;
 }
 
-// Star glints on the chrome: the well's frame, the sun's rim.
+float SynthwaveUniverse::horizon() const {
+    // game over: the camera tilts down into the fog (the horizon climbs the screen)
+    const float tilt = overT_ >= 0.f ? smoothstepf(0.2f, 2.2f, overT_) : 0.f;
+    return HORIZON + 7.f * tilt;
+}
+
+vec2 SynthwaveUniverse::sunPos() const {
+    const float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 2.f, lv_);
+    const float R = lerpf(4.3f, 1.7f, pal_.moon);
+    const float x = sunSideShown_ * std::clamp(viewH_.x * 0.68f, 13.5f, 17.f);
+    const float rise = lerpf(lerpf(-0.42f, 0.02f, wm), -0.08f, wp);
+    const float sunY = horizon() + R * rise;
+    const float moonY = horizon() + lerpf(5.4f, 6.4f, wm);
+    return v2(x, lerpf(sunY, moonY, pal_.moon));
+}
+
+// Anamorphic glints: on the well's rail tops and the sun's rim.
 void SynthwaveUniverse::glintBurst(int n, float spread) {
+    const vec2 sp = sunPos();
+    const float R = lerpf(4.3f, 1.7f, pal_.moon);
     for (int i = 0; i < n; i++) {
         Glint g;
-        const float r = rng_.uniform();
-        if (r < 0.5f) {
-            const float sx = rng_.chance(0.5f) ? -WELL_X : WELL_X;
-            g.p = v2(sx, rng_.chance(0.5f) ? WELL_BOT : rng_.range(-9.f, 9.f));
+        if (rng_.chance(0.5f)) {
+            g.p = v2(rng_.chance(0.5f) ? -WELL_X : WELL_X, WELL_BOT);
         } else {
-            const float a = rng_.range(0.25f, PI - 0.25f);
-            g.p = v2(std::cos(a) * SUN_R * 1.0f, HORIZON + 3.f + std::sin(a) * SUN_R * 0.9f);
-            if (std::fabs(g.p.x) < WELL_X + 0.5f) g.p.x = (g.p.x < 0 ? -1.f : 1.f) * (WELL_X + rng_.range(1.f, 4.f));
+            const float a = rng_.range(0.3f, PI - 0.3f);
+            g.p = v2(sp.x + std::cos(a) * R, std::max(sp.y + std::sin(a) * R, HORIZON + 0.2f));
         }
         g.t = -rng_.range(0.f, 0.25f * spread);
-        g.life = rng_.range(0.45f, 0.75f);
-        g.size = rng_.range(0.6f, 1.3f);
-        g.col = vec3(1.f, 0.95f, 0.9f);
+        g.life = rng_.range(0.6f, 1.0f);
+        g.size = rng_.range(0.5f, 1.0f);
+        g.col = lerp(pal_.flare, vec3(1.f), 0.5f);
         glints_.push_back(g);
     }
 }
@@ -439,7 +455,7 @@ void SynthwaveUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
     case GameEvent::Lock: {
         if (ev.cells.empty()) break;
-        // The piece's outer contour flares neon.
+        // The piece's outer contour flares.
         auto inPiece = [&](int x, int y) {
             for (auto& o : ev.cells)
                 if (o.x == x && o.y == y) return true;
@@ -454,9 +470,9 @@ void SynthwaveUniverse::onEvent(const GameEvent& ev, const Game&) {
             for (int d = 0; d < 4; d++) {
                 if (inPiece(q.x + dx[d], q.y + dy[d])) continue;
                 vec2 n = v2((float)dx[d], (float)-dy[d]), t = v2(-n.y, n.x);
-                vec2 c = v2(p.x, p.y) + n * 0.49f;
-                f.seg.push_back(c - t * 0.49f);
-                f.seg.push_back(c + t * 0.49f);
+                vec2 c = v2(p.x, p.y) + n * 0.47f;
+                f.seg.push_back(c - t * 0.47f);
+                f.seg.push_back(c + t * 0.47f);
             }
         }
         flares_.push_back(std::move(f));
@@ -485,48 +501,44 @@ void SynthwaveUniverse::onEvent(const GameEvent& ev, const Game&) {
         for (auto& c : ev.cells)
             if (std::find(rows.begin(), rows.end(), c.y) == rows.end()) rows.push_back(c.y);
         std::sort(rows.begin(), rows.end());
-        float dir0 = ev.x < 4.5f ? 1.f : -1.f; // away from where the piece landed
-        if (std::fabs(ev.x - 4.5f) < 0.6f) dir0 = rng_.chance(0.5f) ? 1.f : -1.f;
-        for (size_t i = 0; i < rows.size(); i++) {
-            const float dir = tetris ? ((i & 1) ? -dir0 : dir0) : dir0;
-            rows_.push_back({layout::cellPos(0, (float)rows[i]).y, -0.03f * i, dir});
-        }
+        // the rows leave toward the sun, like traffic toward the light
+        const float dir0 = sunSide_;
+        for (size_t i = 0; i < rows.size(); i++) rows_.push_back({layout::cellPos(0, (float)rows[i]).y, -0.04f * i, dir0});
         for (auto& c : ev.cells) {
             size_t ri = std::find(rows.begin(), rows.end(), c.y) - rows.begin();
-            const float dir = tetris ? ((ri & 1) ? -dir0 : dir0) : dir0;
             vec3 p = layout::cellPos((float)c.x, (float)c.y);
             Dying d;
-            d.x = p.x; d.y = p.y; d.t = 0; d.dir = dir; d.type = std::clamp(c.type, 0, 6);
-            d.delay = (dir > 0 ? (9 - c.x) : c.x) * 0.014f + ri * 0.03f;
-            d.rewind = false; d.vx = d.vy = 0;
+            d.x = p.x; d.y = p.y; d.t = 0; d.dir = dir0; d.type = std::clamp(c.type, 0, 6);
+            d.delay = (dir0 > 0 ? (9 - c.x) : c.x) * 0.012f + ri * 0.04f;
+            d.out = false;
             dying_.push_back(d);
         }
         if (tetris) {
             sunFlare_ = 1.f;
             tetrisT_ = 0.f;
-            flash_ = std::max(flash_, 0.35f);
-            glintBurst(4, 1.5f);
+            flash_ = std::max(flash_, 0.5f);
+            flareKick_ = std::max(flareKick_, 0.8f);
+            glintBurst(3, 1.5f);
         } else {
-            horizonFlash_ = std::max(horizonFlash_, 0.25f * ev.count);
+            horizonFlash_ = std::max(horizonFlash_, 0.2f * ev.count);
         }
         break;
     }
     case GameEvent::BonusReady:
         readyT_ = 0.f;
-        glints_.push_back({v2(layout::GAUGE_CENTER.x + 0.7f, layout::GAUGE_CENTER.y + 0.7f), 0.f, 0.8f, 1.1f, vec3(1.f)});
+        glints_.push_back({v2(layout::GAUGE_CENTER.x, layout::GAUGE_CENTER.y + layout::GAUGE_R), 0.f, 0.9f, 1.0f,
+                           lerp(pal_.accent, vec3(1.f), 0.4f)});
         break;
     case GameEvent::TopOut: {
-        // The tape rewinds: the stack flies back up, then stops, then static.
+        // The lights go out, row by row from the top, while the camera tilts down into the fog.
         int topRow = Game::H;
         for (auto& c : ev.cells) topRow = std::min(topRow, c.y);
         for (auto& c : ev.cells) {
             vec3 p = layout::cellPos((float)c.x, (float)c.y);
             Dying d;
             d.x = p.x; d.y = p.y; d.t = 0; d.dir = 0; d.type = std::clamp(c.type, 0, 6);
-            d.delay = (c.y - topRow) * 0.012f;
-            d.rewind = true;
-            d.vx = rng_.range(-0.4f, 0.4f);
-            d.vy = rng_.range(14.f, 26.f);
+            d.delay = (c.y - topRow) * 0.05f + rng_.range(0.f, 0.1f);
+            d.out = true;
             dying_.push_back(d);
         }
         overT_ = 0.f;
@@ -542,30 +554,30 @@ void SynthwaveUniverse::onEvent(const GameEvent& ev, const Game&) {
 
 void SynthwaveUniverse::simulate(const Game& game, const MusicState& music, float dt, float wdt) {
     worldTime_ += wdt;
-    // The scene level, eased (rising changes quick, falling ones slow).
     if (lvT_ < 1.f) {
         lvT_ = std::min(1.f, lvT_ + dt / lvDur_);
         lv_ = lerpf(lvFrom_, lvTo_, smoothstepf(0.f, 1.f, lvT_));
     }
     const float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 2.f, lv_);
+    sunSideShown_ = approach(sunSideShown_, sunSide_, 0.6f, dt);
 
-    // The grid scrolls with the tempo: a lunge on each beat (mid, peak), steady when calm.
+    // The road moves with the tempo: nearly still when calm, a slow drive at mid, fast at peak, with a gentle
+    // surge on each beat.
     {
         const float ph = music.beatPhase;
         if (ph < lastBeatPhase_ - 0.5f) beats_ += 1.f;
         lastBeatPhase_ = ph;
-        const float surge = wm;
-        const float e = 1.f - std::pow(1.f - ph, 2.6f);
-        const float eased = beats_ + lerpf(ph, e, surge);
+        const float e = 1.f - std::pow(1.f - ph, 2.2f);
+        const float eased = beats_ + lerpf(ph, e, 0.5f * wm);
         float d = lastEased_ < 0.f ? 0.f : eased - lastEased_;
         if (d < 0.f || d > 2.f) d = 0.f;
         lastEased_ = eased;
-        const float cpb = 0.3f + 0.7f * wm + 1.0f * wp;
+        const float cpb = 0.04f + 0.4f * wm + 0.55f * wp;
         if (music.hasSong) scroll_ += d * cpb * (wdt / std::max(dt, 1e-4f));
-        else scroll_ += wdt * 0.6f;
+        else scroll_ += wdt * (0.1f + 0.6f * wm);
     }
 
-    // Kicks: the grid pulses (peak), and on the beats at mid.
+    // Kicks: flares bloom and the haze lights up (peak); light pulses run into the fog on the beats (mid).
     sinceKick_ += dt;
     sinceGlint_ += dt;
     const float kick = std::max(music.kick, kickIn_);
@@ -577,49 +589,43 @@ void SynthwaveUniverse::simulate(const Game& game, const MusicState& music, floa
         sinceKick_ = 0.f;
     };
     if (kick > 0.55f && prevKick_ <= 0.55f && sinceKick_ > 0.18f && wp > 0.3f) {
-        pushKick(0.6f + 0.6f * wp);
-        swayKick_ = std::max(swayKick_, 0.6f);
-        if (kick > 0.8f && sinceGlint_ > 1.6f) {
+        pushKick(0.5f + 0.5f * wp);
+        flareKick_ = std::max(flareKick_, (0.35f + 0.5f * kick) * wp);
+        hazeLit_ = std::max(hazeLit_, 0.5f + 0.4f * kick * wp);
+        if (kick > 0.85f && sinceGlint_ > 2.f) {
             glintBurst(1, 0.3f);
             sinceGlint_ = 0.f;
         }
-        if (variant_ == STORM && rng_.chance(0.18f)) flash_ = std::max(flash_, 0.55f);
     } else if (music.hasSong && wm > 0.5f && wp < 0.3f && music.beatPulse > 0.9f && sinceKick_ > 0.3f) {
-        pushKick(0.3f);
-        swayKick_ = std::max(swayKick_, 0.35f);
+        pushKick(0.35f);
     }
     prevKick_ = kick;
     for (int i = 0; i < 4; i++) kickAge_[i] += wdt;
 
-    // The sun's bands drift down and breathe on the beat.
-    bandScroll_ += wdt * (0.05f + 0.12f * wm);
-    breathe_ = approach(breathe_, saturate(music.beatPulse) * (0.4f * wm + 0.5f * wp) + 0.4f * kick * wp, 10.f, dt);
-    // Palms sway (more with the beat at mid).
-    swayT_ += wdt * (0.5f + 0.4f * wm);
-    swayKick_ = approach(swayKick_, 0.f, 2.5f, dt);
-
-    cars_ = approach(cars_, wp, 1.2f, dt);
-    lasers_ = approach(lasers_, wp * (0.5f + 0.5f * saturate(music.energy)), 1.5f, dt);
-    stars_ = approach(stars_, 1.f - 0.65f * wm + 0.5f * wp, 1.f, dt);
-    flash_ = approach(flash_, 0.f, 5.f, dt);
-    sunFlare_ = approach(sunFlare_, 0.f, 1.3f, dt);
-    horizonFlash_ = approach(horizonFlash_, 0.f, 2.2f, dt);
+    cars_ = approach(cars_, wp, 1.0f, dt);
+    hazeLit_ = approach(hazeLit_, 0.12f * wm + 0.3f * wp + 0.5f * horizonFlash_, 2.0f, dt);
+    flareKick_ = approach(flareKick_, 0.f, 2.6f, dt);
+    flash_ = approach(flash_, 0.f, 3.f, dt);
+    sunFlare_ = approach(sunFlare_, 0.f, 1.1f, dt);
+    horizonFlash_ = approach(horizonFlash_, 0.f, 1.8f, dt);
     tetrisT_ += dt;
 
     for (auto& f : flares_) f.t += dt;
-    flares_.erase(std::remove_if(flares_.begin(), flares_.end(), [](const Flare& f) { return f.t > 0.6f; }), flares_.end());
+    flares_.erase(std::remove_if(flares_.begin(), flares_.end(), [](const Flare& f) { return f.t > 0.7f; }), flares_.end());
     for (auto& s : streaks_) s.t += dt;
-    streaks_.erase(std::remove_if(streaks_.begin(), streaks_.end(), [](const Streak& s) { return s.t > 0.35f; }), streaks_.end());
+    streaks_.erase(std::remove_if(streaks_.begin(), streaks_.end(), [](const Streak& s) { return s.t > 0.4f; }), streaks_.end());
     for (auto& r : rows_) r.t += dt;
-    rows_.erase(std::remove_if(rows_.begin(), rows_.end(), [](const RowGo& r) { return r.t > 0.9f; }), rows_.end());
+    rows_.erase(std::remove_if(rows_.begin(), rows_.end(), [](const RowGo& r) { return r.t > 1.0f; }), rows_.end());
     for (auto& d : dying_) d.t += dt;
-    dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + (d.rewind ? 1.4f : 0.6f); }), dying_.end());
+    const bool over = overT_ >= 0.f;
+    dying_.erase(std::remove_if(dying_.begin(), dying_.end(),
+                                [over](const Dying& d) { return d.out ? !over : d.t > d.delay + 0.6f; }),
+                 dying_.end());
     for (auto& g : glints_) g.t += dt;
     glints_.erase(std::remove_if(glints_.begin(), glints_.end(), [](const Glint& g) { return g.t > g.life; }), glints_.end());
 
     gaugeShown_ = approach(gaugeShown_, game.bonusGauge(), 3.f, dt);
     readyT_ += dt;
-    bonusLeft_ = game.bonusLeft();
 }
 
 // =====================================================================================================
@@ -638,9 +644,15 @@ void SynthwaveUniverse::line(std::vector<Line>& out, vec2 a, vec2 b, const vec3&
     out.push_back(l);
 }
 
-void SynthwaveUniverse::star(std::vector<Line>& out, vec2 c, float radius, const vec3& col, float alpha) {
+void SynthwaveUniverse::glint(std::vector<Line>& out, vec2 c, float size, const vec3& col, float alpha) {
     if (alpha <= 0.003f) return;
-    Line l{{c.x, c.y, c.x, c.y}, {col.x, col.y, col.z, 0.f}, {radius, 0.f, 1.f, alpha}};
+    Line l{{c.x, c.y, c.x, c.y}, {col.x, col.y, col.z, 0.f}, {size, 0.f, 1.f, alpha}};
+    out.push_back(l);
+}
+
+void SynthwaveUniverse::light(std::vector<Line>& out, vec2 c, float radius, const vec3& col, float alpha) {
+    if (alpha <= 0.003f) return;
+    Line l{{c.x, c.y, c.x, c.y}, {col.x, col.y, col.z, 0.f}, {radius, 0.f, 2.f, alpha}};
     out.push_back(l);
 }
 
@@ -655,73 +667,37 @@ void SynthwaveUniverse::quad(std::vector<Vert>& out, vec2 a, vec2 b, vec2 c, vec
     tri(out, a, c, d, col, alpha);
 }
 
-// A palm silhouette: a ringed, curved trunk and feathered fronds drooping from the crown.
-void SynthwaveUniverse::palm(vec2 base, float height, float lean, float scale, float sway, int seed, const vec3& col,
-                             float alpha, vec2 off) {
-    base = base + off;
-    const vec2 p0 = base, p1 = base + v2(lean * 0.12f * height, 0.55f * height);
-    const vec2 p2 = base + v2(lean * 0.40f * height + sway * height * 0.10f, height);
-    auto bez = [&](float t) { float u = 1 - t; return p0 * (u * u) + p1 * (2 * u * t) + p2 * (t * t); };
-    const int N = 22;
-    vec2 prevL, prevR;
-    for (int i = 0; i <= N; i++) {
-        const float t = i / (float)N;
-        vec2 p = bez(t), tg = norm(bez(std::min(1.f, t + 0.01f)) - bez(std::max(0.f, t - 0.01f)));
-        vec2 n = v2(-tg.y, tg.x);
-        float w = scale * (0.36f - 0.17f * t) * ((i & 1) ? 1.f : 1.13f);
-        if (i == 0) w *= 1.35f;
-        vec2 L = p + n * w, R = p - n * w;
-        if (i > 0) quad(shapes_, prevL, prevR, R, L, col, alpha);
-        prevL = L;
-        prevR = R;
-    }
-    const vec2 crown = p2;
-    // the fronds: long arcs drooping from the crown, each a broad tapering blade
-    const float angles[8] = {-0.6f, -0.05f, 0.5f, 1.1f, 2.05f, 2.65f, 3.2f, 3.75f};
-    for (int k = 0; k < 8; k++) {
-        const float h1 = hashf(seed * 13.1f + k * 3.7f), h2 = hashf(seed * 5.3f + k * 9.1f);
-        const float a = angles[k] + (h1 - 0.5f) * 0.25f + sway * (0.7f + 0.6f * h2)
-                        + 0.03f * std::sin(swayT_ * 2.3f + k * 1.9f + seed);
-        const float L = height * 0.34f * (0.8f + 0.4f * h2);
-        const float up = std::sin(a);
-        const float droop = 0.38f + 0.3f * h1 + 0.45f * std::max(0.f, up);
-        const vec2 dir = v2(std::cos(a), up);
-        auto spine = [&](float t) { return crown + dir * (L * t) + v2(0.f, -droop * L * t * t); };
-        const int M = 24;
-        for (int i = 0; i < M; i++) {
-            const float t0 = i / (float)M, t1 = (i + 1) / (float)M;
-            vec2 s0 = spine(t0), s1 = spine(t1);
-            vec2 tg = norm(s1 - s0), n = v2(-tg.y, tg.x);
-            const float w = 0.045f * scale * (1.f - t0 * 0.85f);
-            // a broad blade hanging under the spine, tapering to a point
-            const float e0 = std::pow(std::sin(PI * std::min(1.f, 0.08f + t0)), 0.7f) * (1.f - 0.75f * t0);
-            const float e1 = std::pow(std::sin(PI * std::min(1.f, 0.08f + t1)), 0.7f) * (1.f - 0.75f * t1);
-            const float b0 = w + L * 0.075f * e0, b1 = w * 0.85f + L * 0.075f * e1;
-            quad(shapes_, s0 + n * (w * 0.6f), s0 - n * b0, s1 - n * b1, s1 + n * (w * 0.5f), col, alpha);
-        }
-    }
-}
-
-void SynthwaveUniverse::buildPalms(float alpha) {
+// Street lamps along the road, passing with the drive: a light on a pole, its long reflection on the wet floor,
+// fading into the fog.
+void SynthwaveUniverse::buildLamps(float alpha) {
+    alpha *= pal_.lamps;
     if (alpha <= 0.01f) return;
-    const float wm = smoothstepf(0.2f, 1.f, lv_);
-    const float amp = 0.025f + 0.05f * wm;
-    const float vx = viewH_.x;
-    struct P { float x, baseY, height, lean, scale; int seed; };
-    const P palms[4] = {
-        {-std::max(14.f, vx - 3.4f), HORIZON - 6.6f, 14.f, 0.5f, 1.1f, 1},
-        {-std::max(12.8f, vx - 8.2f), HORIZON - 1.2f, 6.6f, -0.3f, 0.6f, 2},
-        {std::max(14.f, vx - 2.8f), HORIZON - 7.4f, 15.f, -0.55f, 1.15f, 3},
-        {std::max(13.f, vx - 8.8f), HORIZON - 0.8f, 5.6f, 0.3f, 0.55f, 4},
-    };
-    for (const P& p : palms) {
-        const float sway = amp * std::sin(swayT_ * 1.3f + p.seed * 1.7f) + swayKick_ * 0.06f * (p.seed & 1 ? 1.f : -1.f);
-        palm(v2(p.x, p.baseY), p.height, p.lean, p.scale, sway, p.seed, pal_.palm, alpha, v2(0, 0));
+    const float H = horizon();
+    const float spacing = 3.f, X = 3.3f, pole = 1.9f;
+    const float off = std::fmod(scroll_, spacing);
+    const float wp = smoothstepf(1.1f, 2.f, lv_);
+    for (int i = 1; i < 16; i++) {
+        const float zr = i * spacing - off; // depth from the viewer
+        if (zr < 1.2f) continue;
+        const float d = GB / zr;
+        const float vis = std::exp(-zr * pal_.fog * 0.085f) * smoothstepf(1.2f, 2.6f, zr);
+        for (int side = -1; side <= 1; side += 2) {
+            const float x = side * X * d / GA;
+            const float a = alpha * vis * smoothstepf(WELL_X + 0.4f, WELL_X + 1.6f, std::fabs(x));
+            if (a <= 0.01f) continue;
+            const vec2 top = v2(x, H - d + pole * d / GA);
+            const float r = 0.25f + 0.07f * d;
+            light(lines_, top, r, pal_.lamp * (2.2f + 0.8f * wp), a);
+            // its reflection on the wet road
+            line(lines_, v2(x, H - d), top, pal_.skyTop + pal_.haze * 0.1f, 0.012f * d, 0.f, a * 0.5f);
+            line(lines_, v2(x, H - d - 0.1f * d), v2(x, H - d - 0.8f * d), pal_.lamp * 0.05f, 0.002f, 0.06f * d, a);
+        }
     }
 }
 
 void SynthwaveUniverse::buildBoard(const Game& g) {
     const float bridgeK = saturate(bridge_.amount);
+    (void)bridgeK;
     // Locked cells.
     for (int y = Game::HIDDEN; y < Game::H; y++)
         for (int x = 0; x < Game::W; x++) {
@@ -729,25 +705,25 @@ void SynthwaveUniverse::buildBoard(const Game& g) {
             if (c.type < 0) continue;
             vec3 p = layout::cellPos((float)x, y - g.rowOffset(y));
             const float age = c.flash > 0.f ? (1.f - c.flash) * Game::LOCK_FX_SECONDS : -1.f;
-            tile(p.x, p.y, 0.5f, 0.5f, pal_.piece[c.type], 1.f, 0, age, 0.f, 1.f);
+            tile(p.x, p.y, 0.5f, 0.5f, pal_.piece[c.type], 1.f, 0, age, 0.f, 1.f, 1.f);
         }
-    // Cleared cells sliding away; a topped-out stack rewinding upward.
+    // Cleared cells leaving as light trails; a topped-out stack whose lights go out.
     for (const Dying& d : dying_) {
         const float t = d.t - d.delay;
-        if (d.rewind) {
-            const float k = saturate(t / 1.3f);
-            const float y = d.y + (t > 0 ? 0.5f * d.vy * t * t : 0.f);
-            const float x = d.x + d.vx * std::max(t, 0.f) + 0.08f * std::sin(t * 37.f + d.y * 3.f);
-            if (y > viewC_.y + viewH_.y + 1.f) continue;
-            tile(x, y, 0.5f, 0.5f, pal_.piece[d.type], 1.f - k * k, 0, -1.f, 0.f, 1.f);
+        if (d.out) {
+            const float on = 1.f - smoothstepf(0.f, 0.45f, t);
+            const float flick = t > 0.f && t < 0.2f ? (std::sin(t * 90.f) > 0.f ? 1.f : 0.45f) : 1.f;
+            const float sink = 0.35f * smoothstepf(0.f, 2.5f, t);
+            tile(d.x, d.y - sink, 0.5f, 0.5f, pal_.piece[d.type], 1.f - 0.5f * smoothstepf(0.5f, 3.f, t), 0, -1.f, 0.f,
+                 1.f, on * flick);
             continue;
         }
         if (t < 0.f) {
-            tile(d.x, d.y, 0.5f, 0.5f, pal_.piece[d.type], 1.f, 0, 0.f, 0.f, 1.f);
+            tile(d.x, d.y, 0.5f, 0.5f, pal_.piece[d.type], 1.f, 0, 0.f, 0.f, 1.f, 1.f);
             continue;
         }
-        const float k = saturate(t / 0.5f);
-        const float head = d.x + d.dir * 16.f * k * k, tail = d.x + d.dir * 16.f * k * k * 0.15f;
+        const float k = saturate(t / 0.55f);
+        const float head = d.x + d.dir * 18.f * k * k, tail = d.x + d.dir * 18.f * k * k * 0.1f;
         const float hw = std::fabs(head - tail) * 0.5f + 0.5f;
         tile((head + tail) * 0.5f, d.y, hw, 0.5f, pal_.piece[d.type], 1.f, 2, -1.f, 0.f, d.dir, k);
     }
@@ -765,14 +741,14 @@ void SynthwaveUniverse::buildBoard(const Game& g) {
             for (auto& c : gc) {
                 if (c[1] < Game::HIDDEN) continue;
                 vec3 w = layout::cellPos((float)c[0], (float)c[1]);
-                tile(w.x, w.y, 0.5f, 0.5f, col, 0.55f, 1);
+                tile(w.x, w.y, 0.5f, 0.5f, col, 1.f, 1);
             }
         }
         const float dx = g.pieceVisualX() - p.x, dy = g.pieceVisualY() - p.y;
         for (auto& c : cells) {
             if (c[1] < Game::HIDDEN - 1) continue;
             vec3 w = layout::cellPos(c[0] + dx, c[1] + dy);
-            tile(w.x, w.y, 0.5f, 0.5f, col, 1.f, 3, -1.f, 0.f, 1.f);
+            tile(w.x, w.y, 0.5f, 0.5f, col, 1.f, 3, -1.f, 0.f, 1.f, 1.f);
         }
     }
     // Previews.
@@ -788,72 +764,61 @@ void SynthwaveUniverse::buildBoard(const Game& g) {
         }
         for (auto& c : cells) {
             vec2 pos = v2(center.x + (c[0] - (minx + maxx) * 0.5f) * sc, center.y - (c[1] - (miny + maxy) * 0.5f) * sc);
-            tile(pos.x, pos.y, 0.5f * sc, 0.5f * sc, pal_.piece[type], alpha, 3, -1.f, 0.f, sc);
+            tile(pos.x, pos.y, 0.5f * sc, 0.5f * sc, pal_.piece[type], alpha, 3, -1.f, 0.f, sc, 1.f);
         }
     };
     preview(g.holdType(), v2(layout::HOLD_CENTER.x, layout::HOLD_CENTER.y), layout::previewScale(0), g.holdUsed() ? 0.35f : 1.f);
     for (int i = 0; i < 3; i++) {
         const vec3 c = layout::nextCenter(i);
-        preview(g.next(i), v2(c.x, c.y), layout::previewScale(i), i == 0 ? 1.f : 0.75f);
+        preview(g.next(i), v2(c.x, c.y), layout::previewScale(i), i == 0 ? 1.f : 0.7f);
     }
-    // The bonus gauge: a little sun rising as lines are cleared.
+    // The bonus gauge: a ring with a light rising in it.
     {
         const vec3 gc = layout::GAUGE_CENTER;
         const float R = layout::GAUGE_R;
         const float ready = g.bonusReady() ? 1.f : 0.f, active = g.bonusActive() ? 1.f : 0.f;
-        tile(gc.x, gc.y, R * 1.9f, R * 1.9f, vec3(1.f), 1.f, 4, -1.f, 0.f, saturate(gaugeShown_), ready, active, R);
-    }
-    // The well's frame: neon rails (under the stack).
-    {
-        const vec3 c = pal_.grid * (1.1f + 0.6f * horizonFlash_);
-        const float a = 1.f - 0.6f * bridgeK;
-        line(lines_, v2(-WELL_X, WELL_BOT), v2(-WELL_X, WELL_TOP), c, 0.05f, 0.1f, a);
-        line(lines_, v2(WELL_X, WELL_BOT), v2(WELL_X, WELL_TOP), c, 0.05f, 0.1f, a);
-        line(lines_, v2(-WELL_X, WELL_BOT), v2(WELL_X, WELL_BOT), c, 0.06f, 0.12f, a);
-        // a chrome cap on the rails' tops
-        line(lines_, v2(-WELL_X - 0.25f, WELL_TOP), v2(-WELL_X + 0.25f, WELL_TOP), pal_.sunTop * 1.2f, 0.05f, 0.08f, a * 0.8f);
-        line(lines_, v2(WELL_X - 0.25f, WELL_TOP), v2(WELL_X + 0.25f, WELL_TOP), pal_.sunTop * 1.2f, 0.05f, 0.08f, a * 0.8f);
+        tile(gc.x, gc.y, R * 1.6f, R * 1.6f, vec3(1.f), 1.f, 4, -1.f, 0.f, saturate(gaugeShown_), ready, active, R);
     }
 }
 
 void SynthwaveUniverse::buildFx() {
     const float world = 1.f - saturate(bridge_.amount);
     for (const Flare& f : flares_) {
-        const float k = f.t / 0.6f;
-        const float a = (1.f - k) * (1.f - k) * world;
-        const vec3 c = lerp(f.col, vec3(1.f), 0.35f) * 2.2f;
-        for (size_t i = 0; i + 1 < f.seg.size(); i += 2) line(fxLines_, f.seg[i], f.seg[i + 1], c, 0.06f, 0.16f + 0.2f * k, a);
+        const float k = f.t / 0.7f;
+        const float a = (1.f - k) * (1.f - k) * world * 0.7f;
+        const vec3 c = lerp(f.col, vec3(1.f), 0.3f) * 1.6f;
+        for (size_t i = 0; i + 1 < f.seg.size(); i += 2) line(fxLines_, f.seg[i], f.seg[i + 1], c, 0.035f, 0.12f + 0.2f * k, a);
     }
     for (const Streak& s : streaks_) {
-        const float k = s.t / 0.35f;
-        line(fxLines_, v2(s.x, s.y0 + (s.y1 - s.y0) * k * 0.6f), v2(s.x, s.y1), s.col * 1.6f, 0.05f, 0.12f, (1.f - k) * 0.8f * world);
+        const float k = s.t / 0.4f;
+        line(fxLines_, v2(s.x, s.y0 + (s.y1 - s.y0) * k * 0.7f), v2(s.x, s.y1), s.col * 1.3f, 0.03f, 0.1f, (1.f - k) * 0.7f * world);
     }
+    // a cleared row: a long light trail running off toward the sun's side
     for (const RowGo& r : rows_) {
         if (r.t < 0.f) continue;
-        const float k = saturate(r.t / 0.6f);
-        const float head = -r.dir * 5.f + r.dir * 34.f * k * k + r.dir * 4.f * k;
-        const float tail = head - r.dir * (3.f + 9.f * k);
-        const float a = (1.f - smoothstepf(0.5f, 1.f, k)) * world;
-        line(fxLines_, v2(tail, r.y), v2(head, r.y), lerp(pal_.grid, vec3(1.f), 0.3f) * 2.4f, 0.09f * (1.f - 0.5f * k), 0.22f, a);
-        line(fxLines_, v2(tail - r.dir * 4.f, r.y), v2(tail, r.y), pal_.acc2 * 1.4f, 0.03f, 0.12f, a * 0.6f);
+        const float k = saturate(r.t / 0.7f);
+        const float head = -r.dir * 5.f + r.dir * 40.f * k * k + r.dir * 4.f * k;
+        const float tail = head - r.dir * (4.f + 14.f * k);
+        const float a = (1.f - smoothstepf(0.45f, 1.f, k)) * world;
+        line(fxLines_, v2(tail, r.y), v2(head, r.y), lerp(pal_.flare, vec3(1.f), 0.5f) * 1.5f, 0.03f * (1.f - 0.5f * k), 0.14f, a);
     }
     for (const Glint& g : glints_) {
         if (g.t < 0.f) continue;
         const float k = g.t / g.life;
         const float a = std::sin(PI * saturate(k)) * world;
-        star(fxLines_, g.p, g.size * (0.6f + 0.6f * std::sin(PI * k)), g.col * 2.5f, a);
+        glint(fxLines_, g.p, g.size * (0.7f + 0.5f * std::sin(PI * k)), g.col * 2.f, a);
     }
-    // The Tetris lens flare: an anamorphic streak through the title, a star on its first letter.
-    if (tetrisT_ < 2.4f) {
-        const float k = tetrisT_ / 2.4f;
-        const float a = (tetrisT_ < 0.15f ? tetrisT_ / 0.15f : 1.f) * (1.f - smoothstepf(0.6f, 1.f, k)) * world;
-        const vec2 c = v2(layout::TETRIS_TOAST.x - 3.6f + 7.2f * smoothstepf(0.f, 1.f, k), layout::TETRIS_TOAST.y - 0.2f);
-        line(fxLines_, v2(c.x - 18.f, c.y), v2(c.x + 18.f, c.y), pal_.acc2 * 1.2f, 0.035f, 0.1f, a * 0.8f);
-        star(fxLines_, c, 2.2f, vec3(1.f, 0.95f, 0.9f) * 2.5f, a);
-        // ghost discs along the flare axis (toward the sun)
+    // The Tetris: an anamorphic flare crossing the screen through the toast, a few lens ghosts toward the sun.
+    if (tetrisT_ < 2.6f) {
+        const float k = tetrisT_ / 2.6f;
+        const float a = (tetrisT_ < 0.12f ? tetrisT_ / 0.12f : 1.f) * (1.f - smoothstepf(0.5f, 1.f, k)) * world;
+        const vec2 c = v2(layout::TETRIS_TOAST.x - 3.f + 6.f * smoothstepf(0.f, 1.f, k), layout::TETRIS_TOAST.y - 0.3f);
+        line(fxLines_, v2(c.x - 30.f, c.y), v2(c.x + 30.f, c.y), pal_.flare * 0.9f, 0.02f, 0.08f, a * 0.8f);
+        glint(fxLines_, c, 2.0f, lerp(pal_.flare, vec3(1.f), 0.6f) * 2.f, a);
+        const vec2 sp = sunPos();
         for (int i = 1; i <= 3; i++) {
-            const vec2 q = c + (v2(0.f, HORIZON + 2.f) - c) * (0.35f * i);
-            star(fxLines_, q, 0.35f + 0.15f * i, lerp(pal_.sunBot, pal_.acc2, i / 3.f) * 0.8f, a * 0.5f);
+            const vec2 q = c + (sp - c) * (-0.3f * i);
+            light(fxLines_, q, 0.5f + 0.35f * i, lerp(pal_.flare, pal_.sunEdge, i / 3.f) * 0.12f, a * 0.6f);
         }
     }
 }
@@ -862,7 +827,8 @@ void SynthwaveUniverse::buildFx() {
 // Text
 // =====================================================================================================
 
-float SynthwaveUniverse::textWidth(const Font& f, const std::string& s, float size, float track) const {
+float SynthwaveUniverse::textWidth(const std::string& s, float size, float track) const {
+    const Font& f = font_;
     if (!f.ok || s.empty()) return s.size() * size * 0.6f;
     const stbtt_fontinfo* info = (const stbtt_fontinfo*)f.info;
     const float k = size / f.px;
@@ -880,12 +846,13 @@ float SynthwaveUniverse::textWidth(const Font& f, const std::string& s, float si
     return w - track;
 }
 
-float SynthwaveUniverse::textQuads(const Font& f, const std::string& s, float x, float y, float size, float track,
-                                   float shear, std::vector<float>& out) const {
+float SynthwaveUniverse::textQuads(const std::string& s, float x, float y, float size, float track,
+                                   std::vector<float>& out) const {
+    const Font& f = font_;
     if (!f.ok) return 0.f;
     const stbtt_fontinfo* info = (const stbtt_fontinfo*)f.info;
     const float k = size / f.px;
-    const float cap = fontBlock_.capH / fontBlock_.px * size; // the block font's cap height sets the line
+    const float cap = f.capH / f.px * size;
     const float baseline = y + cap;
     float pen = x;
     for (size_t i = 0; i < s.size(); i++) {
@@ -895,11 +862,11 @@ float SynthwaveUniverse::textQuads(const Font& f, const std::string& s, float x,
         if (g.w > 0) {
             const float x0 = pen + g.ox * k, y0 = baseline + g.oy * k, x1 = x0 + g.w * k, y1 = y0 + g.h * k;
             auto vert = [&](float vx, float vy, float u, float v) {
-                out.push_back(vx + shear * (baseline - vy));
+                out.push_back(vx);
                 out.push_back(vy);
                 out.push_back(u);
                 out.push_back(v);
-                out.push_back((vy - (baseline - cap)) / std::max(cap, 1.f));
+                out.push_back(0.f);
             };
             vert(x0, y0, g.x0, g.y0); vert(x1, y0, g.x1, g.y0); vert(x1, y1, g.x1, g.y1);
             vert(x0, y0, g.x0, g.y0); vert(x1, y1, g.x1, g.y1); vert(x0, y1, g.x0, g.y1);
@@ -914,23 +881,18 @@ float SynthwaveUniverse::textQuads(const Font& f, const std::string& s, float x,
     return pen - track - x;
 }
 
-void SynthwaveUniverse::drawText(const Font& f, const std::vector<float>& q, const TextStyle& st) {
-    if (q.empty() || !f.ok) return;
+void SynthwaveUniverse::drawText(const std::vector<float>& q, const TextStyle& st) {
+    if (q.empty() || !font_.ok) return;
     glUseProgram(progText_);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, f.tex);
+    glBindTexture(GL_TEXTURE_2D, font_.tex);
     set1i(progText_, "uFont", 0);
     set2f(progText_, "uRes", (float)width_, (float)height_);
-    set1i(progText_, "uMode", st.mode);
     set3f(progText_, "uColor", st.color);
     set3f(progText_, "uGlow", st.glow);
-    set3f(progText_, "uOutline", st.outline);
-    set3f(progText_, "uSkyTop", pal_.skyTop);
-    set3f(progText_, "uSunTop", pal_.sunTop);
-    set3f(progText_, "uSunBot", pal_.sunBot);
     set1f(progText_, "uAlpha", st.alpha);
     set1f(progText_, "uGlowAmt", st.glowAmt);
-    set1f(progText_, "uOutlineW", st.outlineW);
+    set1f(progText_, "uShadow", st.shadow);
     set1f(progText_, "uBias", st.bias);
     set1f(progText_, "uBridge", smoothstepf(0.3f, 0.95f, bridge_.amount));
     set3f(progText_, "uBridgeInk", bridge_.ink);
@@ -940,15 +902,14 @@ void SynthwaveUniverse::drawText(const Font& f, const std::vector<float>& q, con
     glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(q.size() / 5));
 }
 
-// The HUD in SYNTHWAVE's typography: chrome block italics for titles and numbers, small spaced neon for labels,
-// a brush script in neon for the universe's name and the song's section.
+// The HUD in SYNTHWAVE's typography: one clean geometric sans, small quiet labels widely tracked, crisp values,
+// the variant's accent as the only color.
 void SynthwaveUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<HudRect>& panels) {
     const float s = height_ / 1080.f;
-    // Panels (zenscene's menu): dark glass, or a neon bar for the accent ones.
     if (!panels.empty()) {
         std::vector<Vert> v;
         for (const HudRect& r : panels) {
-            vec3 c = r.custom ? ugl::toLinear(r.color) : r.accent ? pal_.grid * 0.8f : pal_.night * 0.6f;
+            vec3 c = r.custom ? ugl::toLinear(r.color) : r.accent ? pal_.accent * 0.6f : pal_.skyTop * 0.7f;
             quad(v, v2(r.x, r.y), v2(r.x + r.w, r.y), v2(r.x + r.w, r.y + r.h), v2(r.x, r.y + r.h), c,
                  r.accent || r.custom ? r.alpha : std::min(1.f, r.alpha * 1.2f));
         }
@@ -960,170 +921,134 @@ void SynthwaveUniverse::drawHud(const std::vector<HudText>& hud, const std::vect
         glBufferData(GL_ARRAY_BUFFER, v.size() * sizeof(Vert), v.data(), GL_STREAM_DRAW);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)v.size());
     }
-    const vec3 deep = lerp(pal_.night, vec3(0.02f, 0.f, 0.04f), 0.5f);
+    const vec3 white(1.05f, 1.03f, 1.08f);
+    const vec3 quiet = lerp(vec3(0.62f, 0.62f, 0.7f), pal_.accent, 0.15f);
+    const vec3 acc = lerp(pal_.accent, vec3(1.f), 0.15f) * 1.15f;
     std::vector<float> q;
     for (const HudText& h : hud) {
         if (h.alpha <= 0.01f || h.text.empty()) continue;
         const float base = h.scale * 12.f;
         TextStyle st;
         st.alpha = saturate(h.alpha);
-        st.outline = deep;
         q.clear();
-        auto place = [&](const Font& f, const std::string& text, float size, float track, float shear) {
-            const float w = textWidth(f, text, size, track);
+        auto place = [&](const std::string& text, float size, float track) {
+            const float w = textWidth(text, size, track);
             const float x = ugl::hudLeft(h, w, width_);
-            textQuads(f, text, x, h.y, size, track, shear, q);
+            textQuads(text, x, h.y, size, track, q);
         };
         switch (h.role) {
         case HUD_UNIVERSE: {
-            // "Synthwave" in neon script, the variant in small chrome after it.
+            // "SYNTHWAVE" quiet and widely spaced, a hairline, the variant in the accent.
             std::string name = h.text, var;
             size_t dot = name.find("\xC2\xB7");
             if (dot != std::string::npos) { var = name.substr(dot + 2); name = name.substr(0, dot); }
             while (!name.empty() && name.back() == ' ') name.pop_back();
             while (!var.empty() && var.front() == ' ') var.erase(var.begin());
-            name = titleCase(name);
-            const float sz = base * 1.75f, vsz = base * 0.9f;
-            const float wName = textWidth(fontScript_, name, sz, 0.f);
-            const float wVar = var.empty() ? 0.f : textWidth(fontBlock_, var, vsz, vsz * 0.12f);
-            const float gap = base * 0.9f;
-            HudText hh = h;
-            const float x = ugl::hudLeft(hh, wName + (var.empty() ? 0.f : gap + wVar), width_);
-            textQuads(fontScript_, name, x, h.y + base * 0.15f, sz, 0.f, 0.f, q);
-            st.mode = 1; st.color = lerp(pal_.grid, pal_.sunTop, 0.5f); st.glow = pal_.grid * 0.9f; st.glowAmt = 0.6f; st.outlineW = 0.07f;
-            st.alpha = saturate(0.35f + h.alpha * 1.6f);
-            drawText(fontScript_, q, st);
+            const float sz = base * 0.72f, tr = sz * 0.3f;
+            const float wName = textWidth(name, sz, tr);
+            const float wVar = var.empty() ? 0.f : textWidth(var, sz, tr);
+            const float gap = base * 1.9f;
+            const float x = ugl::hudLeft(h, wName + (var.empty() ? 0.f : gap + wVar), width_);
+            const float y = h.y + base * 0.3f;
+            textQuads(name, x, y, sz, tr, q);
+            st.color = quiet; st.alpha = saturate(0.3f + h.alpha * 1.4f);
+            drawText(q, st);
             if (!var.empty()) {
                 q.clear();
-                textQuads(fontBlock_, var, x + wName + gap, h.y + base * 0.15f, vsz, vsz * 0.12f, 0.2f, q);
-                TextStyle vs;
-                vs.mode = 0; vs.outline = deep; vs.outlineW = 0.1f; vs.glow = pal_.grid * 0.5f; vs.glowAmt = 0.25f;
-                vs.alpha = saturate(0.3f + h.alpha * 1.5f);
-                drawText(fontBlock_, q, vs);
+                textQuads(var, x + wName + gap, y, sz, tr, q);
+                TextStyle vs = st;
+                vs.color = acc; vs.glow = pal_.accent * 0.5f; vs.glowAmt = 0.25f;
+                drawText(q, vs);
+                // the hairline between them
+                std::vector<Vert> v;
+                const float lx = x + wName + gap * 0.28f, ly = y + sz * 0.36f, lw = gap * 0.44f, th = std::max(1.f, 1.2f * s);
+                quad(v, v2(lx, ly), v2(lx + lw, ly), v2(lx + lw, ly + th), v2(lx, ly + th), quiet, st.alpha * 0.7f);
+                glUseProgram(progShape_);
+                set1i(progShape_, "uPixels", 1);
+                set2f(progShape_, "uRes", (float)width_, (float)height_);
+                glBindVertexArray(shapeVao_);
+                glBindBuffer(GL_ARRAY_BUFFER, shapeVbo_);
+                glBufferData(GL_ARRAY_BUFFER, v.size() * sizeof(Vert), v.data(), GL_STREAM_DRAW);
+                glDrawArrays(GL_TRIANGLES, 0, (GLsizei)v.size());
             }
             continue;
         }
-        case HUD_SECTION: {
-            place(fontScript_, titleCase(h.text), base * 1.55f, 0.f, 0.f);
-            st.mode = 1; st.color = pal_.acc2; st.glow = pal_.acc2 * 0.8f; st.glowAmt = 0.5f; st.outlineW = 0.07f;
-            st.alpha = saturate(0.2f + h.alpha * 1.9f);
-            drawText(fontScript_, q, st);
-            continue;
-        }
+        case HUD_SECTION:
+            place(upperCase(h.text), base * 0.72f, base * 0.3f);
+            st.color = acc; st.glow = pal_.accent * 0.5f; st.glowAmt = 0.25f;
+            st.alpha = saturate(0.2f + h.alpha * 1.6f);
+            break;
         case HUD_TITLE:
-            place(fontBlock_, h.text, base * 0.88f, base * 0.03f, 0.2f);
-            st.mode = 0; st.outlineW = 0.1f; st.glow = pal_.grid * 0.6f; st.glowAmt = 0.3f;
-            st.alpha = saturate(h.alpha * 1.2f);
+            place(h.text, base * 0.95f, base * 0.04f);
+            st.color = white;
             break;
         case HUD_INFO:
-            place(fontBlock_, h.text, base * 0.9f, base * 0.14f, 0.f);
-            st.mode = 1; st.color = pal_.acc2 * 0.9f; st.glow = pal_.acc2 * 0.5f; st.glowAmt = 0.3f;
-            st.alpha = saturate(h.alpha * 1.3f);
+            place(upperCase(h.text), base * 0.66f, base * 0.26f);
+            st.color = quiet;
             break;
         case HUD_LABEL:
-            place(fontBlock_, h.text, base * 0.82f, base * 0.28f, 0.18f);
-            st.mode = 1; st.color = pal_.acc2; st.glow = pal_.acc2 * 0.7f; st.glowAmt = 0.45f;
-            st.alpha = saturate(h.alpha * 1.4f);
+            place(upperCase(h.text), base * 0.62f, base * 0.36f);
+            st.color = quiet; st.alpha = saturate(h.alpha * 0.9f);
             break;
         case HUD_VALUE:
-            place(fontBlock_, h.text, base * 0.98f, base * 0.04f, 0.2f);
-            st.mode = 0; st.outlineW = 0.1f; st.glow = pal_.grid * 0.5f; st.glowAmt = 0.25f;
+            place(h.text, base * 1.05f, base * 0.05f);
+            st.color = white; st.bias = 0.02f;
             break;
         case HUD_NOTICE:
-            place(fontBlock_, h.text, base * 0.95f, base * 0.06f, 0.2f);
-            st.mode = 1; st.color = pal_.grid; st.glow = pal_.grid * 0.8f; st.glowAmt = 0.5f;
+            place(upperCase(h.text), base * 0.8f, base * 0.22f);
+            st.color = acc; st.glow = pal_.accent * 0.6f; st.glowAmt = 0.35f;
             break;
         case HUD_KEY:
-            place(fontBlock_, h.text, base * 0.95f, base * 0.05f, 0.f);
-            st.mode = 2; st.color = vec3(1.f); st.outlineW = 0.16f; st.glowAmt = 0.f;
+            place(h.text, base * 0.8f, base * 0.1f);
+            st.color = white; st.shadow = 0.9f;
             break;
         case HUD_TOAST:
-            place(fontBlock_, h.text, base * 1.05f, base * 0.05f, 0.22f);
-            st.mode = 0; st.outlineW = 0.12f; st.glow = pal_.grid; st.glowAmt = 0.8f;
+            place(upperCase(h.text), base * 0.92f, base * 0.42f);
+            st.color = white * 1.2f; st.glow = pal_.flare * 0.7f; st.glowAmt = 0.45f;
             break;
         case HUD_TOAST_SUB:
-            place(fontBlock_, h.text, base * 0.95f, base * 0.08f, 0.2f);
-            st.mode = 1; st.color = pal_.sunTop; st.glow = pal_.sunBot * 0.8f; st.glowAmt = 0.5f;
+            place(h.text, base * 0.8f, base * 0.2f);
+            st.color = acc; st.glow = pal_.accent * 0.5f; st.glowAmt = 0.3f;
             break;
         case HUD_DIALOG:
             if (h.scale >= 3.5f * s) {
-                place(fontBlock_, h.text, base * 1.0f, base * 0.05f, 0.22f);
-                st.mode = 0; st.outlineW = 0.12f; st.glow = pal_.grid; st.glowAmt = 0.7f;
+                place(upperCase(h.text), base * 0.85f, base * 0.3f);
+                st.color = white; st.glow = pal_.flare * 0.5f; st.glowAmt = 0.3f;
             } else {
-                place(fontBlock_, h.text, base * 0.9f, base * 0.1f, 0.12f);
-                st.mode = 1; st.color = h.accent ? pal_.acc2 : vec3(0.9f, 0.88f, 1.f); st.glow = pal_.acc2 * 0.4f;
-                st.glowAmt = 0.3f; st.outlineW = 0.08f;
+                place(h.text, base * 0.82f, base * 0.12f);
+                st.color = h.accent ? acc : vec3(0.85f, 0.85f, 0.9f);
             }
             break;
         default: // hints, help, plain
-            place(fontBlock_, h.text, base * 0.85f, base * 0.08f, 0.f);
-            st.mode = 2; st.color = h.accent ? pal_.acc2 : vec3(0.82f, 0.78f, 0.95f); st.outlineW = 0.1f;
+            place(h.text, base * 0.78f, base * 0.08f);
+            st.color = h.accent ? acc : vec3(0.75f, 0.75f, 0.82f);
             break;
         }
-        drawText(fontBlock_, q, st);
+        drawText(q, st);
     }
 }
 
-// The tape's on-screen display (bitmap font, like a VCR's): PLAY/SLOW with a counter, REW, STOP.
-void SynthwaveUniverse::pixelText(const std::string& s, float x, float y, float scale, const vec3& col, float alpha) {
-    static char buf[60000];
-    std::vector<char> txt(s.begin(), s.end());
-    txt.push_back(0);
-    stb_easy_font_spacing(0.5f);
-    const int nq = stb_easy_font_print(0, 0, txt.data(), nullptr, buf, sizeof(buf));
-    for (int pass = 0; pass < 2; pass++) {
-        const float o = pass == 0 ? scale * 0.6f : 0.f;
-        const vec3 c = pass == 0 ? vec3(0.f) : col;
-        const float a = pass == 0 ? alpha * 0.6f : alpha;
-        for (int i = 0; i < nq; i++) {
-            float* v = (float*)(buf + i * 64);
-            vec2 p[4];
-            for (int k = 0; k < 4; k++) p[k] = v2(std::round(x + v[k * 4] * scale + o), std::round(y + v[k * 4 + 1] * scale + o));
-            quad(shapes_, p[0], p[1], p[2], p[3], c, a);
-        }
-    }
-}
-
+// Slow motion's caption, in the lower letterbox bar: the speed and the time left, like a film's timecode.
 void SynthwaveUniverse::drawOsd(const Game& game) {
-    shapes_.clear();
+    if (slow_ < 0.05f || !slowOn_ || bridge_.amount > 0.5f) return;
     const float s = height_ / 1080.f;
-    const float x = 30.f * s, y = 104.f * s, sc = 3.f * s;
-    const vec3 white(0.95f, 0.97f, 1.f);
-    auto play = [&](float px, float py, float h, float a) {
-        tri(shapes_, v2(px, py), v2(px + h * 0.85f, py + h * 0.5f), v2(px, py + h), white, a);
-    };
-    if (overT_ >= 0.f && overT_ < 2.4f) {
-        const float h = 7.f * sc;
-        if (overT_ < 1.3f) {
-            const float a = (std::fmod(overT_, 0.5f) < 0.33f) ? 1.f : 0.6f;
-            tri(shapes_, v2(x + h * 0.85f, y), v2(x, y + h * 0.5f), v2(x + h * 0.85f, y + h), white, a);
-            tri(shapes_, v2(x + h * 1.7f, y), v2(x + h * 0.85f, y + h * 0.5f), v2(x + h * 1.7f, y + h), white, a);
-            pixelText("REW", x + h * 2.1f, y + 0.5f * sc, sc, white, a);
-        } else {
-            quad(shapes_, v2(x, y), v2(x + h, y), v2(x + h, y + h), v2(x, y + h), white, 1.f);
-            pixelText("STOP", x + h * 1.4f, y + 0.5f * sc, sc, white, 1.f);
-        }
-    } else if (slow_ > 0.05f && slowOn_) {
-        const float a = saturate(slow_ * 1.5f);
-        const float h = 7.f * sc;
-        play(x, y, h, a);
-        play(x + h * 0.9f, y, h, a * 0.0f);
-        pixelText("SLOW  x0.25", x + h * 1.2f, y + 0.5f * sc, sc, white, a);
-        char buf[32];
-        const int left = (int)std::ceil(std::max(0.f, game.bonusLeft()));
-        std::snprintf(buf, sizeof(buf), "SP  0:00:%02d", left);
-        pixelText(buf, x, y + h * 1.7f, sc * 0.8f, white, a * 0.85f);
-    }
-    if (shapes_.empty()) return;
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glUseProgram(progShape_);
-    set1i(progShape_, "uPixels", 1);
-    set2f(progShape_, "uRes", (float)width_, (float)height_);
-    glBindVertexArray(shapeVao_);
-    glBindBuffer(GL_ARRAY_BUFFER, shapeVbo_);
-    glBufferData(GL_ARRAY_BUFFER, shapes_.size() * sizeof(Vert), shapes_.data(), GL_STREAM_DRAW);
-    glDrawArrays(GL_TRIANGLES, 0, (GLsizei)shapes_.size());
+    char buf[64];
+    const int left = (int)std::ceil(std::max(0.f, game.bonusLeft()));
+    std::snprintf(buf, sizeof(buf), "0.25X   \xC2\xB7   00:%02d", left);
+    std::string txt(buf);
+    // the middle dot is not in the font's ASCII range: draw it as a spaced period
+    size_t dot = txt.find("\xC2\xB7");
+    if (dot != std::string::npos) txt.replace(dot, 2, "/");
+    const float size = 15.f * s, tr = size * 0.45f;
+    const float w = textWidth(txt, size, tr);
+    const float bar = 0.075f * height_ * slow_;
+    std::vector<float> q;
+    textQuads(txt, width_ * 0.5f - w * 0.5f, height_ - bar * 0.5f - size * 0.36f, size, tr, q);
+    TextStyle st;
+    st.color = vec3(0.8f, 0.82f, 0.9f);
+    st.alpha = saturate(slow_ * 1.5f - 0.3f);
+    st.shadow = 0.f;
+    drawText(q, st);
 }
 
 // =====================================================================================================
@@ -1132,41 +1057,41 @@ void SynthwaveUniverse::drawOsd(const Game& game) {
 
 void SynthwaveUniverse::drawWorld(const MusicState& music) {
     const float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 2.f, lv_);
-    const float sunRise = lerpf(lerpf(0.02f, 0.5f, wm), 0.34f, wp);
-    const float R = SUN_R * (1.f + 0.05f * sunFlare_);
-    const float sunGain = (0.85f + 0.3f * wm + 0.15f * wp) * (1.f + 0.12f * breathe_) * (1.f + 1.4f * sunFlare_);
+    const float over = overT_ >= 0.f ? smoothstepf(0.3f, 2.2f, overT_) : 0.f;
+    const vec2 sp = sunPos();
+    const float R = lerpf(4.3f, 1.7f, pal_.moon) * (1.f + 0.04f * sunFlare_);
+    const float sunGain = (0.8f + 0.15f * wm + 0.15f * wp) * (1.f + 0.6f * sunFlare_ + 0.2f * flash_) * (1.f - 0.6f * over);
     glUseProgram(progWorld_);
     set4f(progWorld_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
-    set1f(progWorld_, "uHorizon", HORIZON);
-    set4f(progWorld_, "uSun", 0.f, HORIZON + R * sunRise, R, sunGain);
-    set2f(progWorld_, "uBands", bandScroll_, breathe_);
+    set1f(progWorld_, "uHorizon", horizon());
+    set4f(progWorld_, "uSun", sp.x, sp.y, R, sunGain);
+    set1f(progWorld_, "uMoon", pal_.moon);
     set1f(progWorld_, "uLv", lv_);
     set1f(progWorld_, "uTime", worldTime_);
     set1f(progWorld_, "uScroll", scroll_);
     set1f(progWorld_, "uPx", px_);
     set4f(progWorld_, "uKickAge", kickAge_[0], kickAge_[1], kickAge_[2], kickAge_[3]);
     set4f(progWorld_, "uKickAmp", kickAmp_[0], kickAmp_[1], kickAmp_[2], kickAmp_[3]);
-    set1f(progWorld_, "uCars", cars_);
-    set1f(progWorld_, "uLasers", lasers_);
-    set1f(progWorld_, "uStars", stars_);
-    set1f(progWorld_, "uClouds", pal_.clouds * (1.f - 0.3f * wm));
-    set1f(progWorld_, "uFlash", flash_);
-    set1f(progWorld_, "uGridGain", (0.32f + 0.68f * wm + 0.3f * wp) * (1.f + 0.8f * horizonFlash_) * (0.9f + 0.2f * saturate(music.energy)));
-    set1f(progWorld_, "uSlow", slow_);
+    set1f(progWorld_, "uCars", cars_ * (1.f - over));
+    set1f(progWorld_, "uRain", pal_.rain * (0.35f + 0.65f * wm));
+    set1f(progWorld_, "uSkyline", pal_.skyline);
+    set1f(progWorld_, "uStars", pal_.stars * (1.f - 0.5f * wp));
+    set1f(progWorld_, "uFog", pal_.fog * (1.15f - 0.2f * wm) * (1.f + 1.5f * over));
+    set1f(progWorld_, "uHazeLit", hazeLit_ + 0.4f * flash_ + 0.6f * sunFlare_);
+    set1f(progWorld_, "uGridGain", (0.1f + 0.26f * wm + 0.06f * wp) * (1.f + 0.6f * horizonFlash_) * (0.9f + 0.2f * saturate(music.energy)) * (1.f - over));
+    set1f(progWorld_, "uBars", slow_ * (1.f - saturate(bridge_.amount)));
+    set1f(progWorld_, "uTrail", slow_);
     set3f(progWorld_, "uSkyTop", pal_.skyTop);
-    set3f(progWorld_, "uSkyMid", pal_.skyMid);
-    set3f(progWorld_, "uSkyLow", pal_.skyLow);
-    set3f(progWorld_, "uNight", pal_.night);
-    set3f(progWorld_, "uSunTop", pal_.sunTop);
-    set3f(progWorld_, "uSunBot", pal_.sunBot);
-    set3f(progWorld_, "uGrid", pal_.grid);
-    set3f(progWorld_, "uAcc2", pal_.acc2);
-    set3f(progWorld_, "uMount", pal_.mount);
+    set3f(progWorld_, "uHaze", pal_.haze * (1.f + 0.4f * horizonFlash_));
+    set3f(progWorld_, "uSunCore", pal_.sunCore);
+    set3f(progWorld_, "uSunEdge", pal_.sunEdge);
     set3f(progWorld_, "uFloor", pal_.floor);
-    set3f(progWorld_, "uHaze", pal_.haze * (1.f + horizonFlash_ * 0.8f));
+    set3f(progWorld_, "uGrid", pal_.grid);
+    set3f(progWorld_, "uAcc", pal_.accent);
     set4f(progWorld_, "uWell", -WELL_X, WELL_BOT, WELL_X, WELL_TOP + 2.5f);
     set4f(progWorld_, "uColL", layout::LEFT_COLUMN[0], layout::LEFT_COLUMN[1], layout::LEFT_COLUMN[2], layout::LEFT_COLUMN[3]);
     set4f(progWorld_, "uColR", layout::RIGHT_COLUMN[0], layout::RIGHT_COLUMN[1], layout::RIGHT_COLUMN[2], layout::RIGHT_COLUMN[3]);
+    set1f(progWorld_, "uRail", (0.55f + 0.25f * wm + 0.6f * horizonFlash_) * (1.f - 0.6f * saturate(bridge_.amount)) * (1.f - 0.7f * over));
     set1f(progWorld_, "uBridge", saturate(bridge_.amount));
     set3f(progWorld_, "uBridgeCol", bridge_.color);
     set1f(progWorld_, "uSeed", seedF_);
@@ -1177,7 +1102,6 @@ void SynthwaveUniverse::render(const Frame& f, GLuint fbo) {
     const Game& game = f.game;
     const MusicState& music = f.music;
     const float dt = f.dt;
-    // The palette (eased toward the song's variant).
     {
         const Palette target = paletteOf(variant_);
         if (!palSet_) { pal_ = target; palSet_ = true; }
@@ -1190,16 +1114,18 @@ void SynthwaveUniverse::render(const Frame& f, GLuint fbo) {
         if (!game.over()) overT_ = -1.f;
         else overT_ += dt;
     }
-    const float wdt = f.paused ? 0.f : dt * lerpf(1.f, 0.3f, slow_);
+    // slow motion stretches time
+    const float wdt = f.paused ? 0.f : dt * lerpf(1.f, 0.25f, slow_);
     if (!f.paused) simulate(game, music, dt, wdt);
     const float world = 1.f - saturate(bridge_.amount);
+    const float over = overT_ >= 0.f ? smoothstepf(0.3f, 2.2f, overT_) : 0.f;
 
     // ---- Geometry.
     tiles_.clear();
     lines_.clear();
     fxLines_.clear();
     shapes_.clear();
-    buildPalms(smoothstepf(0.4f, 1.f, world));
+    buildLamps(smoothstepf(0.3f, 1.f, world) * (1.f - over));
     buildBoard(game);
     buildFx();
 
@@ -1212,16 +1138,6 @@ void SynthwaveUniverse::render(const Frame& f, GLuint fbo) {
     drawWorld(music);
 
     glEnable(GL_BLEND);
-    if (!shapes_.empty()) {
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glUseProgram(progShape_);
-        set1i(progShape_, "uPixels", 0);
-        setMat(progShape_, "uVP", vp_);
-        glBindVertexArray(shapeVao_);
-        glBindBuffer(GL_ARRAY_BUFFER, shapeVbo_);
-        glBufferData(GL_ARRAY_BUFFER, shapes_.size() * sizeof(Vert), shapes_.data(), GL_STREAM_DRAW);
-        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)shapes_.size());
-    }
     auto drawLines = [&](const std::vector<Line>& v) {
         if (v.empty()) return;
         glBlendFunc(GL_ONE, GL_ONE);
@@ -1240,11 +1156,10 @@ void SynthwaveUniverse::render(const Frame& f, GLuint fbo) {
         setMat(progTile_, "uVP", vp_);
         set1f(progTile_, "uPx", px_);
         set3f(progTile_, "uSkyTop", pal_.skyTop);
-        set3f(progTile_, "uSkyLow", pal_.skyLow);
-        set3f(progTile_, "uSunTop", pal_.sunTop);
-        set3f(progTile_, "uSunBot", pal_.sunBot);
+        set3f(progTile_, "uSunCore", pal_.sunCore);
+        set3f(progTile_, "uSunEdge", pal_.sunEdge);
         set3f(progTile_, "uGrid", pal_.grid);
-        set3f(progTile_, "uAcc2", pal_.acc2);
+        set3f(progTile_, "uAcc", pal_.accent);
         set1f(progTile_, "uBridge", saturate(bridge_.amount));
         set3f(progTile_, "uBridgeInk", bridge_.ink);
         set1f(progTile_, "uTime", worldTime_);
@@ -1266,7 +1181,7 @@ void SynthwaveUniverse::render(const Frame& f, GLuint fbo) {
         glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     }
 
-    // ---- Bloom: the neon above the threshold, blurred down and back up.
+    // ---- Bloom: the lights above the threshold, blurred down and back up.
     glUseProgram(progDown_);
     set1i(progDown_, "uTex", 0);
     glActiveTexture(GL_TEXTURE0);
@@ -1277,11 +1192,29 @@ void SynthwaveUniverse::render(const Frame& f, GLuint fbo) {
         glViewport(0, 0, bloomW_[i], bloomH_[i]);
         glBindTexture(GL_TEXTURE_2D, src);
         set2f(progDown_, "uTexel", 0.5f / sw, 0.5f / sh);
-        set1f(progDown_, "uThreshold", i == 0 ? 1.0f : 0.f);
+        set1f(progDown_, "uThreshold", i == 0 ? 0.85f : 0.f);
         ugl::drawFullscreen();
         src = bloomTex_[i];
         sw = bloomW_[i];
         sh = bloomH_[i];
+    }
+    // ---- Anamorphic streaks from the quarter-resolution highlights (before the upsampling adds into them).
+    const float streakAmt = (2.5f + 2.f * smoothstepf(1.1f, 2.f, lv_) + 5.f * flareKick_ + 3.5f * sunFlare_ + 3.f * slow_)
+                            * world * (1.f - 0.8f * over);
+    glUseProgram(progStreak_);
+    set1i(progStreak_, "uTex", 0);
+    {
+        GLuint from = bloomTex_[0];
+        const float steps[3] = {1.f, 7.f, 40.f};
+        for (int i = 0; i < 3; i++) {
+            glBindFramebuffer(GL_FRAMEBUFFER, streakFbo_[i & 1]);
+            glViewport(0, 0, streakW_, streakH_);
+            glBindTexture(GL_TEXTURE_2D, from);
+            set1f(progStreak_, "uStep", steps[i] / streakW_);
+            set1f(progStreak_, "uThreshold", i == 0 ? 1.1f : 0.f);
+            ugl::drawFullscreen();
+            from = streakTex_[i & 1];
+        }
     }
     glUseProgram(progUp_);
     set1i(progUp_, "uTex", 0);
@@ -1296,15 +1229,7 @@ void SynthwaveUniverse::render(const Frame& f, GLuint fbo) {
     }
     glDisable(GL_BLEND);
 
-    // ---- The tape.
-    float rewind = 0.f, stat = 0.f, squeeze = 0.f;
-    if (overT_ >= 0.f) {
-        const float t = overT_;
-        if (t < 1.3f) rewind = smoothstepf(0.f, 0.15f, t);
-        else if (t < 1.65f) squeeze = smoothstepf(1.3f, 1.6f, t);
-        else if (t < 1.75f) { squeeze = 1.f; stat = 0.3f; }
-        else stat = lerpf(0.9f, 0.14f, smoothstepf(2.0f, 3.2f, t));
-    }
+    // ---- The film.
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glViewport(0, 0, width_, height_);
     glUseProgram(progPost_);
@@ -1312,25 +1237,28 @@ void SynthwaveUniverse::render(const Frame& f, GLuint fbo) {
     glBindTexture(GL_TEXTURE_2D, sceneTex_);
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, bloomTex_[0]);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, streakTex_[0]);
     glActiveTexture(GL_TEXTURE0);
     set1i(progPost_, "uScene", 0);
     set1i(progPost_, "uBloom", 1);
+    set1i(progPost_, "uStreak", 2);
     set2f(progPost_, "uRes", (float)width_, (float)height_);
     set1f(progPost_, "uTime", (float)f.time);
     set1f(progPost_, "uFade", saturate(f.fade));
     set1f(progPost_, "uDim", dimT_);
     set1f(progPost_, "uSlow", slow_ * world);
     set1f(progPost_, "uBridge", saturate(bridge_.amount));
-    set1f(progPost_, "uBloomAmt", 0.55f * world);
+    set1f(progPost_, "uBloomAmt", 0.5f * world);
+    set1f(progPost_, "uStreakAmt", streakAmt);
     set1f(progPost_, "uExposure", 1.f);
-    set1f(progPost_, "uRewind", rewind);
-    set1f(progPost_, "uStatic", stat);
-    set1f(progPost_, "uSqueeze", squeeze);
+    set1f(progPost_, "uOver", over * 0.6f);
+    set3f(progPost_, "uStreakTint", pal_.flare * 1.4f);
     {
         const layout::Rect r = layout::boardRect(width_, height_);
         set4f(progPost_, "uWellUv", r.x0 / width_, 1.f - r.y1 / height_, r.x1 / width_, 1.f - r.y0 / height_);
     }
-    set3f(progPost_, "uSlowTint", lerp(normalize(pal_.acc2 + vec3(0.05f)) * 1.2f, vec3(0.45f, 0.85f, 1.f), 0.6f));
+    set3f(progPost_, "uShadowTint", normalize(pal_.haze + vec3(0.01f)));
     ugl::drawFullscreen();
 }
 
@@ -1340,8 +1268,8 @@ void SynthwaveUniverse::render(const Frame& f, GLuint fbo) {
 
 const UniverseEntry& universe_synthwave() {
     static const UniverseEntry e{
-        "SYNTHWAVE", "a sunset drive on a neon grid", [] { return std::unique_ptr<Universe>(new SynthwaveUniverse()); },
-        // Driving, upbeat songs with a pulse suit the drive best; slower ones still cruise at dusk.
+        "SYNTHWAVE", "a night drive, shot like a film", [] { return std::unique_ptr<Universe>(new SynthwaveUniverse()); },
+        // Driving songs with a pulse suit the drive best; slower ones still cruise through the fog.
         [](const SongLook& l) { return 0.6f + 0.5f * smoothstepf(90.f, 125.f, l.bpm) + 0.3f * l.density + 0.2f * l.bassWeight; },
         [] {
             std::vector<std::string> v;
