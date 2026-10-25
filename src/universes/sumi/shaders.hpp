@@ -443,10 +443,10 @@ vec3 negative(vec3 c) {
 void main() {
     vec3 col = texture(uScene, vUV).rgb;
     float Y = dot(col, vec3(0.299, 0.587, 0.114));
-    col = mix(col, mix(vec3(Y), col, 0.5) * vec3(0.80, 0.77, 0.74), uDim);
+    col = mix(col, mix(vec3(Y), col, 0.5) * vec3(0.78), uDim);
     vec2 d = (vUV - 0.5) * vec2(uAspect, 1.0);
     float v = smoothstep(0.5, 1.25, length(d) + (vnoise(vUV * 4.0) - 0.5) * 0.12);
-    col *= mix(vec3(1.0), vec3(0.80, 0.74, 0.66), v * 0.6);
+    col *= mix(vec3(1.0), vec3(0.78), v * 0.6);
     float inv = uInvert;
     if (uInvFront >= 0.0) {
         float r = length((vUV - uInvCenter) * vec2(uAspect, 1.0)) + (fbm3(vUV * 5.0) - 0.5) * 0.12;
