@@ -295,12 +295,43 @@ void VectorUniverse::setLevel(int level, float, float seconds, float impact) {
         phosPrev_ = phos_;
         palSweep_ = false;
         sweepT_ = 9.f;
+        peakWait_ = -1.f;
         return;
     }
     const bool rising = level > oldLevel, levelChange = level != oldLevel;
     sweep(phos_, rising ? 0.7f : (levelChange ? 1.5f : 1.1f), levelChange ? 1.f : 0.25f + 0.5f * impact);
     lvTo_ = (float)level;
-    if (rising && level >= 2) degauss_ = 1.f;
+    peakWait_ = -1.f;
+    if (rising && level >= 2) {
+        // Into a drop: the retrace bar arms the tube and the ridges start to rise, held halfway (tension); the
+        // drop's downbeat (drop(), ~0.45 s later) slams them the rest of the way.
+        degauss_ = 0.35f;
+        if (impact >= 0.75f) {
+            lvTo_ = 1.5f;
+            peakWait_ = 0.f;
+        }
+    }
+}
+
+// The drop: one hit on the downbeat. The peak's mountains slam up out of the half-risen floor, the beams
+// overdrive into one soft bloom, a vector burst of rays fires from the vanishing point across the whole frame, a
+// ring races along the floor past the viewer and the well's outline throws two shock frames outward.
+void VectorUniverse::drop(float strength) {
+    const float s = saturate(strength);
+    dropT_ = 0.f;
+    dropAmt_ = s;
+    slam_ = s;
+    if (level_ >= 2) {
+        lv_ = lvFrom_ = lvTo_ = 2.f; // the peak arrives on the beat, not on the sweep's ease
+        peakWait_ = -1.f;
+    }
+    overdrive_ = std::max(overdrive_, 0.45f * s);
+    degauss_ = std::max(degauss_, 0.45f * s);
+    bar_++;
+    barT_ = 0.f;
+    rings_.push_back({vec3(0, 0, 0), 0.2f, 16.f, 0.f, 0.9f, 1.3f * s, 0, 1.f});
+    rings_.push_back({vec3(0, 0, 0), 0.2f, 11.f, -0.12f, 0.9f, 0.9f * s, 0, 1.f});
+    rings_.push_back({vec3(0, 0, 0), 13.f, 60.f, 0.f, 1.f, 1.1f * s, 128, 1.f});
 }
 
 void VectorUniverse::refresh(float strength) {
@@ -534,8 +565,8 @@ void VectorUniverse::buildWorld(const MusicState& music) {
     {
         const int N = 260;
         const float z = -95.f, y0 = camPos_.y;
-        const float A = (3.5f + 2.5f * wPeak) * (0.35f + 0.9f * music.audio.loud) * (1.f + 0.3f * throb_);
-        const float in = (0.95f - 0.3f * wGrid + 0.2f * wPeak) * gain;
+        const float A = (3.5f + 2.5f * wPeak) * (0.35f + 0.9f * music.audio.loud) * (1.f + 0.3f * throb_ + 0.9f * punch_);
+        const float in = (0.95f - 0.3f * wGrid + 0.2f * wPeak + 0.3f * punch_) * gain;
         vec3 prev;
         for (int i = 0; i <= N; i++) {
             const float x = -120.f + 240.f * i / N;
@@ -543,7 +574,36 @@ void VectorUniverse::buildWorld(const MusicState& music) {
                            (0.12f + mid) * 0.45f * std::sin(x * TAU / 24.f - t * 1.7f) +
                            (0.05f + high) * 0.2f * std::sin(x * TAU / 7.f + t * 4.3f));
             vec3 p(x, y0 + y, z);
-            if (i) beam(prev, p, in, in, 0.04f * in, 0.04f * in, 1.25f, L_WORLD);
+            const float ht = (0.04f + 0.5f * punch_) * in;
+            if (i) beam(prev, p, in, in, ht, ht, 1.25f, L_WORLD);
+            prev = p;
+        }
+    }
+
+    // ---- The drop: a burst of rays from the vanishing point across the whole frame, and a ring racing along
+    // the floor past the viewer.
+    if (dropT_ < 1.4f && dropAmt_ > 0.f) {
+        const float u = dropT_ / 1.4f, k = 1.f - u;
+        const float reach = 1.f - k * k * k;
+        const vec3 C(0.f, camPos_.y - 1.f, -95.f);
+        const int RAYS = 56;
+        const float in = 1.3f * dropAmt_ * k * k * gain, hot = 1.4f * dropAmt_ * k * k * k * gain;
+        for (int j = 0; j < RAYS; j++) {
+            const float a = TAU * (j + 0.35f * hash1((float)j * 3.1f)) / RAYS;
+            const float len = 0.6f + 0.4f * hash1((float)j * 7.7f + 1.f);
+            const float r1 = (6.f + 230.f * reach) * len, r0 = r1 * (0.25f + 0.5f * u);
+            const vec3 d(std::cos(a), std::sin(a) * 0.8f, 0.f);
+            beam(C + d * r0, C + d * r1, in * 0.5f, in, hot * 0.3f, hot, 1.6f, L_WORLD);
+        }
+        const float ru = std::min(1.f, dropT_ / 1.1f), rk = 1.f - ru;
+        const float rad = 4.f + 150.f * (1.f - rk * rk * rk);
+        const float ri = 1.5f * dropAmt_ * rk * rk * gain, rh = 1.6f * dropAmt_ * rk * rk * rk * gain;
+        const int N = 144;
+        vec3 prev;
+        for (int j = 0; j <= N; j++) {
+            const float a = TAU * j / N;
+            const vec3 p(std::cos(a) * rad, FLOOR_Y + 0.25f, -8.f + std::sin(a) * rad * 0.9f);
+            if (j) beam(prev, p, ri, ri, rh, rh, 2.2f, L_WORLD);
             prev = p;
         }
     }
@@ -551,31 +611,46 @@ void VectorUniverse::buildWorld(const MusicState& music) {
     // ---- The floor: a grid scrolling one row per beat; at peaks the spectrum lifts it into mountains.
     if (wGrid > 0.01f) {
         constexpr float DX = 3.1f, DZ = 4.f, Z0 = 4.f;
-        const float frac = scroll_ - std::floor(scroll_);
-        const int base = (int)std::floor(scroll_);
+        const float frac = scrollShown_ - std::floor(scrollShown_);
+        const int base = (int)std::floor(scrollShown_);
         auto& H = H_;
         auto& IN = IN_;
         auto& ZK = ZK_;
         // A beam of light runs along the grid from the horizon to the viewer once per beat.
         const float zw = -150.f + 158.f * music.beatPhase;
-        const float pulseAmp = wGrid * (0.2f + 0.6f * E) * (0.5f + 0.5f * std::min(1.f, music.beatPulse * 1.5f));
+        const float pulseAmp = wGrid * (0.2f + 0.6f * E) * (0.5f + 0.5f * std::min(1.f, music.beatPulse * 1.5f)) +
+                               1.4f * drive_;
+        // Peak: on each bar a hot wave runs down the floor from the horizon to the viewer.
+        const float zb = -150.f + 165.f * saturate(barT_ / 0.5f);
+        const float barAmp = barT_ < 0.5f ? drive_ * (1.f - 0.6f * barT_ / 0.5f) : 0.f;
+        float HOT[NR];
+        // Peak: the ridges change shape on each bar (a quick morph from the last bar's range to the new one).
+        const float morph = smoothstepf(0.f, 0.16f, barT_);
+        const float seedA = (float)(bar_ % 64) * 13.7f, seedB = (float)((bar_ + 63) % 64) * 13.7f;
+        const float lift = 1.f + 0.8f * punch_ + 1.0f * slam_;
         for (int k = 0; k < NR; k++) {
             const float z = Z0 - (k - frac) * DZ;
             ZK[k] = z;
             const float far = 1.f - smoothstepf(-70.f, -150.f, z);
             const float near = smoothstepf(14.f, 2.f, z);
             const float pulse = std::exp(-((z - zw) * (z - zw)) / 60.f);
-            IN[k] = (0.26f * far * near + pulse * pulseAmp * far) * wGrid * gain;
+            const float bw = std::exp(-((z - zb) * (z - zb)) / 40.f) * barAmp;
+            IN[k] = (0.26f * far * near * (1.f + 1.2f * punch_) + pulse * pulseAmp * far + 1.2f * bw * far) * wGrid * gain;
+            HOT[k] = (0.6f * pulse * drive_ + 1.1f * bw) * far * gain;
             for (int i = 0; i < NC; i++) {
                 const float x = (i - NC / 2) * DX;
                 float h = 0.f;
                 if (wPeak > 0.001f) {
                     const float u = saturate((std::fabs(x) - 12.f) / 50.f);
                     const float env = smoothstepf(0.f, 0.35f, u) * smoothstepf(-14.f, -60.f, z);
-                    const float prof = vnoise(i * 0.3f + (x < 0 ? 31.f : 0.f), (k + base) * 0.3f);
+                    const float nx = i * 0.3f + (x < 0 ? 31.f : 0.f), ny = (k + base) * 0.3f;
+                    float prof = vnoise(nx + seedA, ny);
+                    if (morph < 1.f) prof = lerpf(vnoise(nx + seedB, ny), prof, morph);
                     const float ridge = smoothstepf(0.25f, 0.85f, prof);
-                    h = wPeak * env * (0.6f + 11.f * ridge * ridge) * (0.25f + 1.f * band((int)(u * 15.99f))) *
-                        (1.f + 0.35f * kick_);
+                    // The spectrum lifts them (band by distance from the well), with kicks, beats and the drop's slam.
+                    const float b = band((int)(u * 15.99f));
+                    h = wPeak * env * (0.6f + 11.f * ridge * ridge) * (0.25f + (1.f + 0.5f * drive_) * b) * lift;
+                    h = 15.f * std::tanh(h / 15.f); // a soft ceiling: the ridges stay under the HUD's labels
                 }
                 H[k][i] = FLOOR_Y + h;
             }
@@ -585,9 +660,9 @@ void VectorUniverse::buildWorld(const MusicState& music) {
         for (int k = 0; k < NR; k++)
             for (int i = 0; i < NC; i++) {
                 const float hk = (H[k][i] - FLOOR_Y) / 18.f;
-                const float hot = wPeak * kick_ * 0.35f * hk;
+                const float hot = (0.8f * punch_ + 0.6f * slam_) * wPeak * hk + HOT[k];
                 if (i + 1 < NC) {
-                    const float h2 = wPeak * kick_ * 0.35f * (H[k][i + 1] - FLOOR_Y) / 18.f;
+                    const float h2 = (0.8f * punch_ + 0.6f * slam_) * wPeak * (H[k][i + 1] - FLOOR_Y) / 18.f + HOT[k];
                     beam(P(k, i), P(k, i + 1), IN[k] * transI * (1.f + 0.6f * hk), IN[k] * transI *
                          (1.f + 0.6f * (H[k][i + 1] - FLOOR_Y) / 18.f), hot * IN[k], h2 * IN[k], 1.05f, L_WORLD);
                 }
@@ -612,21 +687,23 @@ void VectorUniverse::buildWorld(const MusicState& music) {
     // right), slowly turning, set behind the mountains.
     if (wPeak > 0.01f) {
         static const int RATIOS[4][2] = {{3, 2}, {2, 3}, {3, 4}, {4, 3}};
-        const int* r = RATIOS[seed_ % 4];
+        const int* r = RATIOS[(seed_ + (uint64_t)bar_) % 4]; // a new figure on each bar
         const int N = 240;
         for (int side = -1; side <= 1; side += 2) {
             const float ax = side < 0 ? bass : mid, ay = side < 0 ? mid : high;
             const vec3 C(side * 44.f, 13.f, -60.f);
-            const float rad = 4.6f * (0.75f + 0.35f * ax) * (1.f + 0.08f * kick_);
-            const float ry = 4.6f * (0.75f + 0.35f * ay);
-            const float delta = t * 0.31f * side;
-            const float in = 0.42f * wPeak * gain;
+            const float zoom = 1.f + 0.4f * punch_ + 0.7f * slam_;
+            const float rad = 4.6f * (0.75f + 0.35f * ax) * zoom;
+            const float ry = 4.6f * (0.75f + 0.35f * ay) * zoom;
+            const float delta = t * 0.31f * side + (float)bar_ * 0.9f;
+            const float in = (0.42f + 0.45f * punch_) * wPeak * gain;
+            const float hot = (0.05f + 0.45f * punch_) * in;
             vec3 prev;
             for (int j = 0; j <= N; j++) {
                 const float th = TAU * j / N;
                 const float u = r[0] * th + delta;
                 vec3 p = C + vec3(rad * std::sin(u), ry * std::sin(r[1] * th), rad * std::cos(u));
-                if (j) beam(prev, p, in, in, 0.05f * in, 0.05f * in, 1.1f, L_WORLD);
+                if (j) beam(prev, p, in, in, hot, hot, 1.1f + 0.5f * punch_, L_WORLD);
                 prev = p;
             }
         }
@@ -643,7 +720,7 @@ void VectorUniverse::buildBoard(const Game& g, float dt) {
 
     // ---- The well: a crisp open box in perspective, with graduations like an instrument.
     {
-        const float in = (0.62f + 0.12f * th) * gain, hot = 0.6f * flashWell_ * gain;
+        const float in = (0.62f + 0.12f * th + 0.2f * punch_) * gain, hot = (0.6f * flashWell_ + 0.35f * punch_) * gain;
         const vec3 bl(-WELL_X, WELL_BOT, 0), br(WELL_X, WELL_BOT, 0), tl(-WELL_X, WELL_TOP, 0), tr(WELL_X, WELL_TOP, 0);
         const vec3 back(0, 0, -WELL_DEPTH);
         beam(tl, bl, in, hot, 1.5f, L_BOARD);
@@ -912,13 +989,59 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     const float worldRate = lerpf(1.f, 0.35f, slowAmt_);
     const float wdt = paused ? 0.f : dt * worldRate;
     worldTime_ += wdt;
+    // The peak's pace: faster songs scroll more rows per beat and punch with a sharper envelope.
+    const float tempo = smoothstepf(90.f, 140.f, music.bpm);
+    const float wPeak0 = smoothstepf(1.1f, 2.f, lv_), wGrid0 = smoothstepf(0.15f, 1.f, lv_);
+    const float rowsPerBeat = 1.f + wPeak0 * (1.f + 1.5f * tempo);
     if (!paused) {
         float d = music.beatPhase - lastBeatPhase_;
         if (d < -0.5f) { d += 1.f; beats_ += 1.f; }
         if (d < 0.f || d > 0.5f) d = 0.f;
-        scroll_ += d * worldRate;
+        scroll_ += d * worldRate * rowsPerBeat;
     }
     lastBeatPhase_ = music.beatPhase;
+    {
+        // The surge: inside each beat the floor rushes forward on the beat and coasts after it (the same rows per
+        // beat, front-loaded). Mid parts get a light push, peaks a full one.
+        const float p = saturate(music.beatPhase), q = 1.f - p;
+        const float ease = 1.f - q * q * q * q;
+        const float surge = std::min(1.f, 0.3f * wGrid0 + 0.7f * wPeak0) * worldRate;
+        scrollShown_ = scroll_ + rowsPerBeat * surge * (ease - p);
+    }
+
+    // ---- Beats and bars of the song's grid.
+    beatT_ += dt;
+    barT_ += dt;
+    const long long bi = (long long)std::floor(music.beat);
+    bool downbeat = false;
+    if (music.hasSong && !paused && bi != lastBeat_) {
+        if (lastBeat_ >= 0 && bi == lastBeat_ + 1) {
+            beatT_ = 0.f;
+            downbeat = ((bi % 4) + 4) % 4 == 0;
+            if (downbeat && wPeak0 > 0.5f && dropT_ > 0.3f) { bar_++; barT_ = 0.f; }
+        }
+        lastBeat_ = bi;
+    }
+    if (!music.hasSong) lastBeat_ = -1;
+    if (beatT_ == 0.f) downLast_ = downbeat;
+
+    // ---- The drop and the living peak.
+    dropT_ += dt;
+    slam_ = approach(slam_, 0.f, 2.2f, dt);
+    if (peakWait_ >= 0.f) {
+        peakWait_ += dt;
+        if (peakWait_ > 1.2f) drop(0.5f); // no downbeat came (a seek, no beat grid): finish the rise anyway
+    }
+    {
+        const float E = music.energy;
+        drive_ = wPeak0 * (0.6f + 0.4f * E) * (0.8f + 0.2f * tempo);
+        // Beat-locked punch (from the beat grid: reliable), downbeats harder; the onset kick on top of it.
+        const float beatEnv = music.hasSong ? std::exp(-beatT_ * (7.f + 7.f * tempo)) * (downLast_ ? 1.f : 0.7f) : 0.f;
+        const float raw = std::min(1.2f, std::max(beatEnv, 1.3f * music.kick));
+        const float midDrive = 0.3f * wGrid0 * (1.f - wPeak0) * (0.4f + 0.6f * E);
+        const float target = std::max(drive_ * raw, midDrive * beatEnv);
+        punch_ = target > punch_ ? target : approach(punch_, target, 14.f, dt);
+    }
 
     sweepT_ += dt;
     const float sp = saturate(sweepT_ / sweepDur_);
@@ -942,7 +1065,7 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     const float still = 1.f - bridge_.amount;
     const float yaw = (0.008f + 0.018f * wPeak) * std::sin(worldTime_ * 0.17f) * still;
     const layout::Camera cam =
-        layout::camera(width_, height_, 1.f - (0.035f * camDolly_ + 0.01f * kick_ * wPeak) * still, yaw);
+        layout::camera(width_, height_, 1.f - (0.035f * camDolly_ + 0.012f * punch_) * still, yaw);
     camPos_ = cam.eye;
     view_ = cam.view;
     proj_ = cam.proj;
@@ -1006,7 +1129,7 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     set2f(progLine_, "uRes", (float)width_, (float)height_);
     set1f(progLine_, "uTime", (float)time);
     set1f(progLine_, "uJitter", 0.35f * px_ + 0.6f * degauss_ * px_);
-    set1f(progLine_, "uHalo", 0.07f);
+    set1f(progLine_, "uHalo", 0.07f + 0.08f * punch_);
     {
         // World beams fade behind the well's glass and the HUD columns.
         const vec3 q[4] = {{-WELL_X - 0.05f, WELL_BOT - 0.05f, 0}, {WELL_X + 0.05f, WELL_BOT - 0.05f, 0},
@@ -1028,7 +1151,7 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
         rect(6.0f, -3.6f, 11.2f, 10.4f, rv + 4);
         glUniform4fv(U(progLine_, "uRects"), 2, rv);
         set1f(progLine_, "uQuadDim", 0.035f);
-        set1f(progLine_, "uRectDim", 0.3f);
+        set1f(progLine_, "uRectDim", 0.3f - 0.12f * wPeak); // busier peaks sink further behind the HUD
     }
     auto drawBeams = [&](size_t first, size_t count) {
         if (!count) return;
@@ -1125,8 +1248,10 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     set1f(progComp_, "uSplit", palSweep_ ? bar : -1.f);
     set1f(progComp_, "uBar", bar);
     set1f(progComp_, "uBarAmt", sp < 1.f ? sweepAmt_ * std::min(1.f, (1.f - sp) * 6.f) * std::min(1.f, sp * 20.f) : 0.f);
-    set1f(progComp_, "uGain", 1.f + 0.35f * overdrive_ + 0.12f * kick_ * wPeak);
-    set1f(progComp_, "uBloomAmt", 0.25f + 0.3f * overdrive_ + 0.15f * kick_ * wPeak);
+    // Beam overdrive: kicks and beats push the tube's gain and bloom at peaks; the drop adds one soft flash.
+    const float dropFlash = dropAmt_ * std::exp(-dropT_ / 0.22f);
+    set1f(progComp_, "uGain", 1.f + 0.35f * overdrive_ + 0.3f * punch_ + 0.35f * dropFlash);
+    set1f(progComp_, "uBloomAmt", 0.25f + 0.3f * overdrive_ + 0.55f * punch_ + 0.5f * dropFlash);
     set1f(progComp_, "uCurv", 0.07f * (1.f - bridge_.amount)); // the glass flattens onto the bridge
     set1f(progComp_, "uScan", 0.14f);
     set1f(progComp_, "uTime", (float)time);
