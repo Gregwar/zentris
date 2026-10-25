@@ -48,7 +48,7 @@ uniform float uPlankton;     // plankton clouds (mid, peak)
 uniform float uBloom;        // their flare on a kick
 uniform float uBeat;         // creatures' light pulse
 uniform float uFlash;
-uniform float uTetris;       // seconds since a Tetris (the bloom wave)
+uniform float uTetris;       // seconds since a Tetris (the plankton bloom)
 uniform vec3 uTetrisCol;
 uniform float uSlow;         // the abyss goes dark
 uniform vec4 uLure;          // anglerfish lure: x, y, intensity, facing
@@ -121,7 +121,6 @@ void main() {
     // Distant lights: far and dim, a nearer sparse layer.
     col += lightField(p, 0.95, 0.05 + 0.06 * uLights, 0.0, 0.5 + 0.3 * uLights);
     col += lightField(p, 0.42, 0.02 + 0.04 * uLights, 17.0, 0.7 + 0.5 * uLights);
-    // Light ripples running through the water (peak kicks).
     // The Tetris: the plankton blooms all through the water at once, in living patches, then dims.
     if (uTetris < 3.0) {
         float n = fbm3(p * vec2(0.12, 0.3) + vec2(0.0, -uTime * 0.4));
@@ -207,7 +206,7 @@ void main() {
 }
 )";
 
-// ---------------------------------------------------------------- sprites: snow, jellies, sparks, rings, threads
+// ---------------------------------------------------------------- sprites: snow, jellies, sparks, threads
 
 // a0: a.xy, b.xy (board). a1: rgb, alpha. a2: kind, size, p0, p1.
 inline const char* SPRITE_VS = R"(#version 330 core
@@ -238,10 +237,6 @@ void main() {
         float c = cos(a0.z), sn = sin(a0.z);
         vec2 r = vec2(l.x * c - l.y * sn, l.x * sn + l.y * c);
         p = a0.xy + r * s;
-    } else if (kind == 2) {
-        float ext = s + a2.z * 4.0 + 0.05;
-        p = a0.xy + aCorner * ext;
-        l = aCorner * ext;
     } else {
         float ext = kind == 4 ? 6.0 : 4.0;
         l = aCorner * ext;
@@ -276,18 +271,6 @@ void main() {
         float v = (1.0 - smoothstep(0.55, 1.0, d)) * 1.6 + exp(-d * 0.8) * 0.3;
         vec3 hot = mix(c, vec3(length(c) * 0.7), 0.4);
         frag = vec4((hot * (1.0 - smoothstep(0.0, 0.8, d)) * 1.2 + c * v) * alpha, 0.0);
-        return;
-    }
-    if (kind == 2) {
-        // a ring of plankton light: a soft band, beaded
-        vec2 q = vP - v0.xy;
-        float r = length(q);
-        float d = r - v2.y;
-        float w = max(v2.z, uPx);
-        float band = exp(-d * d / (w * w));
-        float ang = atan(q.y, q.x);
-        float beads = 0.55 + 0.45 * pow(0.5 + 0.5 * sin(ang * 26.0 + v2.w), 3.0);
-        frag = vec4(c * band * beads * alpha, 0.0);
         return;
     }
     if (kind == 3) {
@@ -546,7 +529,7 @@ void main() {
         if (cov <= 0.0) discard;
         float din = max(-sd, 0.0) / s;
         vec2 q = vLocal / s;
-        // the light: slow breathing in slow motion, the beat, the Tetris wave passing
+        // the light: slow breathing in slow motion, the beat, the Tetris bloom
         light *= 1.0 + 0.14 * uBeat + uSlow * 0.4 * sin(uTime * 0.8 + vWorld.y * 0.25 + vWorld.x * 0.1);
         light += uWave * 0.6;
         float rim = exp(-din / 0.028);
@@ -592,8 +575,8 @@ void main() {
         float n = vnoise(vWorld * 7.0 + v2.z) * 0.8 + vnoise(vWorld * 17.0) * 0.2;
         float keep = smoothstep(k * 1.15 - 0.05, k * 1.15, n);
         float edge = exp(-pow((n - k * 1.15) / 0.05, 2.0));
-        vec3 hot = mix(pc, vec3(1.0), 0.5);
-        vec3 col = hot * (1.6 * (1.0 - k) * keep + edge * 2.0 * (1.0 - k));
+        vec3 hot = mix(pc, vec3(1.0), 0.25);   // the jelly's own light, not a white flare spilling around
+        vec3 col = hot * (0.9 * (1.0 - k) * keep + edge * 1.3 * (1.0 - k));
         float a = cov * keep * (1.0 - k) * alpha;
         frag = vec4(col * cov * alpha * (1.0 - uBridge), a * (1.0 - uBridge));
         return;

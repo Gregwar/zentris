@@ -424,7 +424,7 @@ TransitionHints AbyssUniverse::hints() const {
     h.ink = p.glow * 0.8f;
     h.accent = p.glow2;
     h.light = false;
-    h.styles = TS_INK | TS_LUMA | TS_RIPPLE; // an organic glowing dissolve, darks first, rings in the water
+    h.styles = TS_INK | TS_LUMA; // an organic glowing dissolve, darks first (no rings: nothing expanding)
     return h;
 }
 
@@ -619,25 +619,21 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
     if (kick > 0.55f && prevKick_ <= 0.55f && sinceKick_ > 0.25f && peak_ > 0.3f) {
         sinceKick_ = 0.f;
         const float side = rng_.chance(0.5f) ? -1.f : 1.f;
-        ripX_[ripNext_] = rng_.chance(0.3f) ? rng_.range(-3.f, 3.f) : side * rng_.range(9.f, viewH_.x - 2.f);
-        ripY_[ripNext_] = rng_.range(-6.f, 8.f);
-        ripAge_[ripNext_] = 0.f;
-        ripAmp_[ripNext_] = 0.5f + 0.5f * peak_;
+        const float cx = rng_.chance(0.3f) ? rng_.range(-3.f, 3.f) : side * rng_.range(9.f, viewH_.x - 2.f);
+        const float cy = rng_.range(-6.f, 8.f);
         bloom_ = std::max(bloom_, 0.45f + 0.35f * kick);
         // a little cloud of plankton flaring where it hits
         for (int i = 0; i < 10; i++) {
             Spark s;
-            s.x = ripX_[ripNext_] + rng_.range(-1.5f, 1.5f);
-            s.y = ripY_[ripNext_] + rng_.range(-1.5f, 1.5f);
+            s.x = cx + rng_.range(-1.5f, 1.5f);
+            s.y = cy + rng_.range(-1.5f, 1.5f);
             s.vx = rng_.range(-0.4f, 0.4f); s.vy = rng_.range(-0.1f, 0.5f);
             s.t = 0.f; s.life = rng_.range(1.2f, 2.4f); s.delay = rng_.range(0.f, 0.2f); s.size = rng_.range(0.04f, 0.08f);
             s.col = lerp(pal_.glow, pal_.glow2, rng_.uniform()); s.twinkle = rng_.range(0.f, 10.f); s.kind = 0;
             sparks_.push_back(s);
         }
-        ripNext_ = (ripNext_ + 1) % 4;
     }
     prevKick_ = kick;
-    for (int i = 0; i < 4; i++) ripAge_[i] += wdt;
     bloom_ = approach(bloom_, 0.f, 1.2f, dt);
     flash_ = approach(flash_, 0.f, 1.5f, dt);
     tetrisT_ += dt;
