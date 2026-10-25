@@ -231,6 +231,22 @@ moves on to the next. Every universe ships a few curated **variants**, picked pe
   motion puts every light out but the pieces' and an anglerfish's lure, and a game over sinks the stack into the
   dark, its lights going out one by one; it leaves and enters with the water closing over it. Its HUD fonts are
   Cantarell Light and EB Garamond Italic (SIL Open Font License, `src/universes/abyss/OFL-*.txt`).
+- **WATERCOLOR**: wet watercolor on cold-press paper. A landscape painted in a few loose, transparent washes and
+  vignetted on the white sheet with ragged edges (a graded wet-in-wet sky with backruns, a far range fading into
+  mist, a crisp middle range with dried darker rims, still water, fields or trees in front); colors are absorbances,
+  so washes glaze over each other and granulate in the paper's tooth. The well is masked-out paper inside a light
+  pencil frame; the pieces are transparent pigment washes (one wash per patch of a color, a hairline of paper
+  between colors), landing wet and drying with a dark rim; the ghost is their pencil underdrawing. Eight paintings
+  with their own pigments, pieces included (TURNER SUNSET, NORDIC FJORD, PROVENCE LAVENDER, MONSOON GREENS, STORM
+  GREY, CHERRY SPRING, AUTUMN EARTH, and INDIGO NIGHT on toned paper with gouache pieces and lettering), from the
+  key, mode, brightness and dynamics. Calm is a quick sketch on a mostly white sheet, mid paints the middle range,
+  the foreground and the trees in and the beats drop pigment that blooms in the wet sky, peak glazes everything
+  deeper up to the top of the sheet and the kicks flick spatter. A cleared row is lifted with a wet brush (the
+  pigment taken back in streaks, a faint tide mark), a Tetris floods the sheet (a great backrun and a fresh glaze),
+  slow motion is a night glaze of indigo with the moon lifted out, game over runs the stack down in drips while the
+  painting is washed back to paper; it leaves by washing the sheet back to plain paper from the well outward. The
+  landscape and the blooms are drawn at a reduced resolution (at most 540 lines). Its HUD font is Yrsa (Italic and
+  Medium, SIL Open Font License, `src/universes/watercolor/OFL-Yrsa.txt`).
 
 ### Transitions between universes
 
@@ -319,7 +335,7 @@ ideas for the end. Universes marked ✅ exist, the others are ideas waiting to b
 | 6 | CLOUDSCAPE | Above the clouds, volumetric light, endless sky | Calm = still dawn sea of clouds; peak = towering cumulus and sun rays; clears drift away as mist | ✅ |
 | 7 | ABYSS | Deep-sea darkness, bioluminescent jelly pieces, marine snow | Creatures pulse their light with the beat; peak brings a giant glowing whale passing by; clears burst into plankton sparks |✅ |
 | 8 | POLAR NIGHT | Snowfield under the stars, aurora ribbons | Aurora ribbons follow the frequency bands; peak fills the sky; clears turn to powder snow | |
-| 9 | WATERCOLOR | Wet watercolor on cold-press paper, pigment granulation, blooms | Beats drop pigment into wet washes; peak adds saturated glazes; clears are lifted with a wet brush | |
+| 9 | WATERCOLOR | A landscape in transparent washes on cold-press paper: granulation, blooms, dried rims; pigment-wash pieces, pencil ghost | Beats drop pigment into wet washes; peak adds saturated glazes; clears are lifted with a wet brush | ✅ |
 | 10 | SMOKE | Volumetric smoke and one hard spotlight, minimal | The smoke swirls with the bass; peak = more light cuts through | |
 | 11 | WHITE ROOM | Pure white space, soft shadows only, product-design minimalism | Shadows lengthen with the phases; beats press the blocks gently | |
 | 12 | LASER SHOW | Volumetric laser beams in haze | Beams sweep with the bands; drops = full laser fans | |
