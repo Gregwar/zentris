@@ -40,6 +40,12 @@ int find(const std::string& name) {
     const std::string n = upper(name);
     for (int i = 0; i < count(); i++)
         if (n == entry(i).name) return i;
+    // a name of several words can be given by its first one ("polar" for POLAR NIGHT)
+    for (int i = 0; i < count(); i++) {
+        const std::string e = entry(i).name;
+        const size_t sp = e.find(' ');
+        if (sp != std::string::npos && n == e.substr(0, sp)) return i;
+    }
     return -1;
 }
 

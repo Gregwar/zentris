@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 U=${1:?universe}; OUT=${2:?output png}; L=${3:-1}; SIZE=${4:-640x360}
 SONG=${5:-}
 TMP=$(mktemp -d)
-mapfile -t VARS < <(xvfb-run -a ./build/zenscene --list 2>/dev/null | grep -i "^  $U:" | sed 's/^  //')
+mapfile -t VARS < <(xvfb-run -a ./build/zenscene --list 2>/dev/null | grep -i "^  $U[^:]*:" | sed 's/^  //')
 [ ${#VARS[@]} -gt 0 ] || { echo "no variants for $U"; exit 1; }
 i=0
 for v in "${VARS[@]}"; do
