@@ -46,7 +46,9 @@ No camera shake and no flashing: visuals follow slow (~1 s) envelopes of the mus
    (`src/universe.hpp`), and a function `const UniverseEntry& universe_<id>()` returning its registry entry:
    its name (upper case), a one-line blurb, a factory, an affinity function (how well it suits a song, from the
    `SongLook`: tempo, brightness, bass/air, dynamics, density; ~1 neutral, 0 never) and its variants.
-2. Add one line to `src/universes/registry.def`: `UNIVERSE(<id>)`. Nothing else in the host changes.
+2. Add one line to `src/universes/registry.def`: `UNIVERSE(<id>, weight)`. Nothing else in the host changes. The weight
+   is how often it is picked: 1 for an atmosphere that fits almost any song and stays fresh when it comes back,
+   lower for a world with a strong identity that would feel repetitive if it came back often (DIORAMA is 0.3).
 3. Implement the interface. The universe owns all its GL resources (created in `init`, freed in its destructor)
    and draws the whole frame into the framebuffer `render` is given (not necessarily the window: during a
    transition it is a texture): world, well, stack, piece, ghost, previews, bonus gauge, effects, and the HUD text

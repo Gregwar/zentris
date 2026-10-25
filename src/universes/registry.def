@@ -1,10 +1,14 @@
-// The universes, one line each: UNIVERSE(id), where src/universes/<id>/ defines
+// The universes, one line each: UNIVERSE(id, weight), where src/universes/<id>/ defines
 // `const UniverseEntry& universe_<id>()` (see registry.hpp). The order is the order T / Y cycles through.
-UNIVERSE(vector)
-UNIVERSE(sumi)
-UNIVERSE(diorama)
-UNIVERSE(pixel)
-UNIVERSE(synthwave)
-UNIVERSE(cloudscape)
-UNIVERSE(abyss)
-UNIVERSE(debug)
+// The weight is how often the universe is picked, by how specific its look is: atmospheres that fit almost any
+// song and stay fresh when they come back are 1; worlds with a strong identity, which feel repetitive when they
+// come back often, are lower (DIORAMA's clay island is the same place every time). It multiplies the universe's
+// affinity for the song.
+UNIVERSE(vector, 1.0)
+UNIVERSE(sumi, 0.6)
+UNIVERSE(diorama, 0.3)
+UNIVERSE(pixel, 1.0)
+UNIVERSE(synthwave, 0.8)
+UNIVERSE(cloudscape, 1.0)
+UNIVERSE(abyss, 0.6)
+UNIVERSE(debug, 0.0)

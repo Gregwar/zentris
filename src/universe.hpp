@@ -9,7 +9,7 @@
 // its material and its world.
 //
 // Adding a universe: see docs/adding-a-universe.md (a folder in src/universes/ and one line in
-// src/universes/registry.def).
+// src/universes/registry.def, with its weight).
 #include <array>
 #include <memory>
 #include <string>

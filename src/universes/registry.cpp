@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#define UNIVERSE(id) const UniverseEntry& universe_##id();
+#define UNIVERSE(id, weight) const UniverseEntry& universe_##id();
 #include "universes/registry.def"
 #undef UNIVERSE
 
@@ -12,11 +12,20 @@ namespace universes {
 
 const std::vector<const UniverseEntry*>& all() {
     static const std::vector<const UniverseEntry*> list = {
-#define UNIVERSE(id) &universe_##id(),
+#define UNIVERSE(id, weight) &universe_##id(),
 #include "universes/registry.def"
 #undef UNIVERSE
     };
     return list;
+}
+
+float weight(int i) {
+    static const std::vector<float> list = {
+#define UNIVERSE(id, weight) (float)(weight),
+#include "universes/registry.def"
+#undef UNIVERSE
+    };
+    return list[std::clamp(i, 0, count() - 1)];
 }
 
 int count() { return (int)all().size(); }
@@ -64,7 +73,7 @@ int pick(const SongLook& look, uint64_t seed, int current) {
     for (int i = 0; i < count(); i++) {
         const UniverseEntry& e = entry(i);
         if (e.hidden) continue;
-        const float a = e.affinity ? std::max(0.f, e.affinity(look)) : 1.f;
+        const float a = (e.affinity ? std::max(0.f, e.affinity(look)) : 1.f) * weight(i);
         if (a <= 0.f) continue;
         cand.push_back(i);
         w.push_back(a);

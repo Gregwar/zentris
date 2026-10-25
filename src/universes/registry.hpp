@@ -26,7 +26,9 @@ int find(const std::string& name);
 // "NAME" or "NAME:VARIANT" (a variant name, any case, or its index): the index (-1 if unknown) and the variant
 // (-1 if none or unknown).
 int parse(const std::string& spec, int* variant);
-// A universe for a song: weighted by affinity, never `current` again when another one can play (no immediate
+// How often a universe is picked (registry.def: 1 for generic atmospheres, lower for specific worlds).
+float weight(int i);
+// A universe for a song: weighted by affinity times weight, never `current` again when another one can play (no immediate
 // repeat), hidden universes left out.
 int pick(const SongLook& look, uint64_t seed, int current);
 // "VECTOR · P3 AMBER": a universe and one of its variants, as the HUD shows them (UTF-8 middle dot).

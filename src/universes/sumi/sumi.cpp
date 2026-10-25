@@ -703,7 +703,7 @@ void SumiUniverse::collectBoard(const Game& g, const MusicState&, std::vector<Sp
                 if (ny != y && std::fabs(g.rowOffset(ny) - g.rowOffset(y)) > 0.01f) return false;
                 const InkCell& oc = ink_[ny][nx];
                 const bool oknown = oc.type == o.type && oc.id >= 0;
-                return known ? (oknown && oc.id == ic.id) : !oknown;
+                return known && oknown && oc.id == ic.id; // cells of unknown pieces (a stack inherited from another universe) stay apart
             };
             int mask = 0;
             if (joined(x - 1, y)) mask |= 1;
