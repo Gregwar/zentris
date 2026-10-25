@@ -516,6 +516,7 @@ void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
             puff(v2(ex, y0 - 0.35f), v2(0.3f * s, 0.9f + 0.5f * hard), 0.3f, 1.5f + 0.5f * hard, 1.1f,
                  0.38f + 0.14f * hard, 0.f, 1.25f);
             puffs_.back().minGlow = 0.45f; // caught in the stray light, even outside the beam
+            puffs_.back().tint = std::clamp(ev.cells[0].type, 0, 6); // dust of the piece's own color
         }
         lastDrop_ = 0;
         break;
@@ -766,7 +767,8 @@ void SmokeUniverse::buildFx() {
         const float r = p.r * (1.f + p.grow * (1.f - (1.f - k) * (1.f - k)));
         const float lit = spotAt(vec3(p.p.x, p.p.y, 0.6f));
         const float glow = std::max(p.kind == 1 ? std::max(lit, 0.55f) : lit, p.minGlow);
-        const vec3 c = cur_.light * cur_.smoke * (0.12f + 1.1f * glow) * gain + cur_.fill * 2.f;
+        const vec3 c = p.tint >= 0 ? cur_.piece[p.tint] * (0.25f + 0.9f * glow) * (0.4f + 0.6f * lightOn)
+                                   : cur_.light * cur_.smoke * (0.12f + 1.1f * glow) * gain + cur_.fill * 2.f;
         float a = p.alpha * smoothstepf(0.f, 0.1f, k) * (1.f - smoothstepf(0.3f, 1.f, k));
         if (p.kind == 1) a = p.alpha * smoothstepf(0.f, 0.08f, k) * (1.f - smoothstepf(0.45f, 1.f, k));
         (p.kind == 1 ? blades_ : sprites_).push_back({{p.p.x, p.p.y, r, p.stretch}, {c.x, c.y, c.z, a},
