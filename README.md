@@ -205,6 +205,19 @@ moves on to the next. Every universe ships a few curated **variants**, picked pe
   night drained of color, a timecode), game over turns the lights off row by row while the camera tilts down into
   the fog; it leaves and enters through the fog. Its HUD font is Sora (SIL Open Font License,
   `src/universes/synthwave/OFL-Sora.txt`).
+- **CLOUDSCAPE**: above an endless sea of clouds, no ground, only sky: a ray-marched sea of cumulus tops fading into
+  the haze, the well and the HUD columns floating panes of frosted glass (only the blur of the sky behind them, no
+  frame), the pieces flat, soft-colored rounded tiles. Eight skies (DAWN, AZURE NOON, GOLDEN HOUR, STORM VIOLET,
+  POLAR NIGHT with aurora, ROSE SUNSET, MONSOON, BLUE HOUR), from the key, mode, brightness and dynamics
+  (`--universe cloudscape:storm`). Calm is a still, hazy sea of clouds, mid drifts the clouds with the tempo (a
+  glide on each beat) while flocks of birds cross the distance flapping on the beat and gentle beams fall from the
+  sun, peak raises the camera while towering cumulus grow out of the sea, god rays stream through their gaps and the
+  kicks light them from inside. A lock breathes a puff of mist, a cleared row dissolves into mist drifting away on
+  the wind, a Tetris parts the high veil and the sun bursts through, slow motion is night above the clouds (the
+  moon, stars, silver cloud tops), game over drops the stack through the sea of clouds as the mist rises; it leaves
+  and enters with the clouds closing in. The sky is drawn at a reduced resolution (at most 540 lines), the rays at a
+  quarter of that. Its HUD fonts are EB Garamond Italic and Lato (SIL Open Font License,
+  `src/universes/cloudscape/OFL-*.txt`).
 - **ABYSS**: the deep sea, lit only by living things: near-black water with real depth (the far surface a faint glow
   overhead, slow murk, a dark seabed with glowing worms), sparse marine snow, the well a faint glass column. The pieces
   are translucent gelatinous blocks lit from within (an inner glow, a bright membrane, caustic veins, and a pattern
@@ -303,7 +316,7 @@ ideas for the end. Universes marked ✅ exist, the others are ideas waiting to b
 | 3 | DIORAMA | Sunlit clay miniature: the board on a floating island, soft shadows, tilt-shift | Phases are times of day (dawn, day, golden hour); kicks ripple the water; cleared blocks tumble into the sea; slow motion is a moonlit night | ✅ |
 | 4 | PIXEL | Native 320×180 pixel art, 16-color palette, Bayer dithering, parallax layers | Sprites animate on the beat; peak adds parallax layers and weather; clears are pixel explosions | ✅ |
 | 5 | SYNTHWAVE | Cinematic night drive: a soft low sun in the haze, a wet road, fine lines into the fog, frosted glass pieces | The road moves with the tempo; light pulses on the beat; peak = light trails and anamorphic flares on the kicks | ✅ |
-| 6 | CLOUDSCAPE | Above the clouds, volumetric light, endless sky | Calm = still dawn sea of clouds; peak = towering cumulus and sun rays; clears drift away as mist | |
+| 6 | CLOUDSCAPE | Above the clouds, volumetric light, endless sky | Calm = still dawn sea of clouds; peak = towering cumulus and sun rays; clears drift away as mist | ✅ |
 | 7 | ABYSS | Deep-sea darkness, bioluminescent jelly pieces, marine snow | Creatures pulse their light with the beat; peak brings a giant glowing whale passing by; clears burst into plankton sparks |✅ |
 | 8 | POLAR NIGHT | Snowfield under the stars, aurora ribbons | Aurora ribbons follow the frequency bands; peak fills the sky; clears turn to powder snow | |
 | 9 | WATERCOLOR | Wet watercolor on cold-press paper, pigment granulation, blooms | Beats drop pigment into wet washes; peak adds saturated glazes; clears are lifted with a wet brush | |
