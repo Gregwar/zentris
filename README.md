@@ -202,6 +202,19 @@ moves on to the next. Every universe ships a few curated **variants**, picked pe
   night, a tracking band, a VCR display), game over rewinds the tape, stops it, then static; it leaves and enters
   by a VHS tracking dissolve. Its HUD fonts are Audiowide and Mr Dafoe (SIL Open Font License,
   `src/universes/synthwave/OFL-*.txt`).
+- **ABYSS**: the deep sea, lit only by living things: near-black water with real depth (the far surface a faint glow
+  overhead, slow murk, a dark seabed with glowing worms), sparse marine snow, the well a faint glass column. The pieces
+  are translucent gelatinous blocks lit from within (an inner glow, a bright membrane, caustic veins, and a pattern
+  of their own per piece: filaments, a ring, radial canals, photophores, a cellular net, a nucleus, chevrons); blocks
+  of the same kind merge into one jelly mass. Eight palettes (CYAN LANTERN, VIOLET VEIL, EMERALD TRENCH, EMBER VENT,
+  ICE LIGHT, ULTRAMARINE, CORAL GHOST, MOON JELLY), from the key, mode and brightness. Calm is deep silence (snow, a
+  few distant lights, god rays far above), mid brings jellyfish and siphonophores pulsing their light on the beat and
+  schools of lanternfish, peak brings a giant whale with bioluminescent spots passing slowly behind the well,
+  plankton clouds flaring with the kicks and light ripples. A lock sends a ring of plankton light, a cleared row
+  bursts into plankton sparks drifting up, a Tetris sends a bloom wave of light up the whole water column, slow
+  motion puts every light out but the pieces' and an anglerfish's lure, and a game over sinks the stack into the
+  dark, its lights going out one by one; it leaves and enters with the water closing over it. Its HUD fonts are
+  Cantarell Light and EB Garamond Italic (SIL Open Font License, `src/universes/abyss/OFL-*.txt`).
 
 ### Transitions between universes
 
@@ -288,7 +301,7 @@ ideas for the end. Universes marked ✅ exist, the others are ideas waiting to b
 | 4 | PIXEL | Native 320×180 pixel art, 16-color palette, Bayer dithering, parallax layers | Sprites animate on the beat; peak adds parallax layers and weather; clears are pixel explosions | ✅ |
 | 5 | SYNTHWAVE | Sunset grid, chrome letters, palm silhouettes, gradient sun | The sun's bands breathe; the grid speed follows the tempo; peak = car lights racing to the horizon | ✅ |
 | 6 | CLOUDSCAPE | Above the clouds, volumetric light, endless sky | Calm = still dawn sea of clouds; peak = towering cumulus and sun rays; clears drift away as mist | |
-| 7 | ABYSS | Deep-sea darkness, bioluminescent jelly pieces, marine snow | Creatures pulse their light with the beat; peak brings a giant glowing whale passing by; clears burst into plankton sparks | |
+| 7 | ABYSS | Deep-sea darkness, bioluminescent jelly pieces, marine snow | Creatures pulse their light with the beat; peak brings a giant glowing whale passing by; clears burst into plankton sparks |✅ |
 | 8 | POLAR NIGHT | Snowfield under the stars, aurora ribbons | Aurora ribbons follow the frequency bands; peak fills the sky; clears turn to powder snow | |
 | 9 | WATERCOLOR | Wet watercolor on cold-press paper, pigment granulation, blooms | Beats drop pigment into wet washes; peak adds saturated glazes; clears are lifted with a wet brush | |
 | 10 | SMOKE | Volumetric smoke and one hard spotlight, minimal | The smoke swirls with the bass; peak = more light cuts through | |
