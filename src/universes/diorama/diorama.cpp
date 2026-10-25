@@ -168,12 +168,12 @@ const Variant VARIANTS[] = {
      {0x5FDCD2, 0xFFD45E, 0xD69AF0, 0xA8E07A, 0xFF7466, 0x7C9CFF, 0xFFA04E},
      {0xC8A882, 0xB89670, 0xEAD6B4, 0xC48A6A, 0xB08470, 0x7A5640, 0x7E9A6A, 0x62805A, 0xB89A80, 0xA08470, 0xAC9078,
       0x9A7E6A, 0xA87E70, 0x8A7488, 0x9A8CAE, 0xFFB45E},
-     0x4F9AB0, 0x182E5C, {{0x141236, 0x3A2E5A}, {0x161640, 0x4A3A68}, {0x22163E, 0x7A4A6A}}, P_CYPRESS, P_PALM, P_ROUND, 1},
+     0x4F9AB0, 0x182E5C, {{0x180E30, 0x4A2A50}, {0x1C1238, 0x5A3458}, {0x24143A, 0x844A5E}}, P_CYPRESS, P_PALM, P_ROUND, 1},
     {"FIREFLY FJORD",
      {0x62D8E8, 0xF8E46A, 0xB4A0FF, 0x86F0A8, 0xFF7C9C, 0x6C9CFF, 0xFFA670},
      {0x7FA48A, 0x6C9480, 0xD8D6CC, 0x9C9AA2, 0x929298, 0x5E5050, 0x3F7468, 0x2F6058, 0xA4AAB0, 0x8C9298, 0x9AA0A6,
       0x8E949A, 0x5F8A8A, 0x5C7A98, 0x7A8EB8, 0xFFCC80},
-     0x4AA0B4, 0x10305A, {{0x081830, 0x1E4058}, {0x0A1C3C, 0x285070}, {0x101A44, 0x3E5A80}}, P_PINE, P_PINE, P_BUSH, 1},
+     0x4AA0B4, 0x10305A, {{0x061A24, 0x184A4C}, {0x081E2C, 0x1E5A58}, {0x0A2032, 0x2E6A62}}, P_PINE, P_PINE, P_BUSH, 1},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 const char* TOD_NAMES[4] = {"DAWN", "DAY", "GOLDEN HOUR", "DUSK"};
@@ -217,10 +217,10 @@ const TodKey TOD[4] = {
 // night: the light of the night places, and the slow-motion bonus elsewhere (moonlight, the blocks become lanterns)
 const TodKey NIGHT = {0x0A1030, 0x1E2A52, 0x9DB4FF, 0.62f, 0x41528E, 0.36f, 0x262840, 0.2f, 0x7078B8, 0x7F98D8,
                       0.005f, 0.3f, 0.5f, 0.4f, 0.15f, 0.2f, 0.18f, 1.f, 1.0f, 1.f, {-0.45f, 0.62f, 0.62f}, {-0.35f, 0.3f, -0.88f}};
-// still night: the slow-motion bonus in a night place (time stands still: a pale silver moon, an aurora on the
+// still night: the slow-motion bonus in a night place (time stands still: a pale silver moon, a green glow on the
 // horizon, every star out, the water glassy, the blocks become lanterns)
-const TodKey STILL = {0x0E1440, 0x2E7A80, 0xCFE4FF, 0.95f, 0x5C76B8, 0.5f, 0x2E3450, 0.24f, 0x8A9ADA, 0x8FF0D8,
-                      0.004f, 0.42f, 0.9f, 0.55f, 0.f, 0.03f, 0.04f, 0.35f, 1.0f, 1.f, {0.1f, 0.7f, 0.7f}, {0.05f, 0.42f, -0.9f}};
+const TodKey STILL = {0x080E30, 0x1F6470, 0xCFE4FF, 0.66f, 0x5470B0, 0.4f, 0x2E3450, 0.22f, 0x8A9ADA, 0x8FF0D8,
+                      0.004f, 0.22f, 0.9f, 0.55f, 0.f, 0.03f, 0.04f, 0.35f, 0.88f, 1.f, {0.1f, 0.7f, 0.7f}, {0.05f, 0.42f, -0.9f}};
 const float TOD_AT[4] = {0.f, 1.f, 2.f, 2.6f};
 const char* NIGHT_NAMES[4] = {"MOONRISE", "MIDNIGHT", "STARLIGHT", "LANTERN HOUR"};
 
