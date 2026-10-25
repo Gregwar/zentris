@@ -35,7 +35,26 @@ jelly...). The seven piece types must stay easy to tell apart, by color, value o
 | Game over | How the stack ends, in the world's terms |
 | Exit and entrance | How the world fades to the neutral bridge state (fog, water, clouds closing in...) |
 
-No camera shake and no flashing: visuals follow slow (~1 s) envelopes of the music.
+Calm and mid parts follow slow (~1 s) envelopes of the music. **Peaks must be alive and punchy**: `drop()` is the
+signature hit on the drop's first downbeat, and for the whole peak the world hits with the kicks, moves with the beats
+and changes with the bars, so that even with the sound off it is obvious the song is in a drop. No camera shake and no
+strobing (one soft flash on the drop is fine).
+
+**Effects that look good** (rules from play testing):
+- A line clear makes the blocks themselves disappear (fade, melt, break, fall, pop), quickly (under ~0.5 s). Never
+  draw something over the row (a brush stroke, a white dash, a blade of light), and leave nothing behind (no tide
+  mark, no lingering trail).
+- No scan or swipe crossing the whole screen (for phase changes or anything else): changes come from the world
+  itself, dynamically (things rising, bursting, moving with the music).
+- Locks and hard drops stay small and come from where the impact is (smoke or dust pushed out from under the
+  piece, at the contact), as one cohesive effect for the piece, never a scatter of small puffs per cell.
+- Nothing frequent may be big: an effect on every lock (a glow wave around the piece, a ring) quickly feels like
+  too much.
+- No preview of the falling piece's path beyond the ghost.
+- The stack must contrast clearly with what is behind it, in every variant (pale pieces on a pale sky do not
+  read).
+- Merging cells into one shape is fine when it is the universe's design (one brush stroke per piece in SUMI),
+  never by accident (different pieces of the same color fusing).
 
 **Typography.** One or two fonts that fit the world, under the SIL Open Font License, placed in
 `src/universes/<id>/embed/` with their license text next to the universe (`src/universes/<id>/OFL-*.txt`).
