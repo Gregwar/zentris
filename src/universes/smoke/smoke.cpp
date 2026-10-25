@@ -502,31 +502,24 @@ void SmokeUniverse::puff(vec2 p, vec2 v, float r, float grow, float life, float 
 void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
     case GameEvent::Lock: {
-        // One soft, flat layer of smoke pushed out from under the piece, spreading along the stack.
+        // The impact pushes smoke out from the contact under the piece: a thin layer that starts at the piece's
+        // base and spreads out sideways along the stack, rising a little as it thins (harder after a hard drop).
         if (ev.cells.empty()) break;
         float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f;
         for (auto& q : ev.cells) {
             const vec3 p = layout::cellPos((float)q.x, (float)q.y);
             x0 = std::min(x0, p.x); x1 = std::max(x1, p.x); y0 = std::min(y0, p.y);
         }
-        const float hw = 0.5f * (x1 - x0) + 0.6f;
-        puff(v2(0.5f * (x0 + x1), y0 - 0.4f), v2(0.f, 0.08f), hw, 0.9f, 1.4f, 0.26f, 0.f, 0.32f / hw);
+        const float hw = 0.5f * (x1 - x0) + 0.4f;
+        const float hard = lastDrop_ >= 2 ? 1.f : 0.f;
+        puff(v2(0.5f * (x0 + x1), y0 - 0.5f), v2(0.f, 0.22f), hw, 1.1f + 0.5f * hard, 1.1f, 0.4f + 0.15f * hard, 0.f, 0.18f / hw);
+        puffs_.back().minGlow = 0.45f; // caught in the stray light, even outside the beam
+        lastDrop_ = 0;
         break;
     }
-    case GameEvent::HardDrop: {
-        if (ev.count < 2) break;
-        // one long soft wake where the piece fell, drawn down after it
-        float x0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
-        for (auto& q : ev.cells) {
-            const vec3 p = layout::cellPos((float)q.x, (float)q.y);
-            x0 = std::min(x0, p.x); x1 = std::max(x1, p.x); y1 = std::max(y1, p.y);
-        }
-        const float len = (float)std::min(ev.count, 10);
-        const float hw = 0.5f * (x1 - x0) + 0.35f;
-        puff(v2(0.5f * (x0 + x1), y1 + 0.5f + 0.5f * len), v2(0.f, -0.5f), hw, 0.5f, 0.8f, 0.14f, 0.f,
-             (0.5f * len + 0.3f) / hw);
+    case GameEvent::HardDrop:
+        lastDrop_ = ev.count; // the lock that follows pushes more smoke
         break;
-    }
     case GameEvent::Clear: {
         const bool tetris = ev.count >= 4;
         // a blade of light runs along each row, then the blocks burn off into smoke curling up through the beam
@@ -696,11 +689,10 @@ void SmokeUniverse::buildBoard(const Game& g) {
             block(d.x, d.y, 1.f, cur_.piece[d.type], 1.f, 1.f, -1.f, true);
             continue;
         }
-        // caught full in the light, then gone into the dark
-        const float k = saturate(t / 0.4f);
-        const float s = 1.f + 0.12f * smoothstepf(0.f, 1.f, k);
-        const vec3 c = lerp(cur_.piece[d.type], cur_.light * 1.4f + vec3(0.3f), smoothstepf(0.f, 0.3f, k));
-        block(d.x, d.y, s, c, 1.f - smoothstepf(0.3f, 1.f, k), 1.f + 1.5f * smoothstepf(0.f, 0.3f, k), -1.f, false);
+        // the light goes off on the cleared blocks: they dim and sink into the dark, from the middle outward
+        const float k = saturate(t / 0.42f);
+        block(d.x, d.y - 0.25f * k * k, 1.f - 0.15f * k, cur_.piece[d.type], 1.f - smoothstepf(0.2f, 1.f, k),
+              lerpf(1.f, 0.05f, smoothstepf(0.f, 0.6f, k)), -1.f, false);
     }
     // The falling piece and its ghost.
     if (g.hasPiece()) {
@@ -770,7 +762,7 @@ void SmokeUniverse::buildFx() {
         const float k = (p.t - p.delay) / p.life;
         const float r = p.r * (1.f + p.grow * (1.f - (1.f - k) * (1.f - k)));
         const float lit = spotAt(vec3(p.p.x, p.p.y, 0.6f));
-        const float glow = p.kind == 1 ? std::max(lit, 0.55f) : lit;
+        const float glow = std::max(p.kind == 1 ? std::max(lit, 0.55f) : lit, p.minGlow);
         const vec3 c = cur_.light * cur_.smoke * (0.12f + 1.1f * glow) * gain + cur_.fill * 2.f;
         float a = p.alpha * smoothstepf(0.f, 0.1f, k) * (1.f - smoothstepf(0.3f, 1.f, k));
         if (p.kind == 1) a = p.alpha * smoothstepf(0.f, 0.08f, k) * (1.f - smoothstepf(0.45f, 1.f, k));

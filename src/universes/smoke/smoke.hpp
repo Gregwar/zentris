@@ -106,8 +106,9 @@ private:
     float iris_ = 0.f;             // extra cone opening (peak, Tetris)
 
     // ---- Effects.
-    struct Puff { vec2 p, v; float r, grow, t, life, alpha, seed, delay, stretch; int kind; };
+    struct Puff { vec2 p, v; float r, grow, t, life, alpha, seed, delay, stretch; int kind; float minGlow = 0.f; };
     std::vector<Puff> puffs_;
+    int lastDrop_ = 0; // rows of the last hard drop, until its lock
     struct Dying { float x, y, t, delay; int type; bool over; float seed; };
     std::vector<Dying> dying_;
     struct Mote { vec3 p; float phase, size; };
