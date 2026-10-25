@@ -11,8 +11,8 @@
 // Calm is a still landscape at its golden hour with a few living details; mid slides the near layer in, sways
 // the parallax and lets critters loose on the beat; peak brings the weather and the place's big event, and the
 // foreground. Locks squash for two frames and puff dust; cleared rows flash and burst into their pixels; a
-// Tetris fires a screen-wide pixel firework; the slow motion sweeps the night palette in from the well (stars,
-// a moon); a game over crumbles the stack pixel by pixel into a sand pile. Changing universe, the world
+// Tetris fires a screen-wide pixel firework; the slow motion dissolves the night palette in (ordered dither,
+// stars, a moon); a game over crumbles the stack pixel by pixel into a sand pile. Changing universe, the world
 // pixelates and dissolves (ordered dither) into the bridge while the stack turns to plain ink.
 #include "universes/pixel/pixel.hpp"
 
@@ -131,7 +131,7 @@ void PixelUniverse::setSong(const SongLook& look, float seconds) {
     seed_ = look.seed;
     rng_ = Rng(look.seed ^ 0x51CE1ull);
     if (seconds > 0.f && v != variant_) {
-        // A new place wipes in from the well, in ordered-dither steps.
+        // A new place dissolves in over the old one, in ordered-dither steps.
         prevVariant_ = variant_;
         prevPal_ = pal_;
         prevWorld_ = world_;
@@ -184,6 +184,25 @@ TransitionHints PixelUniverse::hints() const {
 
 // ================================================================== events
 
+// One puff of dust for the piece, pushed out from under it at the contact: from the two ends of its lowest row,
+// outward (not a puff per cell).
+void PixelUniverse::contactDust(const GameEvent& ev, int perSide, float strength) {
+    int maxY = -1;
+    for (auto& c : ev.cells) maxY = std::max(maxY, c.y);
+    if (maxY < Game::HIDDEN) return;
+    int minX = 99, maxX = -1;
+    for (auto& c : ev.cells)
+        if (c.y == maxY) { minX = std::min(minX, c.x); maxX = std::max(maxX, c.x); }
+    const float py = (float)(by0_ + (maxY - Game::HIDDEN + 1) * CELL - 1);
+    for (int side = 0; side < 2; side++) {
+        const float dir = side ? 1.f : -1.f;
+        const float px = (float)(bx0_ + (side ? (maxX + 1) * CELL - 1 : minX * CELL));
+        for (int k = 0; k < perSide; k++)
+            px_.push_back({px - dir * rng_.range(0.f, 3.f), py - rng_.range(0.f, 1.f), dir * rng_.range(10.f, 26.f) * strength,
+                           -rng_.range(4.f, 14.f) * strength, 0, rng_.range(0.22f, 0.4f), 30.f, VAR(variant_).textDim, PX_DUST});
+    }
+}
+
 void PixelUniverse::onEvent(const GameEvent& ev, const Game& g) {
     const Variant& V = VAR(variant_);
     switch (ev.type) {
@@ -193,18 +212,7 @@ void PixelUniverse::onEvent(const GameEvent& ev, const Game& g) {
         lock_.age = 0;
         lock_.type = ev.cells[0].type;
         for (int i = 0; i < 4; i++) { lock_.cells[i][0] = ev.cells[i].x; lock_.cells[i][1] = ev.cells[i].y; }
-        // dust from under the piece, where it rests on something
-        for (auto& c : ev.cells) {
-            bool below = false;
-            for (auto& o : ev.cells) below |= o.x == c.x && o.y == c.y + 1;
-            if (below || c.y < Game::HIDDEN) continue;
-            const float px = (float)(bx0_ + c.x * CELL), py = (float)(by0_ + (c.y - Game::HIDDEN + 1) * CELL - 1);
-            for (int k = 0; k < 2; k++) {
-                const float dir = k ? 1.f : -1.f;
-                px_.push_back({px + (k ? CELL - 1 : 0), py, dir * rng_.range(10.f, 24.f), -rng_.range(4.f, 14.f), 0,
-                               rng_.range(0.22f, 0.4f), 30.f, V.textDim, PX_DUST});
-            }
-        }
+        contactDust(ev, 2, 1.f);
         break;
     }
     case GameEvent::HardDrop: {
@@ -215,15 +223,7 @@ void PixelUniverse::onEvent(const GameEvent& ev, const Game& g) {
         t.rows = ev.count;
         t.age = 0;
         trails_.push_back(t);
-        int maxY = 0;
-        for (auto& c : ev.cells) maxY = std::max(maxY, c.y);
-        for (auto& c : ev.cells) {
-            if (c.y != maxY) continue;
-            const float py = (float)(by0_ + (c.y - Game::HIDDEN + 1) * CELL - 1);
-            for (int k = 0; k < 3; k++)
-                px_.push_back({(float)(bx0_ + c.x * CELL + rng_.irange(0, 7)), py, rng_.range(-30.f, 30.f),
-                               -rng_.range(10.f, 30.f), 0, rng_.range(0.25f, 0.45f), 60.f, V.textDim, PX_DUST});
-        }
+        contactDust(ev, 4, 1.6f);
         break;
     }
     case GameEvent::Clear: {
@@ -317,8 +317,7 @@ void PixelUniverse::simulate(const Game& g, const MusicState& m, float dt, float
     }
     flash_ = std::max(0.f, flash_ - dt * 5.f);
     kick_ = approach(kick_, 0.f, 4.f, dt);
-    const float maxR = std::sqrt((float)(W_ * W_ + H_ * H_));
-    nightR_ = bonus_ ? std::min(maxR, nightR_ + dt * maxR / 0.9f) : std::max(0.f, nightR_ - dt * maxR / 1.2f);
+    nightK_ = bonus_ ? std::min(1.f, nightK_ + dt / 0.9f) : std::max(0.f, nightK_ - dt / 1.2f);
     if (wipeT_ >= 0) {
         wipeT_ += dt / wipeDur_;
         if (wipeT_ >= 1.f) { wipeT_ = -1; prevVariant_ = -1; }
@@ -353,7 +352,7 @@ void PixelUniverse::simulate(const Game& g, const MusicState& m, float dt, float
                     if (((k + j) & 1) && rng_.chance(0.35f)) continue;
                     const float x = px0 + k, y = py0 + j;
                     const float out = (x - cx) * rng_.range(1.2f, 2.6f);
-                    px_.push_back({x, y, out + rng_.range(-22.f, 22.f), -rng_.range(25.f, 95.f), 0, rng_.range(0.5f, 1.1f), 170.f,
+                    px_.push_back({x, y, out + rng_.range(-22.f, 22.f), -rng_.range(25.f, 95.f), 0, rng_.range(0.3f, 0.55f), 170.f,
                                    col, PX_DEBRIS});
                 }
         }
@@ -455,20 +454,12 @@ void PixelUniverse::drawWell(const Game& g) {
             cv_.set(x, y, c, K_FRAME);
         }
     }
-    // The inside: dark, with dots at the cell corners and a faint guide under the falling piece.
-    int colMask = 0;
-    if (g.hasPiece()) {
-        int cells[4][2];
-        g.pieceCells(g.piece(), cells);
-        for (auto& c : cells) colMask |= 1 << std::clamp(c[0], 0, 9);
-    }
+    // The inside: dark, with dots at the cell corners.
     for (int y = y0; y < y1; y++)
         for (int x = x0; x < x1; x++) {
-            const int cx = (x - x0) / CELL;
             uint8_t c = V.well;
             const bool dot = ((x - x0) % CELL == 0) && ((y - y0) % CELL == 0) && x > x0 && y > y0;
             if (dot) c = V.wellDot;
-            else if ((colMask >> cx & 1) && dith(0.09f, x, y)) c = V.wellDot;
             cv_.set(x, y, c, K_WELL);
         }
     // The frame: posts (lit outside, shadow inside), a floor, caps with a lantern each.
@@ -576,7 +567,7 @@ void PixelUniverse::drawStack(const Game& g) {
         for (int i = 0; i < 4; i++) if (cs[i][0] == x && cs[i][1] == y) return true;
         return false;
     };
-    // Hard-drop trails: streaks above the landed piece for a few frames.
+    // Hard-drop trails: short streaks just above the landed piece for a few frames.
     for (const Trail& t : trails_) {
         int tc[4][2];
         std::memcpy(tc, t.cells, sizeof(tc));
@@ -584,7 +575,7 @@ void PixelUniverse::drawStack(const Game& g) {
         for (int i = 0; i < 4; i++) {
             if (has(tc, tc[i][0], tc[i][1] - 1)) continue;
             const int x = bx0_ + tc[i][0] * CELL, yTop = by0_ + (tc[i][1] - Game::HIDDEN) * CELL;
-            const int len = std::min(t.rows, 6) * CELL;
+            const int len = std::min(t.rows, 2) * CELL;
             for (int k = 1; k <= len; k++) {
                 const float cov = fade * (1.f - (float)k / len) * 0.8f;
                 for (int ii = 1; ii < CELL - 1; ii++)
@@ -964,8 +955,7 @@ void PixelUniverse::compose(const Frame& f) {
     // The world pixelates toward the bridge: blocks of 1, 2, 4, 8 pixels.
     const int blk = b < 0.2f ? 1 : b < 0.5f ? 2 : 4;
     const float lightning = world_.lightning();
-    const int gcx = bx0_ + 40, gcy = by0_ + 80;
-    const float nightStep = std::floor(nightR_ / 6.f) * 6.f;
+    const float nightStep = std::floor(nightK_ * 8.f) / 8.f; // eight ordered-dither steps
     const float dim = dimT_;
     const float fade = saturate(f.fade);
     for (int y = 0; y < H_; y++)
@@ -986,12 +976,8 @@ void PixelUniverse::compose(const Frame& f) {
             if (lightning > 0 && k == K_SKY && dith(lightning, x, y)) idx = P.lighter[P.lighter[idx]];
             if (dim > 0 && k != K_HUD && dith(dim, x, y)) idx = P.darker[idx];
             if (dim > 0.5f && k != K_HUD && k != K_STACK && k != K_GAP && dith((dim - 0.5f) * 2.f, x + 1, y)) idx = P.darker[idx];
-            // night: a front sweeping from the well, in 6-pixel steps
-            bool night = false;
-            if (nightStep > 0 && k != K_HUD && k != K_PANEL) {
-                const float d = std::sqrt((float)((x - gcx) * (x - gcx) + (y - gcy) * (y - gcy)));
-                night = d < nightStep - 4 || (d < nightStep && dith((nightStep - d) / 4.f, x, y));
-            }
+            // night: dissolving in over the whole place at once, in ordered-dither steps
+            const bool night = nightStep > 0 && k != K_HUD && k != K_PANEL && (nightStep >= 1.f || dith(nightStep, x, y));
             const uint8_t* rgb = night ? P.night[idx] : P.day[idx];
             uint8_t out[3] = {rgb[0], rgb[1], rgb[2]};
             if (night && k == K_SKY && hash01(x, y, 991) < 0.012f * (1.f - (float)y / std::max(1, hz_))) {
@@ -1046,7 +1032,7 @@ void PixelUniverse::render(const Frame& f, GLuint fbo) {
     ws.beat = m.beat;
     ws.beatPhase = m.beatPhase;
     ws.bounce = (peakP_ > 0.5f && m.hasSong && m.beatPhase < 0.16f) ? (beat % 4 == 0 ? 2 : 1) : 0;
-    ws.night = nightR_ > 1 ? 1.f : 0.f;
+    ws.night = nightK_ > 0.f ? 1.f : 0.f;
     ws.bass = m.audio.bass;
     ws.high = m.audio.high;
     if (!f.paused) {
@@ -1057,17 +1043,13 @@ void PixelUniverse::render(const Frame& f, GLuint fbo) {
     cv_.fill(0, K_SKY);
     world_.drawBack(cv_, ws);
     if (wipeT_ >= 0 && prevVariant_ >= 0) {
-        // The previous place, outside the wipe's front.
+        // The previous place, where the dissolve has not reached yet (ordered dither, eight steps).
         prevCv_.fill(0, K_SKY);
         prevWorld_.drawBack(prevCv_, ws);
-        const float R = wipeT_ * std::sqrt((float)(W_ * W_ + H_ * H_));
-        const float Rq = std::floor(R / 5.f) * 5.f;
-        const int gcx = bx0_ + 40, gcy = by0_ + 80;
+        const float q = std::floor(smoothstepf(0.f, 1.f, wipeT_) * 8.f) / 8.f;
         for (int y = 0; y < H_; y++)
             for (int x = 0; x < W_; x++) {
-                const float d = std::sqrt((float)((x - gcx) * (x - gcx) + (y - gcy) * (y - gcy)));
-                const bool fresh = d < Rq - 6 || (d < Rq && dith((Rq - d) / 6.f, x, y));
-                if (fresh) continue;
+                if (dith(q, x, y)) continue;
                 const size_t i = (size_t)y * W_ + x;
                 cv_.px[i] = prevCv_.px[i];
                 cv_.cls[i] = (uint8_t)(prevCv_.cls[i] | K_PREV_PAL);
