@@ -526,6 +526,16 @@ void main() {
         float streak = nz(vec2(wp.x * 0.4 + seed, wp.y * 12.0));
         dens *= mix(1.0, 0.08 + 0.35 * streak * streak, lifted);
     }
+    // inside one piece the cells stay countable: a faint lighter hairline where two strokes meet, a touch of
+    // pigment pooled along it
+    float dOpen = 9.0;
+    if (L) dOpen = min(dOpen, abs(q.x + 0.5));
+    if (Rr) dOpen = min(dOpen, abs(0.5 - q.x));
+    if (D) dOpen = min(dOpen, abs(q.y + 0.5));
+    if (U) dOpen = min(dOpen, abs(0.5 - q.y));
+    dOpen += (nz(nw * 9.0) - 0.5) * 0.02;
+    dens *= 1.0 - 0.38 * exp(-max(dOpen, 0.0) / 0.018) * (1.0 - 0.6 * wet);
+    dens += 0.16 * exp(-abs(dOpen - 0.05) / 0.03) * (1.0 - wet);
     float gf = clamp(1.0 + uGran * 2.0 * (0.52 - h), 0.0, 2.0);
     dens *= mix(1.0, gf, 1.0 - 0.6 * wet);
     // a mixed pigment separating a little in the wash
