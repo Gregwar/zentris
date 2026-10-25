@@ -51,6 +51,8 @@ strobing (one soft flash on the drop is fine).
 - Nothing frequent may be big: an effect on every lock (a glow wave around the piece, a ring) quickly feels like
   too much.
 - No preview of the falling piece's path beyond the ghost.
+- Changes of universe stay easy on the eyes and keep the stack readable from start to end: smooth fades, no
+  dither checkerboards, pixelation or scattered flickering cells over the screen.
 - The stack must contrast clearly with what is behind it, in every variant (pale pieces on a pale sky do not
   read).
 - Merging cells into one shape is fine when it is the universe's design (one brush stroke per piece in SUMI),
