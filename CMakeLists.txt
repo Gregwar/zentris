@@ -60,7 +60,34 @@ endif()
 
 # The renderer: the host (src/renderer.*), the transitions between universes, and every universe (one folder each
 # in src/universes/, picked up automatically; the list of universes is src/universes/registry.def).
+# Universes listed in ZENTRIS_DISABLED_UNIVERSES are not built at all: their sources and assets are skipped and their
+# line is dropped from the registry the game is compiled with (generated/universes/registry_enabled.def).
+set(ZENTRIS_DISABLED_UNIVERSES "pixel;cloudscape;synthwave" CACHE STRING
+    "Universes (folder names in src/universes/) left out of the build, separated by ;")
 file(GLOB ZEN_UNIVERSE_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/universes/*/*.cpp)
+foreach(id ${ZENTRIS_DISABLED_UNIVERSES})
+  list(FILTER ZEN_UNIVERSE_SOURCES EXCLUDE REGEX "/src/universes/${id}/")
+endforeach()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/universes/registry.def)
+file(STRINGS ${CMAKE_SOURCE_DIR}/src/universes/registry.def ZEN_REGISTRY)
+set(ZEN_REGISTRY_OUT "// Generated from src/universes/registry.def without the disabled universes.\n")
+foreach(line IN LISTS ZEN_REGISTRY)
+  set(keep TRUE)
+  foreach(id ${ZENTRIS_DISABLED_UNIVERSES})
+    if(line MATCHES "^UNIVERSE\\(${id},")
+      set(keep FALSE)
+    endif()
+  endforeach()
+  if(keep AND line MATCHES "^UNIVERSE\\(")
+    string(APPEND ZEN_REGISTRY_OUT "${line}\n")
+  endif()
+endforeach()
+file(WRITE ${CMAKE_BINARY_DIR}/generated/universes/registry_enabled.def.tmp "${ZEN_REGISTRY_OUT}")
+configure_file(${CMAKE_BINARY_DIR}/generated/universes/registry_enabled.def.tmp
+               ${CMAKE_BINARY_DIR}/generated/universes/registry_enabled.def COPYONLY)
+if(ZENTRIS_DISABLED_UNIVERSES)
+  message(STATUS "Universes left out of the build: ${ZENTRIS_DISABLED_UNIVERSES}")
+endif()
 add_library(zenrender STATIC
   src/renderer.cpp
   src/transitions.cpp
@@ -75,6 +102,9 @@ target_include_directories(zenrender PUBLIC src)
 # Universe assets: every file in src/universes/<id>/embed/ is compiled in as a byte array, included with
 # `#include "universes/<id>/<file name>.inc"` (e.g. a font: `const unsigned char TTF[] = {\n#include "..."\n};`).
 file(GLOB ZEN_UNIVERSE_EMBEDS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/universes/*/embed/*)
+foreach(id ${ZENTRIS_DISABLED_UNIVERSES})
+  list(FILTER ZEN_UNIVERSE_EMBEDS EXCLUDE REGEX "/src/universes/${id}/")
+endforeach()
 foreach(f ${ZEN_UNIVERSE_EMBEDS})
   get_filename_component(dir ${f} DIRECTORY)
   get_filename_component(dir ${dir} DIRECTORY)

@@ -22,21 +22,24 @@ song, and songs change universe with a transition on the beat.
 </tr>
 <tr>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/diorama.jpg"><br><b>DIORAMA</b>: a sunlit clay island</td>
-<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/pixel.jpg"><br><b>PIXEL</b>: 16-color pixel art landscapes</td>
-</tr>
-<tr>
-<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/synthwave.jpg"><br><b>SYNTHWAVE</b>: a cinematic night drive</td>
-<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/cloudscape.jpg"><br><b>CLOUDSCAPE</b>: above an endless sea of clouds</td>
-</tr>
-<tr>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/abyss.jpg"><br><b>ABYSS</b>: the deep sea, lit by living things</td>
-<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/smoke.jpg"><br><b>SMOKE</b>: a dark stage, slow smoke and one hard spotlight</td>
 </tr>
 <tr>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/smoke.jpg"><br><b>SMOKE</b>: a dark stage, slow smoke and one hard spotlight</td>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/watercolor.jpg"><br><b>WATERCOLOR</b>: transparent washes on cold-press paper</td>
+</tr>
+<tr>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/polar.jpg"><br><b>POLAR NIGHT</b>: a snowfield under the aurora</td>
 </tr>
 </table>
+
+Disabled for now (not built; their code stays in the repository):
+
+| Universe | Status |
+|---|---|
+| PIXEL | Too close to a classical Tetris look |
+| SYNTHWAVE | To be redesigned (minimal neon) |
+| CLOUDSCAPE | To be reworked (nights only) |
 
 More in [docs/universes.md](https://github.com/Gregwar/zentris/blob/main/docs/universes.md): every universe and its variants, the transitions, and the
 roadmap of 100 universes. To make a new one, see [docs/adding-a-universe.md](https://github.com/Gregwar/zentris/blob/main/docs/adding-a-universe.md).
@@ -95,3 +98,6 @@ sudo apt install cmake g++ libglfw3-dev libglew-dev    # Debian/Ubuntu
 cmake -S . -B build && cmake --build build -j
 ./build/zentris ~/Music
 ```
+
+`-DZENTRIS_DISABLED_UNIVERSES="pixel;cloudscape;synthwave"` (the default) lists the universes left out of the build;
+`-DZENTRIS_DISABLED_UNIVERSES=""` builds them all.
