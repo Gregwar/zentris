@@ -32,6 +32,10 @@ song, and songs change universe with a transition on the beat.
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/abyss.jpg"><br><b>ABYSS</b>: the deep sea, lit by living things</td>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/smoke.jpg"><br><b>SMOKE</b>: a dark stage, slow smoke and one hard spotlight</td>
 </tr>
+<tr>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/watercolor.jpg"><br><b>WATERCOLOR</b>: transparent washes on cold-press paper</td>
+<td></td>
+</tr>
 </table>
 
 More in [docs/universes.md](https://github.com/Gregwar/zentris/blob/main/docs/universes.md): every universe and its variants, the transitions, and the
