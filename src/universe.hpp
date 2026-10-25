@@ -8,7 +8,7 @@
 // at the same pixels whatever the universe, so a change of universe keeps the stack in place and only changes
 // its material and its world.
 //
-// Adding a universe: see README.md, "Adding a universe" (a folder in src/universes/ and one line in
+// Adding a universe: see docs/adding-a-universe.md (a folder in src/universes/ and one line in
 // src/universes/registry.def).
 #include <array>
 #include <memory>

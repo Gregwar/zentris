@@ -1,0 +1,105 @@
+# Reference
+
+Everything beyond the [README](../README.md): command-line options, tools, how the game reads the music.
+
+## Command-line options
+
+YouTube playlists (or single videos) work too, through [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+(install it with `pipx install "yt-dlp[default]"`; YouTube also needs a JavaScript runtime such as Deno or
+Node.js, and Node.js is picked up automatically). Songs are downloaded when queued and cached as MP3 in
+`~/.cache/zentris/youtube/`. Downloading from YouTube is against its terms of service: personal use only.
+
+```sh
+./build/zentris "https://www.youtube.com/playlist?list=PLWHPu2N_Gb2lbZ8-7sYKSEbDlb3UiAVye"   # quote it: & is special in the shell
+./build/zenscope "https://www.youtube.com/watch?v=..."
+```
+
+Options: `--in-order` (play songs in order: folders alphabetically, playlists in their order; the default is a random order), `--seed N` (repeat a run), `--universe NAME[:VARIANT]` (play every song in that universe, e.g. `--universe vector`
+or `--universe "vector:p3 amber"`, as the bottom-left corner names it; the terminal prints the command that shows
+the same universe again), `--universe-on-peak` (a long song may also change universe when it rises into a peak),
+`--autoplay`, `--mute`, `--size WxH`,
+`--shots PREFIX N` (renders N screenshots of different universes and exits), `--phase-shots PREFIX` (one screenshot per scene level of a song),
+`--transition-shots PREFIX N` (at `--shot-time` in the song, with a filled board, changes from `--universe` to `--to NAME`
+with `--transition NAME`, saves N frames across the change and exits),
+`--clip OUT.mp4` (records a video with sound, via ffmpeg, from 4 s before the first drop of the song to 6 s after it,
+with the game played at a calm pace; `--clip-before` / `--clip-after SEC` change the span).
+
+`tools/scenereview.py` reviews universes: `generate` renders 100 random snapshots (each for a downloaded song, at a
+calm, mid or peak part of it, with a filled board; `zentris --review-shot OUT.png` makes one), and `serve [--lan]`
+opens a dashboard, on a computer or a phone, to skip scenes or comment on them. Comments become threads that
+`pending` / `watch` hand to whoever processes them, and `reply` answers one with before/after snapshots to accept
+or discuss further.
+
+`tools/promo.py [OUT.mp4]` makes a promo video: 5 random songs of the default playlist, each recorded around its
+first drop in its universe, stitched with crossfades (`--songs N`, `--before`, `--after`, `--fade`, `--size`).
+
+## zenscope: see what the game hears
+
+`./build/zenscope [songs or folders...]` (the default playlist when no song is given) plays a song and shows the analysis that drives the game:
+- a phase timebar with the scene levels (calm / mid / peak) and where the scene changes happen
+- the detected structure: intro, verse, build, chorus, drop, break, outro, with similar parts grouped
+- pulse zones, a 16-band spectrum, loudness, intensity and onsets, and bar lines
+- a live readout of the current section and the game's density/speed/glow profile, with the beat in the bar
+- a zoomed detail view with the beat grid
+- four beat-aligned samples cut from the song (an experiment for line clears, not used by the game yet):
+  HIT (one clean transient, 1 beat), LOW (a bass-led half bar), TONE (a sustained, steady half bar) and
+  HOOK (the first bar of the most repeated chorus/drop)
+
+Space plays/pauses, Left/Right seek 5 s, Up/Down zoom the detail view, N/P change song, click to seek,
+1–4 or a click on a sample button plays that sample (over the song, or alone when paused).
+The SPEED buttons (top right) slow the song down to ×0.9 or ×0.5, tape-style (the pitch drops too);
+click the active one again to go back to normal speed.
+
+**Notes:** press A to write a note at the playhead (e.g. "the drop should start earlier here"); Enter saves it,
+Esc cancels (the song pauses while you type). Notes go to `annotations.jsonl` in the user data folder
+(`~/.local/share/zentris/` on Linux; `--notes FILE` to change it), one JSON object per line with the song, the time,
+the text and what the analysis said there (the phase and section, and the whole scene plan and structure).
+They show as cyan flags on the timeline, with their text in the detail view.
+`--song ID|TITLE` starts at a song of the playlist (a YouTube id or part of its title), `--at SEC` at a time, and
+`ytdl:<video id>` plays a single YouTube song, and `--shuffle` plays the songs in a random order. Playlist listings are cached (and refreshed in the background for the
+next run) and songs stay downloaded in the cache, so reopening an annotated song is instant and works offline.
+
+The game and zenscope share the same analysis and song plan code (`src/songplan.*`), so what you see is what the game uses.
+
+## zenscene: look at universes and transitions
+
+`./build/zenscene [UNIVERSE[:VARIANT]]` shows a universe while the computer plays (`--list` prints the universes
+and their variants). The menu on the left picks the universe, its variant, the song phase (section and level:
+calm, mid, peak) and the transition used for the next change of universe (AUTO picks one as the game does). Up/Down
+choose a row, Left/Right (or a click / the mouse wheel) change it: a new universe or variant comes in with that
+transition, on the next downbeat of the viewer's steady 120 BPM beat. T / V go to the next universe / variant, I
+switches at once, F fills the board, B starts the slow motion, X plays a Tetris, L a level up. "Send to dashboard"
+(or D) asks for a comment and opens a thread on the universe shown in the scene review dashboard
+(`tools/scenereview.py`, "to process"), with a snapshot at the section and level shown.
+
+## Slow motion and Tetris rewards
+
+Each cleared line charges one step of the bonus gauge, a ring below the next pieces (12 steps to fill it; a
+Tetris charges 5). Once it's full, the slow-motion button starts the bonus: for 10 s the gauge drains, the
+game slows down to ×0.25 (pieces fall four times slower) while the song keeps playing normally: only a very
+slight tape-like slow-down (and back) marks the start and the end. Use it to clean up the stack in a part that's too fast. Gravity gets
+back on the beat when the bonus ends. Meanwhile the universe shows the slow motion its own way (VECTOR sweeps in
+the complementary phosphor with long trails).
+
+A Tetris scores a 400-point bonus (800 back-to-back) and the universe celebrates it (VECTOR: a vector shockwave
+and beam overdrive).
+
+## How the music shapes the game
+
+Each song is decoded and analyzed in the background (under 1 s):
+
+- **Tempo and song sections**: gravity follows the beat, at a pace set by the current section, in rows per beat: break ×0.4, intro ×0.5, outro ×0.5, verse ×0.8, build ×1, chorus ×1.2, drop ×1.3 (at most ×1 in a song's first 20 s).
+- **Levels**: one level per 20 lines, up to a plateau at level 20. Each level speeds up the beat-locked gravity (×10 at the plateau, capped at 28 rows/s) and shortens the lock delay (0.55 s → 0.35 s). Game over resets the level.
+- **Key**: the song's hue follows the circle of fifths; universes may pick their variant from it (VECTOR's phosphor).
+- **Tempo, brightness, bass/air balance, dynamics, density**: weigh which universe suits the song.
+- **Song structure**: the song is split at bar lines into labelled segments (intro, verse, build, chorus, drop, break, outro), and segments that sound alike are grouped. A section that gets louder starts where it lands, on the first beat where its bass and loudness are back (after the gap, bass cut or riser before a drop), and a drop is the song's most intense material entered by a rise. Each segment eases the scene's density, speed, glow and saturation (builds ramp up, breaks thin out).
+- **One universe per song**: at most three intensity levels (calm, mid, peak) are staged by the universe itself (VECTOR: a lone oscilloscope trace, a scrolling vector grid, spectrum mountains). Rising changes are quick and anticipated so they land on the boundary, falling ones slow and soft; a new section inside the same level gets a light refresh.
+- **Calm by design**: visuals follow slow (~1 s) envelopes of the music and there is no camera shake or flashing. Beat pulses appear only during peak sections (choruses, drops), stronger for faster songs; songs above ~110 BPM also get soft hits on strong transients there.
+- **Live bands and loudness**, heavily smoothed, drive particle motion and glow.
+
+## Releasing
+
+`.github/workflows/wheels.yml` builds wheels for Linux (x86_64, aarch64), macOS (x86_64, arm64) and
+Windows (x86_64) plus a source distribution on every push, and publishes them to PyPI when a `v*` tag is
+pushed (`git tag v0.1.0 && git push --tags`). Publishing uses PyPI trusted publishing: on pypi.org, add a
+publisher for project `zentris`, repository `Gregwar/zentris`, workflow `wheels.yml`, environment `pypi`.

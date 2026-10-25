@@ -1,0 +1,97 @@
+# Adding a universe
+
+A universe is one complete art direction: a world, a palette, materials, a HUD typography and its own way of
+staging the music. This guide covers how to design one, how to plug it in, and how to test it. The list of ideas
+waiting to be built is the [roadmap](universes.md#roadmap).
+
+## Design
+
+**One world, not a set of options.** Everything on screen belongs to the same place, lit by the same light and
+made of the same materials: the background, the well, the pieces, the particles and the HUD text. The song changes
+the intensity inside that world (calm, mid, peak), never the world itself. Avoid random combinations of effects.
+
+**Restraint.** Fewer elements, done well. A busy, over-textured background competes with the stack: the player must
+read the pieces at a glance at any level. Keep the world quiet behind the well and let the music bring it to life.
+Aim for a look that could be a screenshot from an indie game, not a demo of shader effects.
+
+**The pieces.** They are the main material of the universe (brushed ink, phosphor lines, clay, frosted glass,
+jelly...). The seven piece types must stay easy to tell apart, by color, value or pattern, in every variant.
+
+**Variants.** Ship about 6 to 8 curated variants: hand-designed sets of background, light, accent **and their own
+7 piece colors** (two variants with the same pieces look like the same universe). Pick one per song from the
+`SongLook` (key, mode, brightness, dynamics...), never with random hue math.
+
+**Staging the music.** Plan each moment, quietly at first:
+
+| Moment | What to plan |
+|---|---|
+| Calm | A still, sparse version of the world: little motion, slow envelopes |
+| Mid | The world starts moving with the tempo, events on beats and bars |
+| Peak | The big picture of the universe; beat pulses and kick hits only here |
+| Lock, hard drop | A small, local reaction |
+| Line clear | How the row leaves, in the world's own material |
+| Tetris | One memorable celebration |
+| Slow motion (bonus) | A clearly different mood of the same world (night, negative, time stretch...) |
+| Game over | How the stack ends, in the world's terms |
+| Exit and entrance | How the world fades to the neutral bridge state (fog, water, clouds closing in...) |
+
+No camera shake and no flashing: visuals follow slow (~1 s) envelopes of the music.
+
+**Typography.** One or two fonts that fit the world, under the SIL Open Font License, placed in
+`src/universes/<id>/embed/` with their license text next to the universe (`src/universes/<id>/OFL-*.txt`).
+
+## Implementation
+
+1. Make a folder `src/universes/<id>/` (CMake picks up every `.cpp` in it) with a class deriving from `Universe`
+   (`src/universe.hpp`), and a function `const UniverseEntry& universe_<id>()` returning its registry entry:
+   its name (upper case), a one-line blurb, a factory, an affinity function (how well it suits a song, from the
+   `SongLook`: tempo, brightness, bass/air, dynamics, density; ~1 neutral, 0 never) and its variants.
+2. Add one line to `src/universes/registry.def`: `UNIVERSE(<id>)`. Nothing else in the host changes.
+3. Implement the interface. The universe owns all its GL resources (created in `init`, freed in its destructor)
+   and draws the whole frame into the framebuffer `render` is given (not necessarily the window: during a
+   transition it is a texture): world, well, stack, piece, ghost, previews, bonus gauge, effects, and the HUD text
+   (`Frame::hud`, `Frame::panels`) in its own typography (`ugl::hudLeft` resolves the alignment; each line's
+   `HudRole` says what it is, so a universe can space, weigh or extend each kind its own way: SUMI adds the
+   level's name after its own, DIORAMA puts the lines on painted cards).
+   - Assets: every file in `src/universes/<id>/embed/` is compiled in as a byte array, to include as
+     `"universes/<id>/<file>.inc"`.
+   - `setSong` picks the variant (`look.variant >= 0` forces it; avoid `look.avoidVariant`, the one on screen
+     when the universe follows itself); `setLevel` stages calm / mid / peak with its own in-universe change.
+   - `refresh`, `onEvent` (locks, hard drops, clears, Tetris, top out), `setBonus` (slow motion), `levelUp` and
+     `Frame::music` (beat phase, beat grid, kick, bands) make it react. `Frame::dim` / `paused` / `fade` dim it.
+4. **Layout contract** (`src/layout.hpp`): the well's cells lie on the plane z = 0 of board space (one unit per
+   cell, x in [-5, 5], y in [-10, 10]); draw them through `layout::camera()` (or a camera mapping that plane to the
+   same pixels; a slight breathing is fine, report it through `project()`), with the previews, the gauge and the
+   HUD columns at the `layout::` anchors. This is what lets transitions keep the stack in place. A universe with a
+   camera of its own (DIORAMA's elevated long lens) glides to the layout's front view while a change runs (from
+   `setBridge`) and reports its camera through `project()`, so the HUD follows it.
+5. **Transition contract**: there is no code per pair of universes, so any universe pairs with any other.
+   - `hints()`: the active variant's background, ink and accent colors, light or dark, and the transition styles
+     it likes (`TS_*`). The host's transitions only use this.
+   - Optionally, a native exit and entrance: return true from `bridgeable()` and honor `setBridge(Bridge)`, called
+     every frame of a change before `render` (amount 0 = itself .. 1 = the bridge): fade the world out toward
+     `bridge.color`, keep the camera on the layout, draw the stack plainly in `bridge.ink`. Universes that don't do
+     it get it from the host (the stack drawn plainly from the game's cells over their own frame).
+6. **Portability**: the Windows build uses MSVC, which rejects `[]` lambdas that use local constants: capture
+   explicitly (`[&]`). No VLAs or GCC extensions. Keep expensive passes (ray marching, simulations) at a reduced
+   resolution.
+7. Document it: a section in [universes.md](universes.md) with a screenshot in `docs/universes/<id>.jpg`, a short
+   line in the README gallery, and ✅ on its roadmap row.
+
+## Testing
+
+Always test **off screen** (never on your display) and at a low resolution unless the look's details are being
+judged (full 1920x1080 only for final checks):
+
+```sh
+xvfb-run -a -s "-screen 0 1280x720x24" ./build/zenscene --size 960x540 --shot out.png --section drop <id>
+xvfb-run -a -s "-screen 0 1280x720x24" ./build/zentris --size 960x540 --universe <id> --review-level 2 --review-shot out.png song.mp3
+xvfb-run -a -s "-screen 0 1280x720x24" ./build/zentris --size 640x360 --universe <id> --phase-shots out_ song.mp3
+xvfb-run -a -s "-screen 0 1280x720x24" ./build/zentris --size 640x360 --universe vector --to <id> --transition ink --transition-shots tr_ 6 song.mp3
+tools/universesheet.sh <id> sheet.png 2      # every variant in one contact sheet (level 0, 1 or 2)
+```
+
+- Review every variant side by side (`tools/universesheet.sh`) at calm, mid and peak.
+- Check a few transitions with a dark and a light universe, both ways (`--universe A --to B` and back).
+- `ZEN_TEST_OVER=9` before a shot command hard-drops every piece from 9 s into the shot's settle (the shot then
+  shows the game over).
