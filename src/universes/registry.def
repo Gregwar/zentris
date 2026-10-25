@@ -2,4 +2,5 @@
 // `const UniverseEntry& universe_<id>()` (see registry.hpp). The order is the order T / Y cycles through.
 UNIVERSE(vector)
 UNIVERSE(sumi)
+UNIVERSE(diorama)
 UNIVERSE(debug)

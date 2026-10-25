@@ -414,7 +414,7 @@ std::vector<HudText> App::buildHud(float dt) {
         hud.push_back({info, 28 * s, 50 * s, 1.5f * s, a * 0.7f, true, false, HUD_INFO});
     } else {
         hud.push_back({lib_.empty() ? "NO SONGS FOUND" : "LOADING THE FIRST SONG...", w * 0.5f, h * 0.5f - 60 * s,
-                       3.f * s, 0.8f, false, true});
+                       3.f * s, 0.8f, false, true, HUD_DIALOG});
     }
     sceneNameTimer_ = std::max(0.f, sceneNameTimer_ - dt);
     if (track_ && !track_->analysis.segments.empty()) {
@@ -443,18 +443,18 @@ std::vector<HudText> App::buildHud(float dt) {
     }
     if (game_.combo() > 0) {
         vec2 c = R_.project(vec3(8.6f, -4.5f, 0));
-        hud.push_back({"COMBO " + std::to_string(game_.combo()), c.x, c.y, 2.f * s, 0.8f, true, true});
+        hud.push_back({"COMBO " + std::to_string(game_.combo()), c.x, c.y, 2.f * s, 0.8f, true, true, HUD_NOTICE});
     }
 
     // Persistent, discreet skip hint (top right) and feedback when skipping.
     if (lib_.size() > 1) {
         const char* key = input_.active() == Input::Gamepad ? "BACK  NEXT SONG" : "N  NEXT SONG";
-        hud.push_back({key, -28 * s, 24 * s, 1.4f * s, 0.3f});
+        hud.push_back({key, -28 * s, 24 * s, 1.4f * s, 0.3f, false, false, HUD_HINT});
     }
     skipToast_ = std::max(0.f, skipToast_ - dt);
     if (wantSkip_ || skipToast_ > 0)
         hud.push_back({wantSkip_ ? "NEXT SONG LOADING: " + asciiFold(lib_.loadingTitle()) : "NOW: " + (track_ ? asciiFold(track_->title) : std::string()), -28 * s, 44 * s, 1.4f * s,
-                       wantSkip_ ? 0.8f : std::min(0.8f, skipToast_), true});
+                       wantSkip_ ? 0.8f : std::min(0.8f, skipToast_), true, false, HUD_HINT});
 
     // Seek feedback: song time and the section the song is in.
     seekToast_ = std::max(0.f, seekToast_ - dt);
@@ -464,13 +464,13 @@ std::vector<HudText> App::buildHud(float dt) {
         char buf[96];
         std::snprintf(buf, sizeof(buf), "%d:%02d  %s", sec / 60, sec % 60,
                       an.segments.empty() ? "" : segmentName(an.segments[an.segmentAt(songTime_)].kind));
-        hud.push_back({buf, w * 0.5f, 24 * s, 2.f * s, std::min(1.f, seekToast_ * 2.f), true, true});
+        hud.push_back({buf, w * 0.5f, 24 * s, 2.f * s, std::min(1.f, seekToast_ * 2.f), true, true, HUD_NOTICE});
     }
 
     failedToast_ = std::max(0.f, failedToast_ - dt);
     if (failedToast_ > 0)
         hud.push_back({"COULD NOT LOAD " + asciiFold(failedTitle_) + ", TRYING ANOTHER SONG", -28 * s, 64 * s, 1.3f * s,
-                       std::min(1.f, failedToast_), true});
+                       std::min(1.f, failedToast_), true, false, HUD_HINT});
 
     // Bonus gauge (a ring below the "next" previews): the key to press in its center once it's full.
     {
@@ -479,7 +479,7 @@ std::vector<HudText> App::buildHud(float dt) {
         const bool pad = input_.active() == Input::Gamepad;
         if (game_.bonusReady()) {
             float br = 0.55f + 0.3f * (0.5f + 0.5f * std::sin(runTime_ * TAU * 0.4f));
-            hud.push_back({pad ? "ZL ZR" : "V", g.x, g.y - 7 * s, (pad ? 1.3f : 1.8f) * s, br, true, true});
+            hud.push_back({pad ? "ZL ZR" : "V", g.x, g.y - 7 * s, (pad ? 1.3f : 1.8f) * s, br, true, true, HUD_KEY});
         }
         hud.push_back({game_.bonusActive() || game_.bonusReady() ? "SLOW" : "BONUS", lbl.x, lbl.y, 1.4f * s,
                        game_.bonusActive() ? 0.7f : game_.bonusReady() ? 0.62f : 0.5f, game_.bonusActive(), true, HUD_LABEL});
@@ -488,7 +488,7 @@ std::vector<HudText> App::buildHud(float dt) {
     if (slowToast_ > 0) {
         vec2 c = R_.project(vec3(0, 8.5f, 0));
         float a = std::min(1.f, slowToast_) * std::min(1.f, (2.f - slowToast_) * 4.f);
-        hud.push_back({"SLOW MOTION", c.x, c.y, 3.f * s, 0.75f * a, true, true});
+        hud.push_back({"SLOW MOTION", c.x, c.y, 3.f * s, 0.75f * a, true, true, HUD_TOAST});
     }
     tetrisToast_ = std::max(0.f, tetrisToast_ - dt);
     if (tetrisToast_ > 0) {
@@ -496,21 +496,21 @@ std::vector<HudText> App::buildHud(float dt) {
         float a = std::min(1.f, tetrisToast_ * 1.5f) * std::min(1.f, (2.4f - tetrisToast_) * 5.f);
         float grow = 1.f + 0.08f * smoothstepf(2.4f, 1.6f, tetrisToast_);
         hud.push_back({tetrisB2B_ ? "BACK TO BACK TETRIS" : "TETRIS", c.x, c.y, (tetrisB2B_ ? 3.4f : 4.2f) * grow * s, 0.9f * a,
-                       true, true});
-        hud.push_back({"+" + std::to_string(tetrisPoints_), c.x, c.y + 44 * s, 2.2f * s, 0.75f * a, false, true});
+                       true, true, HUD_TOAST});
+        hud.push_back({"+" + std::to_string(tetrisPoints_), c.x, c.y + 44 * s, 2.2f * s, 0.75f * a, false, true, HUD_TOAST_SUB});
     }
 
     levelToast_ = std::max(0.f, levelToast_ - dt);
     if (levelToast_ > 0) {
         vec2 c = R_.project(vec3(0, 2.f, 0));
         float a = std::min(1.f, levelToast_) * std::min(1.f, (2.5f - levelToast_) * 4.f);
-        hud.push_back({"LEVEL " + std::to_string(game_.level()), c.x, c.y, 3.2f * s, 0.8f * a, true, true});
+        hud.push_back({"LEVEL " + std::to_string(game_.level()), c.x, c.y, 3.2f * s, 0.8f * a, true, true, HUD_TOAST});
     }
 
         // Input device toast.
     if (input_.deviceChangedTimer() > 0 && opt_.shotPrefix.empty() && opt_.clipPath.empty()) { // not in offline renders
         std::string d = input_.active() == Input::Gamepad ? "GAMEPAD  " + upper(input_.gamepadName()) : "KEYBOARD";
-        hud.push_back({d, -28 * s, 70.f * s, 1.5f * s, std::min(1.f, input_.deviceChangedTimer()), true});
+        hud.push_back({d, -28 * s, 70.f * s, 1.5f * s, std::min(1.f, input_.deviceChangedTimer()), true, false, HUD_HINT});
     }
 
     helpTimer_ = std::max(0.f, helpTimer_ - dt);
@@ -526,23 +526,23 @@ std::vector<HudText> App::buildHud(float dt) {
                      "NEXT SONG  N", "SEEK  CTRL+SHIFT+ARROWS", "FULLSCREEN  F", "PAUSE  ESC"};
         const float lineH = 20.f * s, bottom = h - 40.f * s;
         for (size_t i = 0; i < lines.size(); i++)
-            hud.push_back({lines[i], -28 * s, bottom - (lines.size() - 1 - i) * lineH, 1.3f * s, helpA});
+            hud.push_back({lines[i], -28 * s, bottom - (lines.size() - 1 - i) * lineH, 1.3f * s, helpA, false, false, HUD_HELP});
     }
     if (game_.over() && overTime_ > 1.0f) {
         float a = std::min(1.f, (overTime_ - 1.0f) / 1.2f);
-        hud.push_back({"GAME OVER", w * 0.5f, h * 0.5f - 70 * s, 5.f * s, 0.95f * a, true, true});
-        hud.push_back({"SCORE  " + std::to_string(game_.lastScore()), w * 0.5f, h * 0.5f + 0 * s, 2.f * s, 0.85f * a, false, true});
-        hud.push_back({"BEST  " + std::to_string(game_.best()), w * 0.5f, h * 0.5f + 30 * s, 1.6f * s, 0.6f * a, false, true});
+        hud.push_back({"GAME OVER", w * 0.5f, h * 0.5f - 70 * s, 5.f * s, 0.95f * a, true, true, HUD_DIALOG});
+        hud.push_back({"SCORE  " + std::to_string(game_.lastScore()), w * 0.5f, h * 0.5f + 0 * s, 2.f * s, 0.85f * a, false, true, HUD_DIALOG});
+        hud.push_back({"BEST  " + std::to_string(game_.best()), w * 0.5f, h * 0.5f + 30 * s, 1.6f * s, 0.6f * a, false, true, HUD_DIALOG});
         if (overTime_ > 2.5f) {
             float b = std::min(1.f, (overTime_ - 2.5f) / 0.8f);
             hud.push_back({input_.active() == Input::Gamepad ? "PRESS A BUTTON TO PLAY AGAIN" : "PRESS A KEY TO PLAY AGAIN",
-                           w * 0.5f, h * 0.5f + 70 * s, 1.8f * s, 0.75f * b, false, true});
+                           w * 0.5f, h * 0.5f + 70 * s, 1.8f * s, 0.75f * b, false, true, HUD_DIALOG});
         }
     }
     if (paused_) {
-        hud.push_back({"PAUSED", w * 0.5f, h * 0.5f - 40 * s, 5.f * s, 0.95f, true, true});
+        hud.push_back({"PAUSED", w * 0.5f, h * 0.5f - 40 * s, 5.f * s, 0.95f, true, true, HUD_DIALOG});
         hud.push_back({input_.active() == Input::Gamepad ? "START TO RESUME" : "ESC TO RESUME    Q TO QUIT",
-                       w * 0.5f, h * 0.5f + 20 * s, 1.8f * s, 0.7f, false, true});
+                       w * 0.5f, h * 0.5f + 20 * s, 1.8f * s, 0.7f, false, true, HUD_DIALOG});
     }
     return hud;
 }
@@ -706,7 +706,12 @@ int App::run() {
         if (!paused_ && !waiting) {
             trackAge_ += dt;
             if (opt_.autoplay || shotMode) {
-                if (!reviewFilled_) autoplay(dt); // a review's filled board is left as it is
+                // Test hook: ZEN_TEST_OVER=T hard-drops every piece from T seconds into a shot's settle (a game
+                // over in screenshots, to check each universe's top out).
+                static const float overAt = std::getenv("ZEN_TEST_OVER") ? (float)std::atof(std::getenv("ZEN_TEST_OVER")) : -1.f;
+                if (shotMode && overAt >= 0.f && shotSettle >= overAt && !game_.over()) {
+                    if (game_.hasPiece()) game_.hardDrop();
+                } else if (!reviewFilled_) autoplay(dt); // a review's filled board is left as it is
             } else {
                 for (int i = 0; i < input_.repeatSteps(A_LEFT); i++) game_.move(-1);
                 for (int i = 0; i < input_.repeatSteps(A_RIGHT); i++) game_.move(1);

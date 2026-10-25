@@ -72,6 +72,23 @@ add_library(zenrender STATIC
 target_link_libraries(zenrender PUBLIC zencore glad)
 target_include_directories(zenrender PUBLIC src)
 
+# Universe assets: every file in src/universes/<id>/embed/ is compiled in as a byte array, included with
+# `#include "universes/<id>/<file name>.inc"` (e.g. a font: `const unsigned char TTF[] = {\n#include "..."\n};`).
+file(GLOB ZEN_UNIVERSE_EMBEDS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/universes/*/embed/*)
+foreach(f ${ZEN_UNIVERSE_EMBEDS})
+  get_filename_component(dir ${f} DIRECTORY)
+  get_filename_component(dir ${dir} DIRECTORY)
+  get_filename_component(id ${dir} NAME)
+  get_filename_component(name ${f} NAME)
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${f})
+  file(READ ${f} hex HEX)
+  string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," arr "${hex}")
+  file(WRITE ${CMAKE_BINARY_DIR}/generated/universes/${id}/${name}.inc.tmp "${arr}\n")
+  configure_file(${CMAKE_BINARY_DIR}/generated/universes/${id}/${name}.inc.tmp
+                 ${CMAKE_BINARY_DIR}/generated/universes/${id}/${name}.inc COPYONLY)
+endforeach()
+target_include_directories(zenrender PRIVATE ${CMAKE_BINARY_DIR}/generated)
+
 # The game.
 add_executable(zentris
   src/main.cpp

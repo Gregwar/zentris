@@ -179,6 +179,11 @@ moves on to the next. Every universe ships a few curated **variants**, picked pe
 - **SUMI**: ink on washi paper. Eight inks (SUMI & SHU, AIZOME & OCHRE, SEPIA & CELADON, MURASAKI & GOLD,
   MATCHA & RUST, KAKI & CHARCOAL, and two lacquer negatives, URUSHI & SILVER and YORU & GOLD), from the key's hue
   (night songs sometimes take a negative). Slow motion turns the print to its negative.
+- **DIORAMA**: a sunlit clay miniature, the well a tower on a small island in a still sea. Nine places (MEADOW
+  COVE, TERRACOTTA MESA, LAVENDER SNOW, PINE AND SEA, AUTUMN MAPLES, MANGO LAGOON, SAKURA STONES, JADE VOLCANO,
+  HEATHER HIGHLANDS), from the key and mode; the song's phases are times of day (dawn, day, golden hour, dusk),
+  slow motion is a moonlit night. Its HUD font is Comfortaa (SIL Open Font License,
+  `src/universes/diorama/OFL-Comfortaa.txt`).
 
 ### Transitions between universes
 
@@ -218,7 +223,9 @@ the stack turns plain, in their own tones; so the two halves meet in a neutral s
    transition it is a texture): world, well, stack, piece, ghost, previews, bonus gauge, effects, and the HUD text
    (`Frame::hud`, `Frame::panels`) in its own typography (`ugl::hudLeft` resolves the alignment; each line's
    `HudRole` says what it is, so a universe can space, weigh or extend each kind its own way: SUMI adds the
-   level's name after its own). `setSong` picks
+   level's name after its own, DIORAMA puts the lines on painted cards: the stats on a plaque, labels as pills).
+   Assets: every file in `src/universes/<id>/embed/` is compiled in as a byte array, to include as
+   `"universes/<id>/<file>.inc"` (DIORAMA's font). `setSong` picks
    the variant (`look.variant >= 0` forces it; avoid `look.avoidVariant`, the one on screen when the universe
    follows itself); `setLevel` stages calm / mid / peak with its own in-universe change;
    `refresh`, `onEvent` (locks, hard drops, clears, Tetris, top out), `setBonus` (slow motion), `levelUp` and
@@ -226,7 +233,10 @@ the stack turns plain, in their own tones; so the two halves meet in a neutral s
 4. **Layout contract** (`src/layout.hpp`): the well's cells lie on the plane z = 0 of board space (one unit per
    cell, x in [-5, 5], y in [-10, 10]); draw them through `layout::camera()` (or a camera mapping that plane to the
    same pixels; a slight breathing is fine, report it through `project()`), with the previews, the gauge and the
-   HUD columns at the `layout::` anchors. This is what lets transitions keep the stack in place.
+   HUD columns at the `layout::` anchors. This is what lets transitions keep the stack in place. A universe with a
+   camera of its own (DIORAMA's elevated long lens) glides to the layout's front view while a change runs (from
+   `setBridge`: the amount rises at once when leaving, falls at the end when entering) and reports its camera
+   through `project()`, so the HUD follows it.
 5. **Transition contract** (no code per pair of universes, so any universe pairs with any other):
    - `hints()`: the active variant's background, ink and accent colors, light or dark, and the transition styles
      it likes (`TS_*`). The host's transitions only use this.
@@ -245,6 +255,8 @@ the stack turns plain, in their own tones; so the two halves meet in a neutral s
    ```
 
    Check a few transitions with a dark and a light universe both ways (`--universe A --to B` and back).
+   `ZEN_TEST_OVER=9` before a shot command hard-drops every piece from 9 s into the shot's settle (the shot then
+   shows the game over).
 
 The list below is the roadmap, in implementation order: after the first three, it goes from the most generic
 universes (atmospheres that fit almost any song) to strongly styled ones, and keeps the most specific or exotic
@@ -254,7 +266,7 @@ ideas for the end. Universes marked ✅ exist, the others are ideas waiting to b
 |---|---|---|---|---|
 | 1 | SUMI | Ink on washi paper, sumi black + one vermilion seal; brushed pieces told apart by ink treatment | Beats diffuse ink in the paper; calm = faint far mountain, peak = ensō brush circle and red sun; a clear is one brush stroke | ✅ |
 | 2 | VECTOR | Phosphor beams on black CRT glass, one phosphor per song, persistence trails; pieces are line glyphs | Calm = a lone oscilloscope trace; mid = scrolling vector grid; peak = spectrum mountains, Lissajous, beam overdrive; clears shatter into vector debris | ✅ |
-| 3 | DIORAMA | Sunlit clay miniature: the board on a floating island, soft shadows, tilt-shift | Phases are times of day (dawn, day, golden hour); kicks ripple the water; cleared blocks tumble into the sea; slow motion is a moonlit night | in progress |
+| 3 | DIORAMA | Sunlit clay miniature: the board on a floating island, soft shadows, tilt-shift | Phases are times of day (dawn, day, golden hour); kicks ripple the water; cleared blocks tumble into the sea; slow motion is a moonlit night | ✅ |
 | 4 | PIXEL | Native 320×180 pixel art, 16-color palette, Bayer dithering, parallax layers | Sprites animate on the beat; peak adds parallax layers and weather; clears are pixel explosions | |
 | 5 | SYNTHWAVE | Sunset grid, chrome letters, palm silhouettes, gradient sun | The sun's bands breathe; the grid speed follows the tempo; peak = car lights racing to the horizon | |
 | 6 | CLOUDSCAPE | Above the clouds, volumetric light, endless sky | Calm = still dawn sea of clouds; peak = towering cumulus and sun rays; clears drift away as mist | |

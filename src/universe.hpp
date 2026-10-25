@@ -47,6 +47,13 @@ enum HudRole {
     HUD_UNIVERSE, // "UNIVERSE · VARIANT"
     HUD_LABEL,    // HOLD, NEXT, SCORE, LINES...
     HUD_VALUE,    // the numbers under the labels
+    HUD_NOTICE,   // a short notice floating on its own (combo, seek position)
+    HUD_KEY,      // the key to press, in the bonus gauge
+    HUD_TOAST,    // a celebration's big word (SLOW MOTION, TETRIS, LEVEL 4)
+    HUD_TOAST_SUB,// the line under it (+1200)
+    HUD_HELP,     // the controls list (one line each)
+    HUD_DIALOG,   // the lines of a centered message (paused, game over, loading)
+    HUD_HINT,     // corner hints and status (next song, device, errors)
 };
 
 struct HudText {
