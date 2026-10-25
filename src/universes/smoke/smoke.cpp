@@ -530,7 +530,6 @@ void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
     case GameEvent::Clear: {
         const bool tetris = ev.count >= 4;
         // a blade of light runs along each row, then the blocks burn off into smoke curling up through the beam
-        const float dir = ev.x < 4.5f ? 1.f : -1.f;
         float rows[4] = {0, 0, 0, 0};
         int nr = 0;
         for (auto& c : ev.cells) {
@@ -541,15 +540,10 @@ void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
             if (!seen && nr < 4) rows[nr++] = p.y;
             Dying d;
             d.x = p.x; d.y = p.y; d.t = 0.f; d.type = std::clamp(c.type, 0, 6); d.over = false;
-            const float along = dir > 0.f ? (float)c.x : (float)(Game::W - 1 - c.x);
-            d.delay = along * 0.03f + rng_.range(0.f, 0.03f);
+            d.delay = std::fabs(c.x - 4.5f) * 0.025f; // from the middle of the row outward
             d.seed = rng_.uniform();
             dying_.push_back(d);
         }
-        for (int i = 0; i < nr; i++) sweeps_.push_back({rows[i], -0.03f * i, dir});
-        // the row burns off into one sheet of smoke curling up through the beam
-        for (int i = 0; i < nr; i++)
-            puff(v2(0.f, rows[i] + 0.3f), v2(0.f, 1.1f), 5.4f, 0.35f, 2.4f, tetris ? 0.4f : 0.32f, 0.15f + 0.04f * i, 0.16f);
         if (tetris) {
             // a smoke ring rolls up out of the well, the smoke is blown outward, the light opens
             puff(v2(0.f, rows[0] + 2.f), v2(0.f, 5.5f), 2.2f, 1.3f, 4.5f, 0.85f, 0.2f, 1.f, 1);
@@ -649,7 +643,7 @@ void SmokeUniverse::simulate(const Game& game, const MusicState& music, float dt
     }
     puffs_.erase(std::remove_if(puffs_.begin(), puffs_.end(), [](const Puff& p) { return p.t > p.delay + p.life; }), puffs_.end());
     for (auto& d : dying_) d.t += d.over ? dt : wdt;
-    dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + (d.over ? 9.f : 0.9f); }), dying_.end());
+    dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + (d.over ? 9.f : 0.45f); }), dying_.end());
     for (auto& s : sweeps_) s.t += wdt;
     sweeps_.erase(std::remove_if(sweeps_.begin(), sweeps_.end(), [](const Sweep& s) { return s.t > 0.6f; }), sweeps_.end());
 
@@ -702,9 +696,11 @@ void SmokeUniverse::buildBoard(const Game& g) {
             block(d.x, d.y, 1.f, cur_.piece[d.type], 1.f, 1.f, -1.f, true);
             continue;
         }
-        const float k = saturate(t / 0.75f);
-        blocks.push_back({{d.x, d.y + k * k * 0.3f, 0.5f, 0.5f}, {cur_.piece[d.type].x, cur_.piece[d.type].y, cur_.piece[d.type].z, 1.f},
-                          {2.f, -1.f, 0.f, 0.f}, {1.f, k, d.seed * 7.f, 0.f}});
+        // caught full in the light, then gone into the dark
+        const float k = saturate(t / 0.4f);
+        const float s = 1.f + 0.12f * smoothstepf(0.f, 1.f, k);
+        const vec3 c = lerp(cur_.piece[d.type], cur_.light * 1.4f + vec3(0.3f), smoothstepf(0.f, 0.3f, k));
+        block(d.x, d.y, s, c, 1.f - smoothstepf(0.3f, 1.f, k), 1.f + 1.5f * smoothstepf(0.f, 0.3f, k), -1.f, false);
     }
     // The falling piece and its ghost.
     if (g.hasPiece()) {

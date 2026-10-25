@@ -354,6 +354,8 @@ uniform float uBridge;
 uniform vec3 uBridgeCol;
 uniform float uCornerShade;
 uniform vec3 uCornerCol;
+uniform vec3 uPaneDeep;      // the well's glass: a deep tint of the sky, so the tiles stand out on light skies
+uniform float uPaneDeepAmt;
 
 float paneSd(vec2 p, vec4 r, float rad) {
     vec2 c = (r.xy + r.zw) * 0.5, h = (r.zw - r.xy) * 0.5;
@@ -387,6 +389,7 @@ void main() {
         vec3 frost = mix(blur, uFrost, amt * (0.8 + 0.25 * k));
         float grain = texture(uNoise, p * 0.9).b * 0.5 + texture(uNoise, p * 2.7).r * 0.5;
         frost *= 0.97 + 0.06 * grain;
+        frost = mix(frost, uPaneDeep * (0.9 + 0.2 * grain), uPaneDeepAmt * inW);
         col = mix(col, frost, inside * uPaneAlpha);
     }
     // quiet behind the corner where the universe's name is written
@@ -480,7 +483,9 @@ float tileSd(vec2 p, float s) { return sdRound(p, vec2(0.43 * s), 0.12 * s); }
 vec3 flatTile(vec2 p, float s, vec3 pc) {
     float ty = clamp(p.y / (0.43 * s), -1.0, 1.0);
     vec3 col = pc * (0.96 + 0.07 * ty);
-    col = mix(col, col * uSkyTint, 0.15);
+    // richer than the sky's pastels, so the tiles read at a glance
+    float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col = max(mix(vec3(l), col, 1.2), 0.0);
     // at night the colors glow faintly (readable under the moon)
     col += pc * uNight * 0.18;
     return col;
@@ -508,7 +513,7 @@ void main() {
         // falling through the sea of clouds (game over): into the mist
         col = mix(col, uMist, v2.w);
         col = mix(col, uBridgeInk, bridgeK);
-        float a = cov * alpha * 0.94; // a slight translucency: the sky breathes through
+        float a = cov * alpha;
         frag = vec4(col * a, a);
         return;
     }

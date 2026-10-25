@@ -489,31 +489,7 @@ void CloudscapeUniverse::puff(vec2 p, vec2 v, float r, float grow, float life, f
 
 void CloudscapeUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
-    case GameEvent::Lock: {
-        // One soft, flat breath of mist pushed out from under the piece, spreading along the stack.
-        if (ev.cells.empty()) break;
-        float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f;
-        for (auto& q : ev.cells) {
-            const vec3 p = layout::cellPos((float)q.x, (float)q.y);
-            x0 = std::min(x0, p.x); x1 = std::max(x1, p.x); y0 = std::min(y0, p.y);
-        }
-        const float hw = 0.5f * (x1 - x0) + 0.7f;
-        puff(v2(0.5f * (x0 + x1), y0 - 0.45f), v2(0.f, 0.06f), 0.4f, 0.8f, 1.2f, 0.32f, 0.f, hw / 0.4f);
-        break;
-    }
-    case GameEvent::HardDrop: {
-        if (ev.count < 2) break;
-        // one soft wake of mist where the piece fell
-        float x0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
-        for (auto& q : ev.cells) {
-            const vec3 p = layout::cellPos((float)q.x, (float)q.y);
-            x0 = std::min(x0, p.x); x1 = std::max(x1, p.x); y1 = std::max(y1, p.y);
-        }
-        const float len = (float)std::min(ev.count, 10);
-        const float hh = 0.5f * len + 0.3f, hw = 0.5f * (x1 - x0) + 0.35f;
-        puff(v2(0.5f * (x0 + x1), y1 + 0.5f + 0.5f * len), v2(0.f, 0.15f), hh, 0.3f, 0.7f, 0.14f, 0.f, hw / hh);
-        break;
-    }
+    // Locks and hard drops: no mist (only the tile's own breath of light, in the tile shader).
     case GameEvent::Clear: {
         const bool tetris = ev.count >= 4;
         const float wind = ev.x < 4.5f ? 1.f : -1.f; // the mist drifts away from where the piece landed
@@ -521,20 +497,10 @@ void CloudscapeUniverse::onEvent(const GameEvent& ev, const Game&) {
             const vec3 p = layout::cellPos((float)c.x, (float)c.y);
             Dying d;
             d.x = p.x; d.y = p.y; d.t = 0.f; d.type = std::clamp(c.type, 0, 6); d.fall = false;
-            d.delay = std::fabs(c.x - 4.5f) * 0.025f + rng_.range(0.f, 0.04f);
+            d.delay = std::fabs(c.x - 4.5f) * 0.022f;
             d.vx = wind * rng_.range(0.6f, 1.2f); d.vy = rng_.range(0.3f, 0.7f); d.rot = 0.f; d.vr = 0.f;
             d.seed = rng_.uniform();
             dying_.push_back(d);
-        }
-        {
-            // each cleared row leaves as one band of mist, drifting away on the wind
-            std::vector<float> rows;
-            for (auto& c : ev.cells) {
-                const float y = layout::cellPos(0.f, (float)c.y).y;
-                if (std::find(rows.begin(), rows.end(), y) == rows.end()) rows.push_back(y);
-            }
-            for (size_t i = 0; i < rows.size(); i++)
-                puff(v2(0.f, rows[i]), v2(wind * 1.2f, 0.4f), 0.5f, 0.6f, 2.0f, tetris ? 0.5f : 0.42f, 0.15f + 0.04f * i, 11.f);
         }
         if (tetris) {
             tetrisT_ = 0.f;
@@ -695,7 +661,7 @@ void CloudscapeUniverse::simulate(const Game& game, const MusicState& music, flo
     }
     puffs_.erase(std::remove_if(puffs_.begin(), puffs_.end(), [](const Puff& p) { return p.t > p.delay + p.life; }), puffs_.end());
     for (auto& d : dying_) d.t += d.fall ? dt : wdt;
-    dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + (d.fall ? 2.4f : 1.0f); }), dying_.end());
+    dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + (d.fall ? 2.4f : 0.45f); }), dying_.end());
     for (auto& g : glints_) g.t += dt;
     glints_.erase(std::remove_if(glints_.begin(), glints_.end(), [](const Glint& g) { return g.t > g.life; }), glints_.end());
 
@@ -776,8 +742,12 @@ void CloudscapeUniverse::buildBoard(const Game& g) {
             tile(d.x, d.y, 0.5f, 0.5f, cur_.piece[d.type], 1.f, 0);
             continue;
         }
-        const float k = saturate(t / 0.75f);
-        tile(d.x + d.vx * k * k * 0.8f, d.y + d.vy * k * k * 0.8f, 0.5f, 0.5f, cur_.piece[d.type], 1.f, 2, -1.f, 0.f, 0.f, 1.f, k, d.seed * 7.f);
+        // a cleared tile catches the light and pops: it brightens to the sun's color, swells a little and is gone,
+        // from the middle of the row outward
+        const float k = saturate(t / 0.4f);
+        const float s = 1.f + 0.18f * smoothstepf(0.f, 1.f, k);
+        const vec3 c = lerp(cur_.piece[d.type], lerp(cur_.sun, vec3(1.f), 0.5f) * 1.2f, smoothstepf(0.f, 0.35f, k));
+        tile(d.x, d.y, 0.5f * s, 0.5f * s, c, 1.f - smoothstepf(0.35f, 1.f, k), 0, -1.f, 0.f, 0.f, s);
     }
     // The falling piece and its ghost.
     if (g.hasPiece()) {
@@ -1197,6 +1167,12 @@ void CloudscapeUniverse::render(const Frame& f, GLuint fbo) {
         set1f(progComp_, "uBridge", saturate(bridge_.amount));
         set3f(progComp_, "uBridgeCol", bridge_.color);
         set1f(progComp_, "uCornerShade", 0.35f);
+        {
+            // light skies get a deep glass behind the stack (a dusk tint of their own sky); dark ones keep theirs
+            const float lum = 0.2126f * cur_.frost.x + 0.7152f * cur_.frost.y + 0.0722f * cur_.frost.z;
+            set3f(progComp_, "uPaneDeep", lerp(cur_.deep, cur_.zenith, 0.6f) * 0.5f);
+            set1f(progComp_, "uPaneDeepAmt", 0.66f * smoothstepf(0.15f, 0.5f, lum));
+        }
         set3f(progComp_, "uCornerCol", cur_.halo);
         ugl::drawFullscreen();
         glActiveTexture(GL_TEXTURE0);
