@@ -13,6 +13,7 @@ public:
     void setSong(const SongLook& look, float seconds) override;
     void setLevel(int level, float energy, float seconds, float impact) override;
     void refresh(float strength) override;
+    void drop(float strength) override;
     void onEvent(const GameEvent& ev, const Game& game) override;
     void setBonus(bool on) override;
     void levelUp() override;
@@ -119,6 +120,24 @@ private:
     float prevKick_ = 0.f, kickIn_ = 0.f, sinceKick_ = 9.f, sinceGlint_ = 9.f;
     float cars_ = 0.f, hazeLit_ = 0.f, flareKick_ = 0.f;
     float flash_ = 0.f, sunFlare_ = 0.f, horizonFlash_ = 0.f;
+    vec3 kickCol_[4];
+    void pushKick(float amp, const vec3& col);
+
+    // ---- The peak (a drop): held back between setLevel(2) and the drop's downbeat, then fully on.
+    float pk_ = 0.f;          // the living peak, 0..1 (gates every peak reaction)
+    float dropWait_ = -1.f;   // >= 0: seconds since a rise to the peak, waiting for drop()
+    float inhale_ = 0.f;      // the breath held before a drop: the fog closes, the light dims
+    float dropEnv_ = 0.f;     // the drop's bloom (sun, haze, flare), ~1.5 s
+    float dropFlash_ = 0.f;   // the drop's single soft exposure flash, ~0.4 s
+    float warp_ = 0.f;        // the drop's punch into high speed
+    float kickEnv_ = 0.f;     // the kick envelope, as seen (fast attack)
+    float beatHit_ = 0.f;     // decays after each beat (peak)
+    float barFlare_ = 0.f;    // the horizon's anamorphic line, on each bar (peak)
+    float highs_ = 0.f;       // the top bands (sparkle, floor streaks)
+    float drive_ = 0.8f;      // how hard the song drives: tempo x energy x density
+    float scrollVel_ = 0.f;   // road units per second (lamp trails)
+    double lastBeatI_ = -1e9;
+    int bar_ = 0;
 
     // ---- Effects.
     struct Flare { std::vector<vec2> seg; vec3 col; float t; };
