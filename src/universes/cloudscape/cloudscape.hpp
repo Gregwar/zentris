@@ -51,7 +51,7 @@ private:
     void drawClouds();
     void drawHud(const std::vector<HudText>& hud, const std::vector<HudRect>& panels);
     int pickVariant(const SongLook& look) const;
-    void puff(vec2 p, vec2 v, float r, float grow, float life, float alpha, float delay = 0.f);
+    void puff(vec2 p, vec2 v, float r, float grow, float life, float alpha, float delay = 0.f, float stretch = 1.35f);
     vec2 sunUv() const;   // where the light is on screen (uv, may be off screen)
 
     // ---- Text.
@@ -110,7 +110,7 @@ private:
     float flockTimer_ = 2.f, birds_ = 0.f;
 
     // ---- Effects.
-    struct Puff { vec2 p, v; float r, grow, t, life, alpha, seed, delay; };
+    struct Puff { vec2 p, v; float r, grow, t, life, alpha, seed, delay, stretch; }; // stretch: width / height
     std::vector<Puff> puffs_;
     struct Dying { float x, y, t, delay; int type; bool fall; float vx, vy, rot, vr; float seed; };
     std::vector<Dying> dying_;

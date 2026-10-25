@@ -475,9 +475,10 @@ vec2 CloudscapeUniverse::sunUv() const {
     return v2(nx * 0.5f + 0.5f, ny * 0.5f + 0.5f);
 }
 
-void CloudscapeUniverse::puff(vec2 p, vec2 v, float r, float grow, float life, float alpha, float delay) {
+void CloudscapeUniverse::puff(vec2 p, vec2 v, float r, float grow, float life, float alpha, float delay, float stretch) {
     Puff q;
     q.p = p; q.v = v; q.r = r; q.grow = grow; q.t = 0.f; q.life = life; q.alpha = alpha; q.delay = delay;
+    q.stretch = stretch;
     q.seed = rng_.uniform();
     puffs_.push_back(q);
 }
@@ -489,33 +490,28 @@ void CloudscapeUniverse::puff(vec2 p, vec2 v, float r, float grow, float life, f
 void CloudscapeUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
     case GameEvent::Lock: {
-        // A soft puff of mist breathed out from under the piece.
+        // One soft, flat breath of mist pushed out from under the piece, spreading along the stack.
+        if (ev.cells.empty()) break;
+        float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f;
         for (auto& q : ev.cells) {
-            bool under = false;
-            for (auto& o : ev.cells)
-                if (o.x == q.x && o.y == q.y + 1) under = true;
-            if (under) continue;
             const vec3 p = layout::cellPos((float)q.x, (float)q.y);
-            for (int s = -1; s <= 1; s += 2)
-                puff(v2(p.x + 0.3f * s, p.y - 0.45f), v2(0.7f * s + rng_.range(-0.15f, 0.15f), rng_.range(-0.05f, 0.12f)),
-                     0.36f, 1.1f, rng_.range(0.8f, 1.1f), 0.6f);
+            x0 = std::min(x0, p.x); x1 = std::max(x1, p.x); y0 = std::min(y0, p.y);
         }
+        const float hw = 0.5f * (x1 - x0) + 0.7f;
+        puff(v2(0.5f * (x0 + x1), y0 - 0.45f), v2(0.f, 0.06f), 0.4f, 0.8f, 1.2f, 0.32f, 0.f, hw / 0.4f);
         break;
     }
     case GameEvent::HardDrop: {
         if (ev.count < 2) break;
-        // a trail of mist along the drop, a wider breath at the landing
+        // one soft wake of mist where the piece fell
+        float x0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
         for (auto& q : ev.cells) {
-            bool top = true;
-            for (auto& o : ev.cells)
-                if (o.x == q.x && o.y < q.y) top = false;
-            if (!top) continue;
             const vec3 p = layout::cellPos((float)q.x, (float)q.y);
-            const int n = std::min(ev.count, 8);
-            for (int k = 1; k <= n; k += 2)
-                puff(v2(p.x + rng_.range(-0.2f, 0.2f), p.y + 0.4f + k), v2(rng_.range(-0.2f, 0.2f), 0.2f), 0.28f, 0.5f,
-                     0.6f, 0.22f * (1.f - k / (float)(n + 2)), 0.02f * k);
+            x0 = std::min(x0, p.x); x1 = std::max(x1, p.x); y1 = std::max(y1, p.y);
         }
+        const float len = (float)std::min(ev.count, 10);
+        const float hh = 0.5f * len + 0.3f, hw = 0.5f * (x1 - x0) + 0.35f;
+        puff(v2(0.5f * (x0 + x1), y1 + 0.5f + 0.5f * len), v2(0.f, 0.15f), hh, 0.3f, 0.7f, 0.14f, 0.f, hw / hh);
         break;
     }
     case GameEvent::Clear: {
@@ -529,11 +525,16 @@ void CloudscapeUniverse::onEvent(const GameEvent& ev, const Game&) {
             d.vx = wind * rng_.range(0.6f, 1.2f); d.vy = rng_.range(0.3f, 0.7f); d.rot = 0.f; d.vr = 0.f;
             d.seed = rng_.uniform();
             dying_.push_back(d);
-            const int n = tetris ? 2 : 1;
-            for (int k = 0; k < n; k++)
-                puff(v2(p.x + rng_.range(-0.3f, 0.3f), p.y + rng_.range(-0.2f, 0.2f)),
-                     v2(wind * rng_.range(0.9f, 2.2f), rng_.range(0.3f, 0.9f)), 0.5f, 1.5f, rng_.range(1.6f, 2.4f),
-                     0.5f, d.delay + 0.15f);
+        }
+        {
+            // each cleared row leaves as one band of mist, drifting away on the wind
+            std::vector<float> rows;
+            for (auto& c : ev.cells) {
+                const float y = layout::cellPos(0.f, (float)c.y).y;
+                if (std::find(rows.begin(), rows.end(), y) == rows.end()) rows.push_back(y);
+            }
+            for (size_t i = 0; i < rows.size(); i++)
+                puff(v2(0.f, rows[i]), v2(wind * 1.2f, 0.4f), 0.5f, 0.6f, 2.0f, tetris ? 0.5f : 0.42f, 0.15f + 0.04f * i, 11.f);
         }
         if (tetris) {
             tetrisT_ = 0.f;
@@ -840,7 +841,7 @@ void CloudscapeUniverse::buildFx() {
         const float k = (p.t - p.delay) / p.life;
         const float r = p.r * (1.f + p.grow * (1.f - (1.f - k) * (1.f - k)));
         const float a = p.alpha * smoothstepf(0.f, 0.12f, k) * (1.f - smoothstepf(0.35f, 1.f, k));
-        mists_.push_back({{p.p.x, p.p.y, r, 1.35f}, {mistCol.x, mistCol.y, mistCol.z, a}, {p.seed * 11.f, k, 0.f, 0.f}});
+        mists_.push_back({{p.p.x, p.p.y, r, p.stretch}, {mistCol.x, mistCol.y, mistCol.z, a}, {p.seed * 11.f, k, 0.f, 0.f}});
     }
     const vec3 glintCol = lerp(cur_.sun, vec3(1.f), 0.5f) * 2.2f;
     for (const Glint& g : glints_) {
