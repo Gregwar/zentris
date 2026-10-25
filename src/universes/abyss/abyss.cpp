@@ -8,7 +8,7 @@
 // The song sets how much lives here: calm is deep silence (snow, a few distant lights, god rays far above), mid
 // brings jellyfish and siphonophores drifting and pulsing their light on the beat and schools of fish as specks of
 // light, peak brings a giant whale with bioluminescent spots passing slowly behind the well, plankton clouds
-// flaring with the kicks and light ripples. A lock makes the piece flare briefly and stirs a few motes from under
+// flaring with the kicks. A lock makes the jelly quiver and stirs a few motes from under
 // it; a cleared row's jelly breaks into points of light (a brief burst of sparks); a Tetris makes the plankton bloom
 // all through the water at once; slow motion puts every light out but the pieces' (long slow glows) and an anglerfish's lure; game over
 // sinks the stack into the dark, its lights going out one by one. It leaves and enters by the water closing over it,
@@ -489,7 +489,7 @@ void AbyssUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
     case GameEvent::Lock: {
         if (ev.cells.empty()) break;
-        // The piece flares softly (in its own cells); at the contact, a few motes of plankton stirred up from under it.
+        // The jelly quivers (in the shader, no glow); at the contact, a few motes of plankton stirred up from under it.
         {
             int bottom = -1;
             for (auto& q : ev.cells) bottom = std::max(bottom, q.y);
@@ -559,7 +559,6 @@ void AbyssUniverse::onEvent(const GameEvent& ev, const Game&) {
     }
     case GameEvent::BonusReady:
         readyT_ = 0.f;
-        rings_.push_back({layout::GAUGE_CENTER.x, layout::GAUGE_CENTER.y, 0.f, 1.4f, 1.f, 3.f, pal_.glow2});
         break;
     case GameEvent::TopOut: {
         // The stack sinks into the dark, its lights going out one by one.
@@ -613,7 +612,7 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
     beatGlow_ = std::exp(-ph * 4.5f) * beatW * (0.6f + 0.4f * wp) + 0.3f * saturate(music.beatPulse) * wp;
     lastPh_ = ph;
 
-    // Kicks (peak): light ripples in the water, the plankton flares.
+    // Kicks (peak): the plankton flares (no ring of light: nothing expanding).
     sinceKick_ += dt;
     const float kick = std::max(music.kick, kickIn_);
     kickIn_ = approach(kickIn_, 0.f, 6.f, dt);
@@ -732,8 +731,6 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
     sparks_.erase(std::remove_if(sparks_.begin(), sparks_.end(), [](const Spark& s) { return s.t > s.delay + s.life; }),
                   sparks_.end());
     if (sparks_.size() > 1800) sparks_.erase(sparks_.begin(), sparks_.begin() + (sparks_.size() - 1800));
-    for (Ring& r : rings_) r.t += dt;
-    rings_.erase(std::remove_if(rings_.begin(), rings_.end(), [](const Ring& r) { return r.t > r.life; }), rings_.end());
     for (Dying& d : dying_) {
         d.t += dt;
         if (d.sink) {
@@ -1039,12 +1036,6 @@ void AbyssUniverse::buildFx() {
         const float a = smoothstepf(0.f, 0.08f, t) * (1.f - k) * (1.f - k) * (0.65f + 0.35f * std::sin(s.t * 7.f + s.twinkle));
         sprite(fx_, s.kind == 1 ? 4 : 0, v2(s.x, s.y), v2(0, 0), s.size, s.col * (1.6f - 0.6f * k), a * world);
     }
-    for (const Ring& r : rings_) {
-        const float k = r.t / r.life;
-        const float R = lerpf(r.r0, r.r1, 1.f - (1.f - k) * (1.f - k));
-        const float a = (1.f - k) * (1.f - k) * world;
-        sprite(fx_, 2, v2(r.x, r.y), v2(0, 0), R, r.col * 1.1f, a, 0.1f + 0.15f * k, r.x * 7.f + r.y);
-    }
 }
 
 // =====================================================================================================
@@ -1265,10 +1256,6 @@ void AbyssUniverse::drawWorld() {
     set1f(progWorld_, "uBloom", bloom_);
     set1f(progWorld_, "uBeat", beatGlow_);
     set1f(progWorld_, "uFlash", flash_);
-    GLint loc = glGetUniformLocation(progWorld_, "uRip");
-    float rip[16];
-    for (int i = 0; i < 4; i++) { rip[i * 4] = ripX_[i]; rip[i * 4 + 1] = ripY_[i]; rip[i * 4 + 2] = ripAge_[i]; rip[i * 4 + 3] = ripAmp_[i]; }
-    glUniform4fv(loc, 4, rip);
     set1f(progWorld_, "uTetris", tetrisT_);
     set3f(progWorld_, "uTetrisCol", lerp(pal_.glow, pal_.glow2, 0.3f));
     set1f(progWorld_, "uSlow", slow_);

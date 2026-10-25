@@ -129,8 +129,6 @@ private:
     // ---- Effects.
     struct Spark { float x, y, vx, vy, t, life, delay, size; vec3 col; float twinkle; int kind; };
     std::vector<Spark> sparks_;
-    struct Ring { float x, y, t, life, r0, r1; vec3 col; };
-    std::vector<Ring> rings_;
     struct Dying { float x, y, t, delay, out, vx, vy; int type, mask; bool sink; };
     std::vector<Dying> dying_;
     float tetrisT_ = 99.f;

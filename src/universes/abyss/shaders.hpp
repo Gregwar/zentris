@@ -48,7 +48,6 @@ uniform float uPlankton;     // plankton clouds (mid, peak)
 uniform float uBloom;        // their flare on a kick
 uniform float uBeat;         // creatures' light pulse
 uniform float uFlash;
-uniform vec4 uRip[4];        // light ripples: x, y, age, amplitude
 uniform float uTetris;       // seconds since a Tetris (the bloom wave)
 uniform vec3 uTetrisCol;
 uniform float uSlow;         // the abyss goes dark
@@ -81,19 +80,6 @@ vec3 lightField(vec2 p, float scale, float dens, float salt, float bright) {
     float halo = exp(-d * d / (size * size * 9.0)) * 0.25 * smoothstep(0.0, 0.2, edge);
     vec3 c = mix(uGlow, uGlow2, step(0.62, h2));
     return c * (core * 1.4 + halo) * blink * bright;
-}
-
-float rippleAt(vec2 p) {
-    float s = 0.0;
-    for (int i = 0; i < 4; i++) {
-        vec4 r = uRip[i];
-        if (r.z > 4.0) continue;
-        float R = r.z * 5.5;
-        float d = length(p - r.xy) - R;
-        float w = 0.2 + 0.12 * R;
-        s += exp(-d * d / (w * w)) * exp(-r.z * 0.9) * r.w;
-    }
-    return s;
 }
 
 void main() {
@@ -136,9 +122,6 @@ void main() {
     col += lightField(p, 0.95, 0.05 + 0.06 * uLights, 0.0, 0.5 + 0.3 * uLights);
     col += lightField(p, 0.42, 0.02 + 0.04 * uLights, 17.0, 0.7 + 0.5 * uLights);
     // Light ripples running through the water (peak kicks).
-    float rip = rippleAt(p);
-    col += uGlow * rip * 0.09;
-    col *= 1.0 + rip * 0.5;
     // The Tetris: the plankton blooms all through the water at once, in living patches, then dims.
     if (uTetris < 3.0) {
         float n = fbm3(p * vec2(0.12, 0.3) + vec2(0.0, -uTime * 0.4));
@@ -487,7 +470,7 @@ in vec2 vLocal;
 in vec2 vWorld;
 flat in vec4 v0, v1, v2, v3;
 out vec4 frag;
-uniform float uPx, uTime, uBeat, uSlow, uBridge, uWaveY, uWave;
+uniform float uPx, uTime, uBeat, uSlow, uBridge, uWave;
 uniform vec3 uBridgeInk, uGlow, uGlow2, uDeep;
 
 // Each piece carries its own pattern inside the jelly, so pieces read apart by pattern as well as by hue.
@@ -548,7 +531,7 @@ void main() {
         // A translucent gelatinous block lit from within.
         float s = v3.x;
         float light = v3.y;
-        float fl = age >= 0.0 ? exp(-age * 5.0) * 0.45 : 0.0;    // lock flare: brief, in the piece itself
+        float fl = age >= 0.0 ? exp(-age * 5.0) * 0.45 : 0.0;    // lock: the jelly quivers (no flare, no glow)
         float jig = age >= 0.0 ? sin(age * 17.0) * exp(-age * 5.0) : 0.0;  // the jelly settling
         float wob = 0.010 * s * (1.0 + 1.5 * fl + (kind == 3 ? 0.6 : 0.0));
         p += wob * vec2(sin(uTime * 2.3 + vWorld.y * 2.1 + vWorld.x), cos(uTime * 1.9 + vWorld.x * 2.4 - vWorld.y));
@@ -579,7 +562,6 @@ void main() {
         col += pc * rim2 * light;
         col += mix(pc, vec3(1.0), 0.2) * mot * 0.85 * light;
         col += vec3(0.85, 1.0, 1.0) * spec * 0.16;
-        col += hot * fl * (0.9 + 1.4 * rim);
         float a = clamp(0.6 + 0.4 * rim + 0.25 * core, 0.0, 1.0);
         // a dark membrane once its light has gone out (game over)
         col += uDeep * 0.0;
