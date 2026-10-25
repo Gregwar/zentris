@@ -502,18 +502,21 @@ void SmokeUniverse::puff(vec2 p, vec2 v, float r, float grow, float life, float 
 void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
     case GameEvent::Lock: {
-        // The impact pushes smoke out from the contact under the piece: a thin layer that starts at the piece's
-        // base and spreads out sideways along the stack, rising a little as it thins (harder after a hard drop).
+        // Dust kicked up by the impact: it billows up from both ends of the contact under the piece, rising beside
+        // it and drifting a little outward (more after a hard drop).
         if (ev.cells.empty()) break;
         float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f;
         for (auto& q : ev.cells) {
             const vec3 p = layout::cellPos((float)q.x, (float)q.y);
             x0 = std::min(x0, p.x); x1 = std::max(x1, p.x); y0 = std::min(y0, p.y);
         }
-        const float hw = 0.5f * (x1 - x0) + 0.4f;
         const float hard = lastDrop_ >= 2 ? 1.f : 0.f;
-        puff(v2(0.5f * (x0 + x1), y0 - 0.5f), v2(0.f, 0.22f), hw, 1.1f + 0.5f * hard, 1.1f, 0.4f + 0.15f * hard, 0.f, 0.18f / hw);
-        puffs_.back().minGlow = 0.45f; // caught in the stray light, even outside the beam
+        for (int s = -1; s <= 1; s += 2) {
+            const float ex = s < 0 ? x0 - 0.45f : x1 + 0.45f;
+            puff(v2(ex, y0 - 0.35f), v2(0.3f * s, 0.9f + 0.5f * hard), 0.3f, 1.5f + 0.5f * hard, 1.1f,
+                 0.38f + 0.14f * hard, 0.f, 1.25f);
+            puffs_.back().minGlow = 0.45f; // caught in the stray light, even outside the beam
+        }
         lastDrop_ = 0;
         break;
     }
