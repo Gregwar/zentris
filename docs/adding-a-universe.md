@@ -58,6 +58,21 @@ strobing (one soft flash on the drop is fine).
 - Merging cells into one shape is fine when it is the universe's design (one brush stroke per piece in SUMI),
   never by accident (different pieces of the same color fusing).
 
+**Taste, from play testing the first ten universes.** What worked and what did not:
+
+| Liked | Disliked |
+|---|---|
+| WATERCOLOR, SUMI, VECTOR, SMOKE: one strong idea, minimalist, lots of empty space | Bloated screens full of graphics: the first SYNTHWAVE (sun, road, lamps, palms, grain) looked "like an old game of 2010" |
+| Pieces made of the world's own material (ink, phosphor, wash, lit smoke) | Generic, "standard" Tetris looks (PIXEL is fine but not original) |
+| Limited, deliberate palettes: neutral white or black paper, dark nights with pastel pieces (CLOUDSCAPE's POLAR NIGHT, its blue-hour slow motion) | Tinted "vintage" grounds (SUMI's yellowish paper), pale pieces on pale skies |
+| Pieces with depth and life that read at a glance | Flat, bright, dull blocks (POLAR NIGHT), bevels and relief (old CLOUDSCAPE tiles), visible tile junctions inside a shape |
+| Text set in the world, restrained HUD | Opaque white cards or framed panels around the HUD (DIORAMA's cards, CLOUDSCAPE's pane borders) |
+| Drops that clearly change the energy, with elegance | Too much animation on drops (VECTOR's first punchy peak), shockwaves and glow rings |
+| Night moods (players asked for DIORAMA's bonus night as a normal look) | Odd scenery: towering clouds above the horizon, a skyline added for its own sake |
+
+When a universe starts to feel busy, remove elements instead of tuning them. When the right direction is unclear,
+render two or three alternatives side by side and let the player pick.
+
 **Typography.** One or two fonts that fit the world, under the SIL Open Font License, placed in
 `src/universes/<id>/embed/` with their license text next to the universe (`src/universes/<id>/OFL-*.txt`).
 
