@@ -13,7 +13,7 @@
 // foreground. Locks squash for two frames and puff dust; cleared rows flash and burst into their pixels; a
 // Tetris fires a screen-wide pixel firework; the slow motion dissolves the night palette in (ordered dither,
 // stars, a moon); a game over crumbles the stack pixel by pixel into a sand pile. Changing universe, the world
-// pixelates and dissolves (ordered dither) into the bridge while the stack turns to plain ink.
+// fades smoothly into the bridge while the stack turns to plain ink (no dither there: easy on the eyes).
 #include "universes/pixel/pixel.hpp"
 
 #include <cstdio>
@@ -178,7 +178,7 @@ TransitionHints PixelUniverse::hints() const {
     h.light = luminance(bg) > 0.3f;
     h.ink = h.light ? pal_.linear(V.ink) : pal_.linear(V.text);
     h.accent = pal_.linear(V.accent);
-    h.styles = TS_TILES | TS_REBUILD | TS_LUMA;
+    h.styles = TS_REBUILD | TS_LUMA; // not TILES: scattered flipping cells over pixel art are too busy
     return h;
 }
 
@@ -952,8 +952,7 @@ void PixelUniverse::compose(const Frame& f) {
         bc[0] = (uint8_t)(saturate(c.x) * 255); bc[1] = (uint8_t)(saturate(c.y) * 255); bc[2] = (uint8_t)(saturate(c.z) * 255);
         bi[0] = (uint8_t)(saturate(k.x) * 255); bi[1] = (uint8_t)(saturate(k.y) * 255); bi[2] = (uint8_t)(saturate(k.z) * 255);
     }
-    // The world pixelates toward the bridge: blocks of 1, 2, 4, 8 pixels.
-    const int blk = b < 0.2f ? 1 : b < 0.5f ? 2 : 4;
+    const float bt = smoothstepf(0.f, 1.f, b);
     const float lightning = world_.lightning();
     const float nightStep = std::floor(nightK_ * 8.f) / 8.f; // eight ordered-dither steps
     const float dim = dimT_;
@@ -966,12 +965,6 @@ void PixelUniverse::compose(const Frame& f) {
             const bool prev = (cls & K_PREV_PAL) != 0;
             const Palette& P = prev ? prevPal_ : pal_;
             const bool worldish = k == K_SKY || k == K_WORLD || k == K_WELL || k == K_FRAME || k == K_FX || k == K_PANEL;
-            if (b > 0.f && worldish && blk > 1) {
-                const int sx = x - x % blk, sy = y - y % blk;
-                const size_t j = (size_t)sy * W_ + sx;
-                const uint8_t sk = cv_.cls[j] & 0x3F;
-                if (sk == k || (sk != K_STACK && sk != K_GAP && sk != K_HUD && sk != K_EDGE)) { idx = cv_.px[j]; }
-            }
             if (flash_ > 0 && k != K_HUD && dith(flash_, x, y)) idx = P.lighter[idx];
             if (lightning > 0 && k == K_SKY && dith(lightning, x, y)) idx = P.lighter[P.lighter[idx]];
             if (dim > 0 && k != K_HUD && dith(dim, x, y)) idx = P.darker[idx];
@@ -984,16 +977,11 @@ void PixelUniverse::compose(const Frame& f) {
                 const bool tw = (hash2(x, y, (uint32_t)(worldT_ * 3)) & 7) != 0;
                 out[0] = tw ? 235 : 150; out[1] = tw ? 238 : 160; out[2] = 255;
             }
-            // the bridge: the world dissolves (and pixelates) into its color, the stack and the HUD turn to ink
-            if (b > 0.f) {
-                const float t = b * 1.12f - 0.06f;
-                if (worldish) {
-                    if (dith(t, x / blk, y / blk)) { out[0] = bc[0]; out[1] = bc[1]; out[2] = bc[2]; }
-                } else if (k == K_GAP) {
-                    if (dith(t, x, y)) { out[0] = bc[0]; out[1] = bc[1]; out[2] = bc[2]; }
-                } else if (dith(t, x, y)) {
-                    out[0] = bi[0]; out[1] = bi[1]; out[2] = bi[2];
-                }
+            // the bridge: a smooth fade (no dither, no pixelation: a change of universe must stay easy on the eyes
+            // and the stack readable): the world into the bridge's color, the stack and the HUD into its ink
+            if (bt > 0.f) {
+                const uint8_t* to = (worldish || k == K_GAP) ? bc : bi;
+                for (int c = 0; c < 3; c++) out[c] = (uint8_t)(out[c] + (to[c] - out[c]) * bt);
             }
             if (fade < 1.f && !dith(fade, x, y)) out[0] = out[1] = out[2] = 0;
             uint8_t* o = &rgba_[i * 4];
