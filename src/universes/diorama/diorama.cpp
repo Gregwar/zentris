@@ -556,7 +556,7 @@ void DioramaUniverse::buildWorld() {
     {
         std::vector<float> v;
         const int RINGS = 26, SEG = 84;
-        auto rho = [](int i) { return std::pow(i / (float)RINGS, 0.75f) * 1.32f; };
+        auto rho = [&](int i) { return std::pow(i / (float)RINGS, 0.75f) * 1.32f; };
         auto height = [&](float r, float a) {
             float n = 0.1f * (noise1(a * 6.f, 11) - 0.5f) + 0.06f * (noise1(a * 17.f + r * 5.f, 12) - 0.5f);
             if (r < 0.8f) return GROUND_Y + n * smoothstepf(0.3f, 0.8f, r) * 2.f;
