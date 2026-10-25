@@ -3,5 +3,6 @@
 UNIVERSE(vector)
 UNIVERSE(sumi)
 UNIVERSE(diorama)
+UNIVERSE(pixel)
 UNIVERSE(synthwave)
 UNIVERSE(debug)
