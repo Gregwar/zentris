@@ -18,7 +18,6 @@
 #include "platform.hpp"
 #include "renderer.hpp"
 #include "songplan.hpp"
-#include "theme.hpp"
 #include "youtube.hpp"
 
 namespace fs = std::filesystem;
@@ -33,7 +32,10 @@ struct Options {
     uint64_t seed = 0;
     std::string clipPath; // --clip: record a video around the first drop of the first song, then exit
     float clipBefore = 4.f, clipAfter = 6.f;
-    std::string scene; // forced scene code (as shown in the corner), "" = random scenes
+    std::string universe;   // forced universe "NAME" or "NAME:VARIANT" (as shown in the corner), "" = picked per song
+    bool universeOnPeak = false; // also change universe when a long song rises into a peak
+    std::string toUniverse, transition; // --transition-shots: the universe changed to, the transition forced
+    std::string transitionShots; int transitionShotCount = 8;
     std::string reviewPath; // --review-shot: one snapshot of a song scene with a filled board, then exit
     int reviewLevel = -1;   // scene level to show (0 calm, 1 mid, 2 peak), -1 any
     int width = 1600, height = 900;
@@ -47,16 +49,21 @@ static void usage() {
         "  --fullscreen         start fullscreen\n"
         "  --size WxH           window size (default 1600x900)\n"
         "  --seed N             fixed run seed (default: random each run)\n"
-        "  --scene CODE         show the scene with this code (shown in the bottom-left corner) for every song\n"
+        "  --universe NAME[:VARIANT]  play every song in this universe (and variant), as shown in the bottom-left\n"
+        "                       corner (e.g. vector, vector:p3 amber, vector:1); T / Y moves on to the next one\n"
+        "  --universe-on-peak   also change universe when a song rises into a peak after a minute in one universe\n"
         "  --in-order           play songs in order (default: random order)\n"
         "  --autoplay           let the computer play\n"
         "  --mute               no sound\n"
         "  --shots PREFIX N     render N screenshots of different scenes then exit (testing)\n"
         "  --shot-time SEC      song position used for screenshots (default 25)\n"
         "  --phase-shots PREFIX one screenshot per phase of the first song, then exit (testing)\n"
-        "  --review-shot OUT.png  one screenshot of a scene made for the first song (random, or --scene), in a\n"
+        "  --review-shot OUT.png  one screenshot of the first song's universe (random, or --universe), in a\n"
         "                       random part of the song (of level --review-level 0|1|2), with a filled board;\n"
         "                       prints a [review] JSON line describing it, then exits (tools/scenereview.py)\n"
+        "  --transition-shots PREFIX N  at --shot-time in the first song (with a filled board), changes from the\n"
+        "                       universe (--universe) to --to NAME[:VARIANT] (default: the next one) with --transition\n"
+        "                       NAME (default: picked), saves N frames across the transition, then exits (testing)\n"
         "  --clip OUT.mp4       record a video (with sound, needs ffmpeg) around the first drop of the first\n"
         "                       song, then exit; --clip-before / --clip-after SEC set the span (default 4 / 6)\n");
 }
@@ -68,13 +75,15 @@ public:
 
 private:
     void startTrack(std::shared_ptr<Track> t);
-    void newScene(float seconds);
+    void newScene(bool instant);
     void computePhases();
-    Theme phaseTheme(int phase) const;
-    void makeBaseTheme(const Footprint& fp, uint64_t seed);
-    std::string sceneCode() const;
+    int phaseLevel(int phase) const;
+    float phaseEnergy(int phase) const;
+    int songUniverse(int* variant);
+    void changeUniverse(int index, int variant, transitions::Reason why, bool instant);
     double firstDropTime() const;
     void printScene() const;
+    std::string universeSpec() const; // "VECTOR:P3 AMBER": --universe gives it back
     void handleEvents();
     void updateGravity(double songTime, float dt);
     void autoplay(float dt);
@@ -92,15 +101,15 @@ private:
     double clipStart_ = -1; // song time where the --clip recording starts
     uint64_t sceneCounter_ = 0;
     std::shared_ptr<Track> track_, nextTrack_;
-    Theme baseTheme_;
+    SongLook look_;              // the song's inputs to universes
+    int forcedUniverse_ = -1, forcedVariant_ = -1;
+    float universeAge_ = 0;      // seconds in the current universe
     // Song phases: detected sections, with long sections split into sub-phases so the scene keeps evolving.
     SongPlan plan_;
     int lastPhase_ = 0;
     float skipToast_ = 0;
     float hit_ = 0;
     int lastSeg_ = 0;          // for soft refreshes between same-level sections
-    Rng wipeRng_{1};
-    int pickWipe(int kind);    // 0 rising, 1 falling, 2 refresh, 3 song/scene change
     float seekToast_ = 0;
     std::string failedTitle_;
     float failedToast_ = 0;
@@ -150,48 +159,68 @@ void App::startTrack(std::shared_ptr<Track> t) {
     std::printf("[app] now playing: %s\n", track_->title.c_str());
     sceneCounter_++;
     computePhases();
-    if (first) {
-        // The scene shown (paused) while the first song loaded becomes its scene: it just starts.
-        lastPhase_ = plan_.phaseAt(0.0);
-        if (!opt_.reviewPath.empty()) makeBaseTheme(track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_));
-        if (!opt_.scene.empty() || !opt_.reviewPath.empty())
-            R_.setTheme(phaseTheme(lastPhase_), 0.01f); // the forced scene (or a song scene), at the song's level
+    lastPhase_ = first ? plan_.phaseAt(0.0) : 0;
+    look_ = makeSongLook(&track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_));
+    // Each song gets its universe (picked from its footprint, never the same twice in a row), swept in with a
+    // transition on the beat; a forced universe stays and performs its own change of song.
+    int variant = -1;
+    const int u = songUniverse(&variant);
+    const bool offline = !opt_.shotPrefix.empty() || !opt_.clipPath.empty();
+    if (forcedUniverse_ >= 0 && u == R_.universe() && !offline) {
+        look_.variant = variant;
+        R_.setSong(look_, 1.5f);
+        R_.setLevel(phaseLevel(lastPhase_), phaseEnergy(lastPhase_), 1.5f, 0.f);
     } else {
-        makeBaseTheme(track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_));
-        R_.setTheme(phaseTheme(0), 3.5f, true, 0.f, pickWipe(3));
+        changeUniverse(u, variant, transitions::SONG_CHANGE, offline);
     }
     sceneNameTimer_ = 8.f;
     printScene();
     lib_.prefetch(runSeed_ + sceneCounter_ * 7919);
 }
 
-void App::newScene(float seconds) {
+// The universe for the current song: the forced one, else one picked from the song's footprint.
+int App::songUniverse(int* variant) {
+    *variant = forcedVariant_;
+    if (forcedUniverse_ >= 0) return forcedUniverse_;
+    return universes::pick(look_, look_.seed, R_.universe());
+}
+
+void App::changeUniverse(int index, int variant, transitions::Reason why, bool instant) {
+    SongLook l = look_;
+    l.variant = variant;
+    const int lv = phaseLevel(lastPhase_);
+    const float en = phaseEnergy(lastPhase_);
+    universeAge_ = 0;
+    if (instant) {
+        R_.setUniverse(index, l, lv, en);
+        return;
+    }
+    Renderer::Change c;
+    c.why = why;
+    R_.changeUniverse(index, l, lv, en, c);
+}
+
+// T / Y: the next universe, with a transition (and the forced universe, if any, is left).
+void App::newScene(bool instant) {
     sceneCounter_++;
-    Footprint fp = track_ ? track_->analysis.fp : Footprint{};
-    // A new random scene, even with --scene (Y is how to leave the forced one).
-    baseTheme_ = generateTheme(fp, runSeed_ ^ splitmix64(sceneCounter_ * 0x51ed27ull));
-    R_.setTheme(phaseTheme(lastPhase_), seconds, true, 0.f, pickWipe(3));
+    forcedUniverse_ = forcedVariant_ = -1;
+    look_.seed = splitmix64(look_.seed ^ sceneCounter_);
+    changeUniverse(universes::next(R_.universe()), -1, transitions::NEW_SCENE, instant);
     sceneNameTimer_ = 6.f;
     printScene();
 }
 
-// Scenes depend on a seed and on the song's footprint; their code carries both, so --scene CODE gives back
-// the same scene whatever the song.
-void App::makeBaseTheme(const Footprint& fp, uint64_t seed) {
-    if (!opt_.scene.empty()) {
-        bool ok = false;
-        baseTheme_ = themeFromCode(opt_.scene, &ok);
-        if (ok) return;
-        std::fprintf(stderr, "[app] bad scene code '%s', using a random scene\n", opt_.scene.c_str());
-        opt_.scene.clear();
-    }
-    baseTheme_ = generateTheme(fp, seed);
+std::string App::universeSpec() const {
+    const UniverseEntry& e = universes::entry(R_.universe());
+    const int v = std::clamp(R_.variant(), 0, std::max(0, (int)e.variants.size() - 1));
+    return std::string(e.name) + (e.variants.empty() ? "" : ":" + e.variants[v]);
 }
 
-// Prints the scene and the command line that shows it again (same scene code, same song).
+// Prints the universe and the command line that shows it again (same universe and variant, same song).
 void App::printScene() const {
-    std::printf("[app] scene: %s (lock effect: %s)\n[app] same scene: zentris --scene %s", baseTheme_.name.c_str(),
-                lockEffectName(baseTheme_.lockEffect), sceneCode().c_str());
+    const UniverseEntry& e = universes::entry(R_.universe());
+    std::printf("[app] universe: %s (%s)\n[app] same universe: zentris --universe %s", R_.label().c_str(), e.blurb,
+                platform::quoteArg(universeSpec()).c_str());
     if (track_) std::printf(" %s", platform::quoteArg(track_->path).c_str());
     std::printf("\n");
 }
@@ -242,7 +271,7 @@ void App::printReview() const {
     std::printf("[review] {\"file\": %s, \"code\": %s, \"scene\": %s, \"song\": %s, \"title\": %s, \"time\": %.1f, "
                 "\"duration\": %.1f, \"level\": %d, \"phase\": %d, \"phases\": %d, \"energy\": %.2f, \"section\": %s, "
                 "\"bpm\": %.0f, \"levels\": %s}\n",
-                jsonStr(opt_.reviewPath).c_str(), jsonStr(sceneCode()).c_str(), jsonStr(R_.targetTheme().name).c_str(),
+                jsonStr(opt_.reviewPath).c_str(), jsonStr(universeSpec()).c_str(), jsonStr(R_.label()).c_str(),
                 jsonStr(track_->path).c_str(), jsonStr(track_->title).c_str(), t, track_->duration(), ph ? ph->level : 1,
                 ph ? plan_.phaseAt(t) : 0, (int)plan_.phases.size(), ph ? ph->energy : 0.f, jsonStr(section).c_str(),
                 an.fp.bpm, jsonStr([&] {
@@ -256,10 +285,6 @@ void App::printReview() const {
                 }()).c_str());
 }
 
-std::string App::sceneCode() const {
-    return baseTheme_.code;
-}
-
 void App::computePhases() {
     plan_ = planSong(track_->analysis);
     const Analysis& an = track_->analysis;
@@ -270,30 +295,14 @@ void App::computePhases() {
     std::printf("\n[app] %zu scene changes, %zu pulse zones\n", plan_.phases.size() - 1, plan_.pulseZones.size());
 }
 
-Theme App::phaseTheme(int phase) const {
-    if (!track_ || plan_.phases.empty()) return baseTheme_;
-    const ScenePhase& ph = plan_.phases[std::clamp(phase, 0, (int)plan_.phases.size() - 1)];
-    return evolveTheme(baseTheme_, ph.level, ph.energy);
+int App::phaseLevel(int phase) const {
+    if (!track_ || plan_.phases.empty()) return 0;
+    return plan_.phases[std::clamp(phase, 0, (int)plan_.phases.size() - 1)].level;
 }
 
-// Transition shapes vary; rising changes favour expanding shapes, falling ones dissolves and falling
-// fronts, refreshes use line-like sweeps.
-int App::pickWipe(int kind) {
-    float w[WIPE_COUNT];
-    switch (kind) {
-    // radial rise fall left right inward curtains dissolve diagonal spiral diamond | risewave fallwave blinds
-    // columns petals cross saltire checker corner split grain
-    // ... | cloudrise cloudopen smoke  (organic cloud-like shapes are favoured everywhere)
-    case 0: { float v[WIPE_COUNT] = {3, 2.5f, 0.3f, 1, 1, 1.5f, 1, 1.5f, 1, 1.2f, 1.5f, 2, 0.3f, 0.8f, 0.8f, 1.5f, 1.2f, 1, 0.6f, 0.8f, 1.2f, 1, 3, 3, 2.5f}; std::copy(v, v + WIPE_COUNT, w); break; }
-    case 1: { float v[WIPE_COUNT] = {0.5f, 0.3f, 2.5f, 1, 1, 0.7f, 1.5f, 3.5f, 1, 0.8f, 0.5f, 0.3f, 2, 1.2f, 1, 0.5f, 0.6f, 0.6f, 0.8f, 0.8f, 0.8f, 2.5f, 2, 2.5f, 3.5f}; std::copy(v, v + WIPE_COUNT, w); break; }
-    case 2: { float v[WIPE_COUNT] = {1, 1.5f, 0.8f, 1.2f, 1.2f, 0.6f, 1.2f, 0, 1.2f, 0.8f, 0.8f, 1.2f, 1, 1, 1, 0.6f, 0.6f, 0.6f, 0.4f, 0.8f, 1, 0, 2, 1.5f, 0}; std::copy(v, v + WIPE_COUNT, w); break; }
-    default: { float v[WIPE_COUNT] = {1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.5f, 2.5f, 2.5f, 2.5f}; std::copy(v, v + WIPE_COUNT, w); break; }
-    }
-    // Patterned shapes are off: they read as a graphic effect rather than a change of scene.
-    for (int p : {WIPE_SPIRAL, WIPE_DIAMOND, WIPE_RISE_WAVE, WIPE_FALL_WAVE, WIPE_BLINDS, WIPE_COLUMNS, WIPE_PETALS,
-                  WIPE_CROSS, WIPE_SALTIRE, WIPE_CHECKER})
-        w[p] = 0.f;
-    return wipeRng_.weighted(w);
+float App::phaseEnergy(int phase) const {
+    if (!track_ || plan_.phases.empty()) return 0.3f;
+    return plan_.phases[std::clamp(phase, 0, (int)plan_.phases.size() - 1)].energy;
 }
 
 void App::toggleFullscreen() {
@@ -361,6 +370,13 @@ void App::updateGravity(double songTime, float dt) {
 }
 
 void App::autoplay(float dt) {
+    // Test hook: ZEN_TEST_TOPOUT=1 drops every piece at once (a quick game over, to check its animation).
+    static const bool topOut = std::getenv("ZEN_TEST_TOPOUT") != nullptr;
+    if (topOut) {
+        botTimer_ -= dt;
+        if (game_.hasPiece() && botTimer_ <= 0) { game_.hardDrop(); botTimer_ = 0.15f; }
+        return;
+    }
     if (game_.bonusReady()) game_.activateBonus();
     if (!game_.hasPiece()) { planned_ = false; return; }
     // Recording a clip: a calm, human pace (a moment to think, unhurried moves, the piece falls visibly).
@@ -392,54 +408,53 @@ std::vector<HudText> App::buildHud(float dt) {
     if (track_) {
         float a = trackAge_ < 7.f ? smoothstepf(0, 1, trackAge_) : 0.35f;
         const Footprint& fp = track_->analysis.fp;
-        hud.push_back({asciiFold(track_->title), 28 * s, 24 * s, 2.2f * s, a});
+        hud.push_back({asciiFold(track_->title), 28 * s, 24 * s, 2.2f * s, a, false, false, HUD_TITLE});
         char info[128];
         std::snprintf(info, sizeof(info), "%.0f BPM   %s", fp.bpm, keyName(fp.key, fp.minor).c_str());
-        hud.push_back({info, 28 * s, 50 * s, 1.5f * s, a * 0.7f, true});
+        hud.push_back({info, 28 * s, 50 * s, 1.5f * s, a * 0.7f, true, false, HUD_INFO});
     } else {
         hud.push_back({lib_.empty() ? "NO SONGS FOUND" : "LOADING THE FIRST SONG...", w * 0.5f, h * 0.5f - 60 * s,
-                       3.f * s, 0.8f, false, true});
+                       3.f * s, 0.8f, false, true, HUD_DIALOG});
     }
     sceneNameTimer_ = std::max(0.f, sceneNameTimer_ - dt);
     if (track_ && !track_->analysis.segments.empty()) {
         const Segment& sg = track_->analysis.segments[track_->analysis.segmentAt(songTime_)];
-        hud.push_back({segmentName(sg.kind), 28 * s, h - 80.f * s, 1.3f * s, 0.42f, true});
+        hud.push_back({segmentName(sg.kind), 28 * s, h - 80.f * s, 1.3f * s, 0.42f, true, false, HUD_SECTION});
     }
-    // Scene name, then its code below (on one line they ran under the board).
+    // The universe and its variant ("VECTOR · P3 AMBER").
     const float sceneA = 0.26f + 0.3f * smoothstepf(0, 2, sceneNameTimer_);
-    hud.push_back({R_.targetTheme().name, 28 * s, h - 60.f * s, 1.3f * s, sceneA});
-    hud.push_back({"#" + sceneCode(), 28 * s, h - 40.f * s, 1.3f * s, sceneA});
+    hud.push_back({R_.label(), 28 * s, h - 50.f * s, 1.3f * s, sceneA, false, false, HUD_UNIVERSE});
 
     // Score panel under the hold slot, labels above previews.
     vec2 hold = R_.project(vec3(-8.6f, 9.4f, 0)), next = R_.project(vec3(8.6f, 9.4f, 0));
     vec2 sc = R_.project(vec3(-8.6f, 1.5f, 0));
-    hud.push_back({"HOLD", hold.x, hold.y, 1.6f * s, 0.62f, false, true});
-    hud.push_back({"NEXT", next.x, next.y, 1.6f * s, 0.62f, false, true});
-    hud.push_back({"SCORE", sc.x, sc.y - 2 * s, 1.6f * s, 0.62f, false, true});
-    hud.push_back({std::to_string(game_.score()), sc.x, sc.y + 18 * s, 2.8f * s, 0.9f, false, true});
-    hud.push_back({"LINES", sc.x, sc.y + 60 * s, 1.6f * s, 0.62f, false, true});
-    hud.push_back({std::to_string(game_.lines()), sc.x, sc.y + 80 * s, 2.8f * s, 0.9f, false, true});
-    hud.push_back({"LEVEL", sc.x, sc.y + 122 * s, 1.6f * s, 0.62f, false, true});
+    hud.push_back({"HOLD", hold.x, hold.y, 1.6f * s, 0.62f, false, true, HUD_LABEL});
+    hud.push_back({"NEXT", next.x, next.y, 1.6f * s, 0.62f, false, true, HUD_LABEL});
+    hud.push_back({"SCORE", sc.x, sc.y - 2 * s, 1.6f * s, 0.62f, false, true, HUD_LABEL});
+    hud.push_back({std::to_string(game_.score()), sc.x, sc.y + 18 * s, 2.8f * s, 0.9f, false, true, HUD_VALUE});
+    hud.push_back({"LINES", sc.x, sc.y + 60 * s, 1.6f * s, 0.62f, false, true, HUD_LABEL});
+    hud.push_back({std::to_string(game_.lines()), sc.x, sc.y + 80 * s, 2.8f * s, 0.9f, false, true, HUD_VALUE});
+    hud.push_back({"LEVEL", sc.x, sc.y + 122 * s, 1.6f * s, 0.62f, false, true, HUD_LABEL});
     hud.push_back({std::to_string(game_.level()) + (game_.level() >= Game::MAX_LEVEL ? " MAX" : ""), sc.x, sc.y + 142 * s,
-                   2.8f * s, 0.9f, false, true});
+                   2.8f * s, 0.9f, false, true, HUD_VALUE});
     if (game_.best() > 0) {
-        hud.push_back({"BEST", sc.x, sc.y + 184 * s, 1.6f * s, 0.5f, false, true});
-        hud.push_back({std::to_string(game_.best()), sc.x, sc.y + 204 * s, 2.f * s, 0.6f, false, true});
+        hud.push_back({"BEST", sc.x, sc.y + 184 * s, 1.6f * s, 0.5f, false, true, HUD_LABEL});
+        hud.push_back({std::to_string(game_.best()), sc.x, sc.y + 204 * s, 2.f * s, 0.6f, false, true, HUD_VALUE});
     }
     if (game_.combo() > 0) {
         vec2 c = R_.project(vec3(8.6f, -4.5f, 0));
-        hud.push_back({"COMBO " + std::to_string(game_.combo()), c.x, c.y, 2.f * s, 0.8f, true, true});
+        hud.push_back({"COMBO " + std::to_string(game_.combo()), c.x, c.y, 2.f * s, 0.8f, true, true, HUD_NOTICE});
     }
 
     // Persistent, discreet skip hint (top right) and feedback when skipping.
     if (lib_.size() > 1) {
         const char* key = input_.active() == Input::Gamepad ? "BACK  NEXT SONG" : "N  NEXT SONG";
-        hud.push_back({key, -28 * s, 24 * s, 1.4f * s, 0.3f});
+        hud.push_back({key, -28 * s, 24 * s, 1.4f * s, 0.3f, false, false, HUD_HINT});
     }
     skipToast_ = std::max(0.f, skipToast_ - dt);
     if (wantSkip_ || skipToast_ > 0)
         hud.push_back({wantSkip_ ? "NEXT SONG LOADING: " + asciiFold(lib_.loadingTitle()) : "NOW: " + (track_ ? asciiFold(track_->title) : std::string()), -28 * s, 44 * s, 1.4f * s,
-                       wantSkip_ ? 0.8f : std::min(0.8f, skipToast_), true});
+                       wantSkip_ ? 0.8f : std::min(0.8f, skipToast_), true, false, HUD_HINT});
 
     // Seek feedback: song time and the section the song is in.
     seekToast_ = std::max(0.f, seekToast_ - dt);
@@ -449,13 +464,13 @@ std::vector<HudText> App::buildHud(float dt) {
         char buf[96];
         std::snprintf(buf, sizeof(buf), "%d:%02d  %s", sec / 60, sec % 60,
                       an.segments.empty() ? "" : segmentName(an.segments[an.segmentAt(songTime_)].kind));
-        hud.push_back({buf, w * 0.5f, 24 * s, 2.f * s, std::min(1.f, seekToast_ * 2.f), true, true});
+        hud.push_back({buf, w * 0.5f, 24 * s, 2.f * s, std::min(1.f, seekToast_ * 2.f), true, true, HUD_NOTICE});
     }
 
     failedToast_ = std::max(0.f, failedToast_ - dt);
     if (failedToast_ > 0)
         hud.push_back({"COULD NOT LOAD " + asciiFold(failedTitle_) + ", TRYING ANOTHER SONG", -28 * s, 64 * s, 1.3f * s,
-                       std::min(1.f, failedToast_), true});
+                       std::min(1.f, failedToast_), true, false, HUD_HINT});
 
     // Bonus gauge (a ring below the "next" previews): the key to press in its center once it's full.
     {
@@ -464,16 +479,16 @@ std::vector<HudText> App::buildHud(float dt) {
         const bool pad = input_.active() == Input::Gamepad;
         if (game_.bonusReady()) {
             float br = 0.55f + 0.3f * (0.5f + 0.5f * std::sin(runTime_ * TAU * 0.4f));
-            hud.push_back({pad ? "ZL ZR" : "V", g.x, g.y - 7 * s, (pad ? 1.3f : 1.8f) * s, br, true, true});
+            hud.push_back({pad ? "ZL ZR" : "V", g.x, g.y - 7 * s, (pad ? 1.3f : 1.8f) * s, br, true, true, HUD_KEY});
         }
         hud.push_back({game_.bonusActive() || game_.bonusReady() ? "SLOW" : "BONUS", lbl.x, lbl.y, 1.4f * s,
-                       game_.bonusActive() ? 0.7f : game_.bonusReady() ? 0.62f : 0.5f, game_.bonusActive(), true});
+                       game_.bonusActive() ? 0.7f : game_.bonusReady() ? 0.62f : 0.5f, game_.bonusActive(), true, HUD_LABEL});
     }
     slowToast_ = std::max(0.f, slowToast_ - dt);
     if (slowToast_ > 0) {
         vec2 c = R_.project(vec3(0, 8.5f, 0));
         float a = std::min(1.f, slowToast_) * std::min(1.f, (2.f - slowToast_) * 4.f);
-        hud.push_back({"SLOW MOTION", c.x, c.y, 3.f * s, 0.75f * a, true, true});
+        hud.push_back({"SLOW MOTION", c.x, c.y, 3.f * s, 0.75f * a, true, true, HUD_TOAST});
     }
     tetrisToast_ = std::max(0.f, tetrisToast_ - dt);
     if (tetrisToast_ > 0) {
@@ -481,21 +496,21 @@ std::vector<HudText> App::buildHud(float dt) {
         float a = std::min(1.f, tetrisToast_ * 1.5f) * std::min(1.f, (2.4f - tetrisToast_) * 5.f);
         float grow = 1.f + 0.08f * smoothstepf(2.4f, 1.6f, tetrisToast_);
         hud.push_back({tetrisB2B_ ? "BACK TO BACK TETRIS" : "TETRIS", c.x, c.y, (tetrisB2B_ ? 3.4f : 4.2f) * grow * s, 0.9f * a,
-                       true, true});
-        hud.push_back({"+" + std::to_string(tetrisPoints_), c.x, c.y + 44 * s, 2.2f * s, 0.75f * a, false, true});
+                       true, true, HUD_TOAST});
+        hud.push_back({"+" + std::to_string(tetrisPoints_), c.x, c.y + 44 * s, 2.2f * s, 0.75f * a, false, true, HUD_TOAST_SUB});
     }
 
     levelToast_ = std::max(0.f, levelToast_ - dt);
     if (levelToast_ > 0) {
         vec2 c = R_.project(vec3(0, 2.f, 0));
         float a = std::min(1.f, levelToast_) * std::min(1.f, (2.5f - levelToast_) * 4.f);
-        hud.push_back({"LEVEL " + std::to_string(game_.level()), c.x, c.y, 3.2f * s, 0.8f * a, true, true});
+        hud.push_back({"LEVEL " + std::to_string(game_.level()), c.x, c.y, 3.2f * s, 0.8f * a, true, true, HUD_TOAST});
     }
 
         // Input device toast.
     if (input_.deviceChangedTimer() > 0 && opt_.shotPrefix.empty() && opt_.clipPath.empty()) { // not in offline renders
         std::string d = input_.active() == Input::Gamepad ? "GAMEPAD  " + upper(input_.gamepadName()) : "KEYBOARD";
-        hud.push_back({d, -28 * s, 70.f * s, 1.5f * s, std::min(1.f, input_.deviceChangedTimer()), true});
+        hud.push_back({d, -28 * s, 70.f * s, 1.5f * s, std::min(1.f, input_.deviceChangedTimer()), true, false, HUD_HINT});
     }
 
     helpTimer_ = std::max(0.f, helpTimer_ - dt);
@@ -511,23 +526,23 @@ std::vector<HudText> App::buildHud(float dt) {
                      "NEXT SONG  N", "SEEK  CTRL+SHIFT+ARROWS", "FULLSCREEN  F", "PAUSE  ESC"};
         const float lineH = 20.f * s, bottom = h - 40.f * s;
         for (size_t i = 0; i < lines.size(); i++)
-            hud.push_back({lines[i], -28 * s, bottom - (lines.size() - 1 - i) * lineH, 1.3f * s, helpA});
+            hud.push_back({lines[i], -28 * s, bottom - (lines.size() - 1 - i) * lineH, 1.3f * s, helpA, false, false, HUD_HELP});
     }
     if (game_.over() && overTime_ > 1.0f) {
         float a = std::min(1.f, (overTime_ - 1.0f) / 1.2f);
-        hud.push_back({"GAME OVER", w * 0.5f, h * 0.5f - 70 * s, 5.f * s, 0.95f * a, true, true});
-        hud.push_back({"SCORE  " + std::to_string(game_.lastScore()), w * 0.5f, h * 0.5f + 0 * s, 2.f * s, 0.85f * a, false, true});
-        hud.push_back({"BEST  " + std::to_string(game_.best()), w * 0.5f, h * 0.5f + 30 * s, 1.6f * s, 0.6f * a, false, true});
+        hud.push_back({"GAME OVER", w * 0.5f, h * 0.5f - 70 * s, 5.f * s, 0.95f * a, true, true, HUD_DIALOG});
+        hud.push_back({"SCORE  " + std::to_string(game_.lastScore()), w * 0.5f, h * 0.5f + 0 * s, 2.f * s, 0.85f * a, false, true, HUD_DIALOG});
+        hud.push_back({"BEST  " + std::to_string(game_.best()), w * 0.5f, h * 0.5f + 30 * s, 1.6f * s, 0.6f * a, false, true, HUD_DIALOG});
         if (overTime_ > 2.5f) {
             float b = std::min(1.f, (overTime_ - 2.5f) / 0.8f);
             hud.push_back({input_.active() == Input::Gamepad ? "PRESS A BUTTON TO PLAY AGAIN" : "PRESS A KEY TO PLAY AGAIN",
-                           w * 0.5f, h * 0.5f + 70 * s, 1.8f * s, 0.75f * b, false, true});
+                           w * 0.5f, h * 0.5f + 70 * s, 1.8f * s, 0.75f * b, false, true, HUD_DIALOG});
         }
     }
     if (paused_) {
-        hud.push_back({"PAUSED", w * 0.5f, h * 0.5f - 40 * s, 5.f * s, 0.95f, true, true});
+        hud.push_back({"PAUSED", w * 0.5f, h * 0.5f - 40 * s, 5.f * s, 0.95f, true, true, HUD_DIALOG});
         hud.push_back({input_.active() == Input::Gamepad ? "START TO RESUME" : "ESC TO RESUME    Q TO QUIT",
-                       w * 0.5f, h * 0.5f + 20 * s, 1.8f * s, 0.7f, false, true});
+                       w * 0.5f, h * 0.5f + 20 * s, 1.8f * s, 0.7f, false, true, HUD_DIALOG});
     }
     return hud;
 }
@@ -538,7 +553,7 @@ int App::run() {
     const bool clipMode = !opt_.clipPath.empty();
     const bool shotMode = !opt_.shotPrefix.empty() || clipMode; // offline: fixed time step, no sound
     const bool reviewMode = !opt_.reviewPath.empty();
-    if (clipMode || reviewMode) { showHelp_ = false; helpTimer_ = 0; }
+    if (clipMode || reviewMode || !opt_.transitionShots.empty()) { showHelp_ = false; helpTimer_ = 0; }
     FILE* clipPipe = nullptr;
     std::vector<unsigned char> clipPx;
 
@@ -574,9 +589,21 @@ int App::run() {
     lib_.prefetch(runSeed_);
 
     game_.reset(runSeed_);
-    wipeRng_ = Rng(runSeed_ ^ 0x77195EEDull);
-    makeBaseTheme(Footprint{}, runSeed_);
-    R_.setTheme(baseTheme_, 0.01f);
+    // A universe while the first song loads (the forced one, else one picked from the run seed); the first song
+    // then gets its own.
+    if (!opt_.universe.empty()) {
+        forcedUniverse_ = universes::parse(opt_.universe, &forcedVariant_);
+        if (forcedUniverse_ < 0) {
+            std::fprintf(stderr, "[app] unknown universe '%s'; universes:", opt_.universe.c_str());
+            for (int i = 0; i < universes::count(); i++) std::fprintf(stderr, " %s", universes::entry(i).name);
+            std::fprintf(stderr, "\n");
+        }
+    }
+    look_ = makeSongLook(nullptr, runSeed_);
+    {
+        int variant = -1;
+        changeUniverse(songUniverse(&variant), variant, transitions::NEW_SCENE, true);
+    }
 
     double last = glfwGetTime();
     float fade = 0.f;
@@ -656,7 +683,7 @@ int App::run() {
             wantSkip_ = true;
             skipToast_ = 2.5f;
         }
-        if (input_.pressed(A_NEW_SCENE)) newScene(2.5f);
+        if (input_.pressed(A_NEW_SCENE)) newScene(false);
         // Ctrl+Shift+Left/Right: jump 10 s in the song (repeats while held) to test sections quickly.
         {
             int dir = input_.repeatSteps(A_SEEK_FWD) - input_.repeatSteps(A_SEEK_BACK);
@@ -679,7 +706,12 @@ int App::run() {
         if (!paused_ && !waiting) {
             trackAge_ += dt;
             if (opt_.autoplay || shotMode) {
-                if (!reviewFilled_) autoplay(dt); // a review's filled board is left as it is
+                // Test hook: ZEN_TEST_OVER=T hard-drops every piece from T seconds into a shot's settle (a game
+                // over in screenshots, to check each universe's top out).
+                static const float overAt = std::getenv("ZEN_TEST_OVER") ? (float)std::atof(std::getenv("ZEN_TEST_OVER")) : -1.f;
+                if (shotMode && overAt >= 0.f && shotSettle >= overAt && !game_.over()) {
+                    if (game_.hasPiece()) game_.hardDrop();
+                } else if (!reviewFilled_) autoplay(dt); // a review's filled board is left as it is
             } else {
                 for (int i = 0; i < input_.repeatSteps(A_LEFT); i++) game_.move(-1);
                 for (int i = 0; i < input_.repeatSteps(A_RIGHT); i++) game_.move(1);
@@ -706,7 +738,7 @@ int App::run() {
             handleEvents();
             if (game_.level() > lastLevel_ && !game_.over()) {
                 levelToast_ = 2.5f;
-                R_.setTheme(R_.latestTheme(), 1.6f, true, 0.35f, pickWipe(2)); // soft refresh wave
+                R_.refresh(0.35f); // soft refresh wave
                 R_.levelUp();
                 std::printf("[app] level %d\n", game_.level());
             }
@@ -717,7 +749,7 @@ int App::run() {
                 slowWas_ = game_.bonusActive();
                 audio_.bend(-0.15f, 0.9f); // a very slight slow-down and back, at the start and at the end
                 // The screen's colors are reversed for the whole bonus (a front sweeps it in and out).
-                R_.setInverted(slowWas_);
+                R_.setBonus(slowWas_);
             }
         }
 
@@ -738,6 +770,9 @@ int App::run() {
             // Slow breathing over two bars (8 beats) instead of a pulse on every beat.
             double bp = an.beatPosition(t);
             music_.beatPhase = (float)(bp - std::floor(bp));
+            music_.beat = bp;
+            music_.bpm = an.fp.bpm;
+            music_.hasSong = !audio_.finished();
             float breath = 0.5f - 0.5f * std::cos(TAU * (float)std::fmod(bp / 8.0, 1.0));
             // Beat pulses only inside rare accent windows, as a soft swell (no hard hits).
             float swell = 0.5f + 0.5f * std::cos(TAU * music_.beatPhase);
@@ -792,7 +827,7 @@ int App::run() {
                     bool phaseStart = std::fabs(ph.start - sg.start) < 0.05;
                     if (!phaseStart && sg.end - sg.start >= 8.0) {
                         float strength = (sg.kind == SEG_CHORUS || sg.kind == SEG_DROP) ? 0.5f : 0.3f;
-                        R_.setTheme(R_.latestTheme(), 1.6f, true, strength, pickWipe(2));
+                        R_.refresh(strength);
                         std::printf("[app] refresh (%s)\n", segmentName(sg.kind));
                     }
                     lastSeg_ = seg;
@@ -813,7 +848,15 @@ int App::run() {
                     if (songTime_ + lead >= to.start || nxt < cur) {
                         lastPhase_ = nxt;
                         float impact = rising ? (to.level >= 2 ? 1.f : 0.5f) : 0.f;
-                        R_.setTheme(phaseTheme(nxt), rising ? 1.8f : 4.5f, true, impact, pickWipe(rising ? 0 : 1));
+                        R_.setLevel(to.level, to.energy, rising ? 1.8f : 4.5f, impact);
+                        // Optional (--universe-on-peak): a long song may also move to another universe when it
+                        // rises into a peak, after a minute in the current one.
+                        if (opt_.universeOnPeak && rising && to.level >= 2 && universeAge_ > 60.f && forcedUniverse_ < 0 &&
+                            opt_.shotPrefix.empty() && opt_.clipPath.empty()) {
+                            sceneCounter_++;
+                            look_.seed = splitmix64(look_.seed ^ sceneCounter_);
+                            changeUniverse(universes::pick(look_, look_.seed, R_.universe()), -1, transitions::PHASE_PEAK, false);
+                        }
                         lastSeg_ = to.seg;
                         const Segment& sg = an.segments[to.seg];
                         std::printf("[app] scene level %d (%s, energy %.2f)%s\n", to.level, segmentName(sg.kind),
@@ -825,7 +868,10 @@ int App::run() {
             music_.intensity = 0.2f;
             music_.beatPhase = (float)std::fmod(runTime_, 1.0);
             music_.beatPulse = 0;
+            music_.beat = runTime_ * 2.0;
+            music_.hasSong = false;
         }
+        universeAge_ += dt;
 
         glfwGetFramebufferSize(win_, &fbw, &fbh);
         static int lastW = 0, lastH = 0;
@@ -856,7 +902,7 @@ int App::run() {
             if (songTime_ >= clipStart_ + opt_.clipBefore + opt_.clipAfter) {
                 const int rc = platform::closeRead(clipPipe);
                 clipPipe = nullptr;
-                std::printf("[clip] %s %s (%s)\n", rc == 0 ? "wrote" : "FAILED", opt_.clipPath.c_str(), R_.targetTheme().name.c_str());
+                std::printf("[clip] %s %s (%s)\n", rc == 0 ? "wrote" : "FAILED", opt_.clipPath.c_str(), R_.label().c_str());
                 break;
             }
         }
@@ -867,10 +913,10 @@ int App::run() {
             if (fxEnv && shotSettle < 12.f - fxAt && shotSettle + dt >= 12.f - fxAt) {
                 int idx = std::atoi(std::strchr(fxEnv, ':') ? std::strchr(fxEnv, ':') + 1 : "0") + shotsTaken;
                 if (std::strncmp(fxEnv, "slow", 4) == 0) {
-                    R_.forceSpecialFx(idx, -1);
+                    R_.forceFx(idx, -1);
                     game_.debugChargeBonus();
                 } else {
-                    R_.forceSpecialFx(-1, idx);
+                    R_.forceFx(-1, idx);
                     GameEvent ev{GameEvent::Clear};
                     ev.count = 4;
                     for (int y = 18; y < 22; y++)
@@ -880,6 +926,42 @@ int App::run() {
                     tetrisPoints_ = 1200;
                     R_.onEvent(ev, game_);
                 }
+            }
+            // --transition-shots: a filled board, then a change of universe at the shot time, N frames across it.
+            if (!opt_.transitionShots.empty()) {
+                static int tShots = -1; // -1: not triggered yet
+                if (!reviewFilled_ && shotSettle > 10.5f) {
+                    game_.debugFillBoard(runSeed_);
+                    reviewFilled_ = true;
+                }
+                shotSettle += dt;
+                if (tShots < 0 && shotSettle > 12.f) {
+                    int variant = -1;
+                    int to = opt_.toUniverse.empty() ? universes::next(R_.universe(), true) : universes::parse(opt_.toUniverse, &variant);
+                    if (to < 0) { std::fprintf(stderr, "[app] unknown universe '%s'\n", opt_.toUniverse.c_str()); break; }
+                    SongLook l = look_;
+                    l.variant = variant;
+                    Renderer::Change c;
+                    c.transition = opt_.transition.empty() ? -1 : transitions::find(opt_.transition);
+                    if (!opt_.transition.empty() && c.transition < 0)
+                        std::fprintf(stderr, "[app] unknown transition '%s'\n", opt_.transition.c_str());
+                    c.why = transitions::SONG_CHANGE;
+                    R_.changeUniverse(to, l, phaseLevel(plan_.phaseAt(songTime_)), phaseEnergy(plan_.phaseAt(songTime_)), c);
+                    tShots = 0;
+                } else if (tShots >= 0) {
+                    const int N = opt_.transitionShotCount;
+                    const float p = R_.changeProgress();
+                    const float want = N == 1 ? 0.5f : 0.03f + 0.94f * tShots / (N - 1);
+                    if (!R_.changing() || p >= want) {
+                        char name[512];
+                        std::snprintf(name, sizeof(name), "%s%02d.png", opt_.transitionShots.c_str(), tShots);
+                        R_.screenshot(name);
+                        std::printf("[shot] %s  <- %s at %.2f (%s)\n", name, R_.transitionName(), p, R_.label().c_str());
+                        if (++tShots >= N || !R_.changing()) break;
+                    }
+                }
+                glfwSwapBuffers(win_);
+                continue;
             }
             if (reviewMode && !reviewFilled_ && shotSettle > 10.5f) {
                 game_.debugFillBoard(runSeed_);
@@ -892,7 +974,7 @@ int App::run() {
                 if (reviewMode) std::snprintf(name, sizeof(name), "%s", opt_.reviewPath.c_str());
                 R_.screenshot(name);
                 if (reviewMode) printReview();
-                std::printf("[shot] %s  <- %s\n", name, R_.targetTheme().name.c_str());
+                std::printf("[shot] %s  <- %s\n", name, R_.label().c_str());
                 shotsTaken++;
                 shotSettle = 0;
                 if (shotsTaken >= opt_.shotCount) break;
@@ -901,7 +983,7 @@ int App::run() {
                     glfwSwapBuffers(win_);
                     continue;
                 }
-                newScene(0.01f);
+                newScene(true);
                 if (shotsTaken % 2 == 0 && nextTrack_) startTrack(std::move(nextTrack_));
                 simSongTime_ = 0;
             }
@@ -941,7 +1023,16 @@ int main(int argc, char** argv) {
         else if (a == "--fullscreen") o.fullscreen = true;
         else if (a == "--hidden") o.hidden = true;
         else if (a == "--seed" && i + 1 < argc) o.seed = std::stoull(argv[++i]);
-        else if (a == "--scene" && i + 1 < argc) o.scene = argv[++i];
+        else if ((a == "--universe" || a == "--scene") && i + 1 < argc) o.universe = argv[++i];
+        else if (a == "--universe-on-peak") o.universeOnPeak = true;
+        else if (a == "--to" && i + 1 < argc) o.toUniverse = argv[++i];
+        else if (a == "--transition" && i + 1 < argc) o.transition = argv[++i];
+        else if (a == "--transition-shots" && i + 2 < argc) {
+            o.transitionShots = argv[++i];
+            o.transitionShotCount = std::max(1, std::atoi(argv[++i]));
+            o.shotPrefix = o.transitionShots;
+            o.shotCount = 1;
+        }
         else if (a == "--size" && i + 1 < argc) std::sscanf(argv[++i], "%dx%d", &o.width, &o.height);
         else if (a == "--shots" && i + 2 < argc) { o.shotPrefix = argv[++i]; o.shotCount = std::atoi(argv[++i]); }
         else if (a == "--phase-shots" && i + 1 < argc) { o.shotPrefix = argv[++i]; o.shotCount = 99; o.phaseShots = true; }

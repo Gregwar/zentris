@@ -1,209 +1,98 @@
 #pragma once
-#include <array>
+// The host renderer: owns the active universe (universe.hpp) and, during a change of universe, the incoming one;
+// renders each into its own texture and composites them with a transition (transitions.hpp). Outside changes,
+// only the active universe renders, straight to the window.
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <glad/gl.h>
 
-#include "analysis.hpp"
-#include "game.hpp"
-#include "theme.hpp"
-
-// Per-frame audio / music state the visuals react to.
-struct MusicState {
-    FrameFeatures audio;
-    float intensity = 0.3f;  // slow section energy
-    float beatPhase = 0;     // 0..1 inside current beat
-    float beatPulse = 0;     // decaying pulse on each beat
-    // Slow multipliers from the song structure (intro sparse, chorus full, builds ramping...).
-    float density = 1, speed = 1, glow = 1, saturation = 1;
-    float energy = 0.5f;     // overall energy: tempo x section intensity x level (0..1)
-    float kick = 0;          // envelope of strong bass hits (fast attack, ~0.3 s decay)
-    std::array<float, NUM_BANDS> bandsFast{}; // quickly smoothed band levels (equalizer)
-};
-
-// How a scene transition spreads over the screen (every shape has a soft glowing front).
-enum WipeShape {
-    WIPE_RADIAL,   // from the board outward
-    WIPE_RISE,     // bottom to top
-    WIPE_FALL,     // top to bottom
-    WIPE_LEFT,     // left to right
-    WIPE_RIGHT,    // right to left
-    WIPE_INWARD,   // edges to center
-    WIPE_CURTAINS, // both sides to the middle
-    WIPE_DISSOLVE, // organic noise blotches
-    WIPE_DIAGONAL, // corner to corner
-    WIPE_SPIRAL,   // sweeping around the board
-    WIPE_DIAMOND,  // diamond from the center
-    WIPE_RISE_WAVE, WIPE_FALL_WAVE, // wavy rising / falling fronts
-    WIPE_BLINDS,   // staggered horizontal bands
-    WIPE_COLUMNS,  // staggered vertical bands
-    WIPE_PETALS,   // radial front with angular lobes
-    WIPE_CROSS,    // plus-shaped from the center
-    WIPE_SALTIRE,  // X-shaped from the center
-    WIPE_CHECKER,  // checkerboard cells in two passes
-    WIPE_CORNER,   // from the bottom-left corner
-    WIPE_SPLIT,    // from the horizontal middle line outward
-    WIPE_GRAIN,    // fine noise
-    WIPE_CLOUD_RISE, // clouds, drifting upward
-    WIPE_CLOUD_OPEN, // clouds opening from the board
-    WIPE_SMOKE,    // warped smoke
-    WIPE_COUNT
-};
-
-struct HudText {
-    std::string text;
-    float x, y;       // pixels (top-left origin); negative x = right aligned from the right edge
-    float scale;
-    float alpha;
-    bool accent = false;
-    bool center = false;
-};
-
-// A filled rectangle under the HUD text (pixels, top-left origin): the scene's backdrop tone (dark on dark
-// scenes, light on pale ones), the accent color, or a given color.
-struct HudRect {
-    float x, y, w, h;
-    float alpha;
-    bool accent = false;
-    bool custom = false; // use `color` (sRGB) instead
-    vec3 color{};
-};
+#include "layout.hpp"
+#include "transitions.hpp"
+#include "ugl.hpp"
+#include "universe.hpp"
+#include "universes/registry.hpp"
 
 class Renderer {
 public:
+    ~Renderer();
     bool init(int width, int height);
     void resize(int width, int height);
-    // Start a transition to a new theme.
-    // wipe: the new theme ripples outward from the board (used for song phases and song changes).
-    // impact 0..1: a rising transition (e.g. into a drop) sweeps a bright ring out and swells the glow.
-    void setTheme(const Theme& t, float seconds, bool wipe = false, float impact = 0.f, int shape = WIPE_RADIAL);
-    // Latest requested theme (a queued one if a transition is running).
-    const Theme& latestTheme() const { return hasPending_ ? pending_ : to_; }
-    const Theme& targetTheme() const { return to_; }
-    const Theme& current() const { return cur_; }
 
+    // ---- Universes.
+    // Switches to universe `index` (registry) at once: no transition.
+    void setUniverse(int index, const SongLook& look, int level, float energy);
+    // Changes to universe `index` with a transition, started on the next downbeat and lasting a few bars. A change
+    // asked while another runs finishes that one first. Universe `index` may be the active one: a fresh instance
+    // (e.g. with another variant) replaces it.
+    struct Change {
+        int transition = -1;   // transitions::Kind, -1: picked from both universes' hints
+        transitions::Reason why = transitions::NEW_SCENE;
+        float bars = 0;        // length in bars, 0: about 4 s at the song's tempo (1 to 4 bars)
+        bool onBeat = true;    // wait for the next downbeat (or beat) to start
+    };
+    void changeUniverse(int index, const SongLook& look, int level, float energy, const Change& c);
+    void changeUniverse(int index, const SongLook& look, int level, float energy) {
+        changeUniverse(index, look, level, energy, Change{});
+    }
+    // A new song in the same universe: the universe performs its own change.
+    void setSong(const SongLook& look, float seconds);
+    int universe() const;              // the universe shown (the incoming one during a change)
+    int variant() const;               // its variant
+    std::string label() const;         // "VECTOR · P3 AMBER"
+    bool changing() const { return state_ != IDLE; }
+    float changeProgress() const { return state_ == RUNNING ? p_ : (state_ == PENDING ? 0.f : -1.f); }
+    const char* transitionName() const { return transitions::name(kind_); }
+
+    // ---- Song phase and game, forwarded to the universe(s).
+    void setLevel(int level, float energy, float seconds, float impact);
+    void refresh(float strength);
     void onEvent(const GameEvent& ev, const Game& game);
-    void kick(float amount) { kick_ = std::max(kick_, amount); }
-    void levelUp(); // ring of light around the board
-    // Slow-motion bonus: the screen's colors are reversed while it lasts. Switching sweeps a front out
-    // from the board (like a drop's wave, with its ring and glow), right away.
-    void setInverted(bool on);
-    // Testing: force the next slow-motion / Tetris animation (index in its pool, -1 = random).
-    void forceSpecialFx(int slowAnim, int tetrisAnim) { forceSlow_ = slowAnim; forceTetris_ = tetrisAnim; }
-    static constexpr int SLOW_ANIMS = 7, TETRIS_ANIMS = 7;
-    // Dim the scene (like pause) without freezing it, e.g. behind the game-over screen.
+    void kick(float amount);
+    void levelUp();
+    void setBonus(bool on);
     void setDim(bool d) { dim_ = d; }
-    // Rectangles drawn under the HUD text from the next frame on (zenscene's menu).
     void setPanels(std::vector<HudRect> p) { panels_ = std::move(p); }
+    void forceFx(int slow, int tetris);
 
     void render(const Game& game, const MusicState& music, double time, float dt, bool paused,
                 const std::vector<HudText>& hud, float fade);
-    // World position (board space) to window pixels.
+    // Board space -> window pixels, through the universe shown (blended during a change).
     vec2 project(const vec3& p) const;
     bool screenshot(const std::string& path);
     // The frame just rendered, RGB, rows bottom to top.
     void readFrame(std::vector<unsigned char>& px, int& w, int& h);
 
+    static vec3 gaugeCenter() { return layout::GAUGE_CENTER; }
+    static constexpr float GAUGE_R = layout::GAUGE_R;
+
 private:
-    struct Mesh { GLuint vao = 0, vbo = 0, ebo = 0; int count = 0; };
-    struct BlockInst { vec3 pos, scale; vec4 color, params; };
-    struct Burst { vec3 pos, vel; vec3 color; float life, maxLife, size; };
-    struct Dying { vec3 pos; int type; float t, delay, dur; int effect; vec3 dir; };
+    struct Slot {
+        std::unique_ptr<Universe> u;
+        int index = -1;
+    };
+    Slot make(int index, const SongLook& look, int level, float energy);
+    void finishChange();
+    template <class F> void each(F f) {
+        if (cur_.u) f(*cur_.u);
+        if (next_.u) f(*next_.u);
+    }
 
-    GLuint compile(const char* vs, const char* fs, const char* name);
-    void buildMesh(Mesh& m, bool sharpCube, float exponent, int shape = 0); // shape: a profile mesh (blockshapes.hpp)
-    void createTargets();
-    void drawBackground(const MusicState& music, double time);
-    void drawParticleLayer(const ParticleLayer& L, const Theme& owner, float weight, bool side, const MusicState& music);
-    float wipeMix(const vec3& worldPos) const;
-    void drawBlocks(const std::vector<BlockInst>& inst, bool depthWrite);
-    void drawBursts();
-    void drawText(const std::vector<HudText>& hud);
-    void spawnRing(vec3 center, float radius, vec3 color, int n, float speed, float life, float size);
-    void addEqualizer(const Theme& th, float weight, const MusicState& music, std::vector<BlockInst>& fx);
-    void collectBoard(const Game& game, const MusicState& music, double time, std::vector<BlockInst>& solid,
-                      std::vector<BlockInst>& ghost, std::vector<BlockInst>& fx);
-    void spawnBurst(vec3 pos, vec3 color, int n, float speed, float life, float size);
-    // Special animations (specialfx.cpp): the slow-motion bonus and Tetris celebrations, each picked from a
-    // pool, plus the bonus gauge beside the board.
-    struct Glint { vec3 pos, color; float size, alpha; }; // a particle drawn for this frame only
-    struct Anim { int kind; float t, dur; vec3 origin, colA, colB; uint64_t seed; float emitted; };
-    void startSlowFx();
-    void startTetrisFx(float rowY, bool backToBack);
-    void updateSpecialFx(const Game& game, const MusicState& music, float dt);
-    void addGauge(const Game& game, double time);
-public:
-    // Where the bonus gauge is (board space): below the third "next" preview.
-    static vec3 gaugeCenter() { return vec3(8.6f, -2.1f, 0.f); }
-    static constexpr float GAUGE_R = 1.f;
-private:
-    void slowGlints(float t, float presence, const Game& game, const MusicState& music);
-    void tetrisStep(Anim& a, float dt);
-    std::vector<Glint> glints_;
-    std::vector<Anim> tetrisAnims_;
-    int slowAnim_ = 0, lastSlow_ = -1, lastTetris_ = -1, forceSlow_ = -1, forceTetris_ = -1;
-    bool slowOn_ = false;
-    float slowT_ = 0, slow_ = 0;   // time in the bonus; eased presence 0..1 (also slows the world)
-    float gaugeShown_ = 0, readyFlash_ = 0;
-    uint64_t slowSeed_ = 1;
-    bool inverted_ = false;
-    float invT_ = 10.f; // time since the inversion switched
-    vec3 cellPos(float x, float y) const; // board cell -> world
-
-    int w_ = 1, h_ = 1;
-    GLuint progBg_ = 0, progPart_ = 0, progBurst_ = 0, progBlock_ = 0, progDown_ = 0, progUp_ = 0, progComp_ = 0,
-           progText_ = 0;
-    GLuint emptyVao_ = 0;
-    GLuint quadVbo_ = 0, seedVbo_ = 0, partVao_ = 0;
-    GLuint burstVao_ = 0, burstVbo_ = 0;
-    GLuint instVbo_ = 0;
-    GLuint textVao_ = 0, textVbo_ = 0;
-    Mesh cubeMesh_, blockMesh_;  // sharp cube for helpers; morphable superellipsoid (or profile shape) for blocks
-    float builtExp_ = -1;
-    int builtShape_ = 0;        // the profile mesh blockMesh_ holds, 0: the superellipsoid of builtExp_
-
-    GLuint msFbo_ = 0, msColor_ = 0, msDepth_ = 0;
-    GLuint sceneFbo_ = 0, sceneTex_ = 0;
-    static constexpr int BLOOM_MIPS = 6;
-    GLuint bloomFbo_[BLOOM_MIPS] = {}, bloomTex_[BLOOM_MIPS] = {};
-    int bloomW_[BLOOM_MIPS] = {}, bloomH_[BLOOM_MIPS] = {};
-    int samples_ = 4;
-
-    Theme from_, to_, cur_, pending_;
-    float transT_ = 1.f, transDur_ = 1.f, pendingDur_ = 1.f, mix_ = 1.f;
-    bool hasTheme_ = false, hasPending_ = false, wipe_ = false, pendingWipe_ = false;
-    float wipeFront_ = 0, impact_ = 0, pendingImpact_ = 0, swell_ = 0, wipeSeed_ = 0;
-    int wipeShape_ = WIPE_RADIAL, pendingShape_ = WIPE_RADIAL;
-    static constexpr float WIPE_W = 0.35f;
-    float pauseFade_ = 0, settleGlow_ = 0;
-    float lockAge_ = 99.f, lockX_ = 0, lockY_ = 0; // last lock: seconds since, mean cell (board coordinates)
-    // Lock effects with small bodies of their own (splash droplets, petals, confetti): simulated with the bursts,
-    // drawn as soft sprites (shape 0) or thin emissive tiles (confetti, which tumble).
-    struct LockBit { vec3 pos, vel, color; float life, maxLife, size, grav, drag, phase; int kind; };
-    enum { LB_DROP, LB_PETAL, LB_CONFETTI };
-    std::vector<LockBit> lockBits_;
-    struct LockSprite { vec3 pos, color; float size, alpha; };
-    std::vector<LockSprite> lockSprites_; // rebuilt by collectBoard every frame, drawn with the bursts
-    bool dim_ = false;
+    Slot cur_, next_;
+    enum State { IDLE, PENDING, RUNNING } state_ = IDLE;
+    int kind_ = 0, lastKind_ = -1;
+    float p_ = 0, seconds_ = 3.f, beats_ = 8.f, pendingT_ = 0;
+    double startBeat_ = 0;
+    bool pendingInit_ = false;
+    Change want_;
+    uint64_t changes_ = 0;
+    ugl::Target texA_, texB_;
+    transitions::Compositor comp_;
+    GLuint cellsTex_ = 0;
+    int level_ = 1;
+    float energy_ = 0.5f;
+    bool bonus_ = false, dim_ = false;
     std::vector<HudRect> panels_;
-    float govern_ = 1.f;      // automatic exposure reduction when the scene gets too bright
-    float bgLum_ = 0.f;       // measured brightness around the board (sides of the screen)
-    float legible_ = 0.f;     // 0..1: how much the board needs separating from the scene (eased)
-    int sceneLevels_ = 1;
-
-    mat4 view_, proj_, vp_;
-    vec3 camPos_;
-    float ptimeFrom_ = 0, ptimeTo_ = 0; // particle clocks (speed follows music intensity)
-    float kick_ = 0;
-    float clearGlow_ = 0;
-    std::vector<Burst> bursts_;
-    std::vector<Dying> dying_;
-    float rayTime_ = 0, surfTime_ = 0;
-    // Equalizer state at the finest resolution: bar levels, peak caps and their hold timers.
-    static constexpr int EQ_MAX = 48;
-    float eqBar_[EQ_MAX] = {}, eqPeak_[EQ_MAX] = {}, eqHold_[EQ_MAX] = {};
-    void updateEqualizer(const MusicState& music, float dt);
-    Rng rng_{12345};
-    static constexpr int MAX_PARTICLES = 26000;
+    int w_ = 1, h_ = 1;
 };
