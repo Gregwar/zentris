@@ -58,7 +58,8 @@ strobing (one soft flash on the drop is fine).
 - Merging cells into one shape is fine when it is the universe's design (one brush stroke per piece in SUMI),
   never by accident (different pieces of the same color fusing).
 
-**Taste, from play testing the first ten universes.** What worked and what did not:
+**Taste, from play testing the first ten universes.** In one line: minimalist, no bloat, and original, never a
+classical Tetris look. What worked and what did not:
 
 | Liked | Disliked |
 |---|---|
