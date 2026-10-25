@@ -1,8 +1,7 @@
-// zenscene: a scene viewer. The computer plays (blocks keep falling) while the menu on the left adjusts the
-// scene: every choice of the generated scene can be pinned, and the song phase (section, level) is picked by
-// hand. The scene code printed after each change gives the adjusted scene back: zentris --scene CODE.
-// Options can be switched off (src/scene-options.txt): scenes, new random ones included, never pick them; the menu
-// hides them too unless --disabled is given. "Send to dashboard" makes a scene review thread (tools/scenereview.py) out of the scene and a comment.
+// zenscene: a universe viewer. The computer plays (blocks keep falling) while the menu on the left picks the
+// universe and its variant, the song phase (section, level) and the transition used for the next change of
+// universe, so universes and the transitions between them can be looked at without a song. "Send to dashboard"
+// makes a scene review thread (tools/scenereview.py) out of the universe shown and a comment.
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 
@@ -11,11 +10,11 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
-#include <filesystem>
-#include <memory>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <memory>
 #include <random>
 #include <string>
 #include <thread>
@@ -26,37 +25,22 @@
 #include "platform.hpp"
 #include "renderer.hpp"
 #include "songplan.hpp"
-#include "stb_easy_font.h"
-#include "theme.hpp"
 
 namespace {
 
-// Menu rows: the song phase first, then the scene's choices.
-enum { ROW_SECTION, ROW_LEVEL, ROW_FIELDS };
-constexpr int ROWS = ROW_FIELDS + SF_COUNT;
+enum { ROW_UNIVERSE, ROW_VARIANT, ROW_SECTION, ROW_LEVEL, ROW_TRANSITION, ROWS };
+const char* ROW_NAMES[ROWS] = {"UNIVERSE", "VARIANT", "SECTION", "LEVEL", "TRANSITION"};
 const char* LEVEL_NAMES[3] = {"CALM", "MID", "PEAK"};
 
 struct Options {
-    std::string code;
+    std::string universe; // NAME[:VARIANT]
     int width = 1600, height = 900;
     std::string shot; // --shot OUT.png: render a few seconds, save a screenshot, exit
     float shotAfter = 8.f;
     std::string reviewShot; // --review-shot OUT.png: the same without the menu, for the dashboard (prints [review])
     int select = 0;
     int section = -1, level = -1;
-    bool showDisabled = false; // --disabled: the menu also offers the options switched off
 };
-
-// The options list of the sources (it may be newer than the one built in).
-void loadSourceOptions() {
-    if (FILE* in = std::fopen((std::string(ZEN_SOURCE_DIR) + "/src/scene-options.txt").c_str(), "r")) {
-        std::string text;
-        char buf[4096];
-        for (size_t n; (n = std::fread(buf, 1, sizeof(buf), in)) > 0;) text.append(buf, n);
-        std::fclose(in);
-        loadSceneOptions(text);
-    }
-}
 
 class SceneViewer {
 public:
@@ -64,14 +48,10 @@ public:
     int run();
 
 private:
-    void setCode(const std::string& code);
-    void randomScene();
-    void rebuild(float seconds);
+    void show(bool transition);
     void change(int row, int dir);
-    void togglePin(int row);
-    void toggleEnabled(int row);
-    void saveOptions();
-    std::string rowValue(int row, bool* pinned) const;
+    std::string rowValue(int row) const;
+    std::string spec() const;
     int rowAt(double mx, double my) const;
     void autoplay(float dt);
     void updateMusic(float dt);
@@ -82,6 +62,7 @@ private:
     void onChar(unsigned cp);
     void sendToDashboard();
     bool overButton(double mx, double my) const;
+    void tetris();
 
     Options opt_;
     GLFWwindow* win_ = nullptr;
@@ -90,9 +71,9 @@ private:
     MusicState music_;
     std::mt19937_64 rng_{std::random_device{}() ^ (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count()};
 
-    SceneId id_;                // the scene (its code is the identity)
-    bool pin_[SF_COUNT] = {};   // choices kept through new random scenes
-    Theme base_;
+    int universe_ = 0, variant_ = 0;
+    int transition_ = -1;        // -1: picked from the universes' hints
+    uint64_t seed_ = 1;
     static constexpr float BPM = 120.f; // the steady beat standing in for a song
     int section_ = SEG_VERSE, level_ = 1;
     int sel_ = 0, hover_ = -1;
@@ -113,129 +94,89 @@ private:
     std::string toastText_;
 };
 
-void SceneViewer::setCode(const std::string& code) {
-    SceneId id;
-    if (!parseSceneCode(code, id)) {
-        std::fprintf(stderr, "[zenscene] bad scene code '%s', using a random scene\n", code.c_str());
-        randomScene();
-        return;
+float levelEnergy(int level) { return level == 2 ? 0.9f : (level == 1 ? 0.55f : 0.25f); }
+
+std::string SceneViewer::spec() const {
+    const UniverseEntry& e = universes::entry(universe_);
+    return std::string(e.name) + (e.variants.empty() ? "" : ":" + e.variants[std::clamp(variant_, 0, (int)e.variants.size() - 1)]);
+}
+
+// Shows the universe and variant of the menu: at once, or with the menu's transition (on the next downbeat).
+void SceneViewer::show(bool transition) {
+    SongLook look = makeSongLook(nullptr, seed_);
+    look.variant = variant_;
+    if (transition) {
+        Renderer::Change c;
+        c.transition = transition_;
+        R_.changeUniverse(universe_, look, level_, levelEnergy(level_), c);
+    } else {
+        R_.setUniverse(universe_, look, level_, levelEnergy(level_));
     }
-    id_ = id;
-    rebuild(0.01f);
-}
-
-// R: a new random identity (only options switched on), keeping the pinned choices.
-void SceneViewer::randomScene() {
-    SceneId id = pickIdentity(Footprint{}, rng_());
-    for (int f = 0; f < SF_COUNT; f++)
-        if (pin_[f]) id.v[f] = id_.v[f];
-    if (id.v[SF_PART1] == 0) id.v[SF_PART2] = 0;
-    id_ = id;
-    rebuild(1.2f);
-}
-
-// Rebuilds the scene from its identity, shows it at the chosen song phase, prints its code.
-void SceneViewer::rebuild(float seconds) {
-    base_ = buildTheme(id_);
-    const float energy = level_ == 2 ? 0.9f : (level_ == 1 ? 0.55f : 0.25f);
-    R_.setTheme(evolveTheme(base_, level_, energy), seconds, seconds > 0.1f);
-    std::printf("[zenscene] %s  |  %s  |  lock %s  |  %s %s\n  zentris --scene %s\n", base_.code.c_str(),
-                base_.name.c_str(), lockEffectName(base_.lockEffect), segmentName(section_), LEVEL_NAMES[level_],
-                base_.code.c_str());
+    std::printf("[zenscene] %s  |  %s %s\n  zentris --universe '%s'\n", R_.label().c_str(), segmentName(section_),
+                LEVEL_NAMES[level_], spec().c_str());
     std::fflush(stdout);
 }
 
-std::string SceneViewer::rowValue(int row, bool* pinned) const {
-    *pinned = false;
-    if (row == ROW_SECTION) return segmentName(section_);
-    if (row == ROW_LEVEL) return LEVEL_NAMES[level_];
-    const int f = row - ROW_FIELDS;
-    *pinned = pin_[f];
-    if (f == SF_PART2 && id_.v[SF_PART1] == 0) return "-";
-    return sceneFieldValueName(f, id_.v[f]);
+std::string SceneViewer::rowValue(int row) const {
+    const UniverseEntry& e = universes::entry(universe_);
+    switch (row) {
+    case ROW_UNIVERSE: return std::string(e.name) + (e.hidden ? " (TEST)" : "");
+    case ROW_VARIANT: return e.variants.empty() ? "-" : e.variants[std::clamp(variant_, 0, (int)e.variants.size() - 1)];
+    case ROW_SECTION: return segmentName(section_);
+    case ROW_LEVEL: return LEVEL_NAMES[level_];
+    case ROW_TRANSITION: return transition_ < 0 ? "AUTO" : transitions::name(transition_);
+    default: return "";
+    }
 }
 
 void SceneViewer::change(int row, int dir) {
-    if (row == ROW_SECTION) {
+    switch (row) {
+    case ROW_UNIVERSE:
+        universe_ = (universe_ + dir + universes::count()) % universes::count();
+        variant_ = 0;
+        show(true);
+        break;
+    case ROW_VARIANT: {
+        const int n = std::max<int>(1, (int)universes::entry(universe_).variants.size());
+        variant_ = (variant_ + dir + n) % n;
+        show(true);
+        break;
+    }
+    case ROW_SECTION: {
         section_ = (section_ + dir + SEG_COUNT) % SEG_COUNT;
         // Each section starts at its usual level (the level row still overrides it).
         const int lv[SEG_COUNT] = {0, 1, 1, 2, 2, 0, 0};
+        const bool rising = lv[section_] > level_;
         level_ = lv[section_];
-        rebuild(1.2f);
-        return;
+        R_.setLevel(level_, levelEnergy(level_), rising ? 1.8f : 4.5f, rising && level_ == 2 ? 1.f : 0.5f);
+        break;
     }
-    if (row == ROW_LEVEL) {
+    case ROW_LEVEL: {
+        const int old = level_;
         level_ = (level_ + dir + 3) % 3;
-        rebuild(1.2f);
-        return;
+        R_.setLevel(level_, levelEnergy(level_), level_ > old ? 1.8f : 4.5f, level_ == 2 ? 1.f : 0.5f);
+        break;
     }
-    const int f = row - ROW_FIELDS;
-    if (f == SF_PART2 && id_.v[SF_PART1] == 0) return; // a second layout needs a first one
-    const int n = sceneFieldValues(f);
-    int v = id_.v[f];
-    for (int k = 0; k < n; k++) { // the options switched off are skipped (unless --disabled)
-        v = (v + dir + n) % n;
-        if (opt_.showDisabled || sceneOptionEnabled(f, v)) break;
+    case ROW_TRANSITION:
+        transition_ = (transition_ + 1 + dir + transitions::count() + 1) % (transitions::count() + 1) - 1;
+        break;
     }
-    id_.v[f] = v;
-    if (f == SF_PART1 && v == 0) id_.v[SF_PART2] = 0;
-    pin_[f] = true; // a changed choice is pinned
-    rebuild(0.6f);
 }
 
-// Space: pins the selected choice as it is (it then stays through new scenes), or unpins it.
-void SceneViewer::togglePin(int row) {
-    if (row < ROW_FIELDS) return;
-    const int f = row - ROW_FIELDS;
-    pin_[f] = !pin_[f];
+// A Tetris on the bottom rows (to look at the celebration).
+void SceneViewer::tetris() {
+    GameEvent ev{GameEvent::Clear};
+    ev.count = 4;
+    for (int y = 18; y < 22; y++)
+        for (int x = 0; x < Game::W; x++) ev.cells.push_back({x, y, (x + y) % 7});
+    ev.points = 1200;
+    R_.onEvent(ev, game_);
 }
 
-// X: switches the option shown on the row off (or back on), in src/scene-options.txt. A switched off option stays
-// on screen, pinned, until the row changes.
-void SceneViewer::toggleEnabled(int row) {
-    if (row < ROW_FIELDS) return;
-    const int f = row - ROW_FIELDS, v = id_.v[f];
-    if (!sceneOptionDisableable(f, v)) return;
-    const bool on = !sceneOptionEnabled(f, v);
-    setSceneOptionEnabled(f, v, on);
-    if (!on) pin_[f] = true;
-    std::printf("[zenscene] %s %s %s\n", on ? "enabled" : "disabled", sceneFieldName(f == SF_PART2 ? SF_PART1 : f),
-                sceneFieldValueName(f, v).c_str());
-    saveOptions();
-    rebuild(0.6f);
-}
-
-void SceneViewer::saveOptions() {
-    const std::string path = std::string(ZEN_SOURCE_DIR) + "/src/scene-options.txt";
-    FILE* out = std::filesystem::exists(std::filesystem::path(path).parent_path()) ? std::fopen(path.c_str(), "w") : nullptr;
-    if (!out) {
-        toastText_ = "OPTIONS NOT SAVED (NO SOURCES)";
-        toast_ = 4.f;
-        return;
-    }
-    std::fputs(sceneOptionsText().c_str(), out);
-    std::fclose(out);
-    std::printf("  saved in %s (rebuild zentris to use it in the game)\n", path.c_str());
-    toastText_ = "SAVED: REBUILD THE GAME TO USE IT";
-    toast_ = 3.f;
-}
-
-// Menu geometry (pixels): title, then one line per row.
+// Menu geometry (pixels).
 constexpr float MENU_X = 16, MENU_TOP = 20, MENU_FIRST = 64, ROW_H = 24, MENU_W = 344, VALUE_X = 128;
-// Per row, at the right: the pin box and the ON / OFF box.
-constexpr float PIN_X = 282, PIN_W = 16, ONOFF_X = 304, ONOFF_W = 28;
-enum { HIT_NONE, HIT_PIN, HIT_ONOFF };
-int boxAt(double mx, double my, float s, int row) {
-    const float y = (MENU_FIRST + row * ROW_H) * s;
-    if (my < y - 2 * s || my > y + (ROW_H - 6) * s) return HIT_NONE;
-    if (mx >= (MENU_X + PIN_X - 3) * s && mx <= (MENU_X + PIN_X + PIN_W + 3) * s) return HIT_PIN;
-    if (mx >= (MENU_X + ONOFF_X - 3) * s && mx <= (MENU_X + ONOFF_X + ONOFF_W + 3) * s) return HIT_ONOFF;
-    return HIT_NONE;
-}
-const vec3 OFF_RED(0.92f, 0.26f, 0.26f);
-
-// Below the shortcuts: the "send to dashboard" button, then the comment box while typing.
-constexpr float BUTTON_Y = MENU_FIRST + ROWS * ROW_H + 117, BUTTON_H = 26, COMMENT_COLS = 40;
+constexpr int KEYS = 9;
+constexpr float BUTTON_Y = MENU_FIRST + ROWS * ROW_H + 10 + KEYS * 17 + 12, BUTTON_H = 26, COMMENT_COLS = 40;
 
 bool SceneViewer::overButton(double mx, double my) const {
     return mx >= (MENU_X + 12) * s_ && mx <= (MENU_X + MENU_W - 12) * s_ && my >= BUTTON_Y * s_ &&
@@ -269,9 +210,14 @@ std::vector<HudText> SceneViewer::buildHud() {
     const float s = s_;
     std::vector<HudText> hud;
     std::vector<HudRect> panels;
-    if (!menu_) { // dashboard snapshots: the scene and its code only
-        hud.push_back({base_.name, 28 * s, h - 60.f * s, 1.3f * s, 0.45f});
-        hud.push_back({"#" + base_.code, 28 * s, h - 40.f * s, 1.5f * s, 0.85f, true});
+    // Bottom left: the universe and its variant (the game shows them there too).
+    hud.push_back({R_.label(), 28 * s, h - 50.f * s, 1.3f * s, 0.6f});
+    if (R_.changing()) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s %3.0f%%", R_.transitionName(), 100.f * R_.changeProgress());
+        hud.push_back({buf, 28 * s, h - 30.f * s, 1.2f * s, 0.6f, true});
+    }
+    if (!menu_) { // dashboard snapshots: the universe only
         R_.setPanels(std::move(panels));
         return hud;
     }
@@ -282,56 +228,20 @@ std::vector<HudText> SceneViewer::buildHud() {
     if (toast_ > 0) panelH += 20;
     panels.push_back({MENU_X * s, MENU_TOP * s - 8 * s, MENU_W * s, panelH * s, 0.62f});
     hud.push_back({"ZENSCENE", (MENU_X + 12) * s, MENU_TOP * s + 4 * s, 2.2f * s, 0.95f, true});
-    if (opt_.showDisabled) {
-        char tag[] = "ALL OPTIONS";
-        stb_easy_font_spacing(0.5f);
-        hud.push_back({tag, (MENU_X + MENU_W - 14) * s - stb_easy_font_width(tag) * 1.1f * s, MENU_TOP * s + 10 * s, 1.1f * s, 0.5f});
-    }
     for (int r = 0; r < ROWS; r++) {
         const float y = (MENU_FIRST + r * ROW_H) * s;
-        if (r == ROW_FIELDS) panels.push_back({(MENU_X + 12) * s, y - 4 * s, (MENU_W - 24) * s, 1.f * s, 0.25f, true});
+        if (r == ROW_SECTION) panels.push_back({(MENU_X + 12) * s, y - 4 * s, (MENU_W - 24) * s, 1.f * s, 0.25f, true});
         if (r == sel_) panels.push_back({MENU_X * s, y - 2 * s, 4 * s, (ROW_H - 4) * s, 0.9f, true});
         if (r == sel_ || r == hover_) panels.push_back({(MENU_X + 6) * s, y - 2 * s, (MENU_W - 12) * s, (ROW_H - 4) * s, r == sel_ ? 0.16f : 0.08f, true});
-        bool pinned = false;
-        const std::string label = r == ROW_SECTION ? "SECTION" : (r == ROW_LEVEL ? "LEVEL" : sceneFieldName(r - ROW_FIELDS));
-        const std::string value = rowValue(r, &pinned);
-        hud.push_back({label, (MENU_X + 12) * s, y + 3 * s, 1.3f * s, r == sel_ ? 0.85f : 0.5f});
-        // Pinned choices are in the accent color, generated ones in the text color; switched off ones are dimmed
-        // and struck through in red.
-        const int f = r - ROW_FIELDS;
-        const int v = r >= ROW_FIELDS ? id_.v[f] : -1;
-        const bool off = r >= ROW_FIELDS && !sceneOptionEnabled(f, v);
-        hud.push_back({value, (MENU_X + VALUE_X) * s, y + 3 * s, 1.3f * s, off ? 0.45f : (r == sel_ || pinned ? 1.f : 0.8f), pinned});
-        if (off) {
-            std::vector<char> txt(value.begin(), value.end());
-            txt.push_back(0);
-            stb_easy_font_spacing(0.5f);
-            const float tw = stb_easy_font_width(txt.data()) * 1.3f;
-            panels.push_back({(MENU_X + VALUE_X - 2) * s, y + 7 * s, tw * s + 4 * s, std::max(1.f, 1.5f * s), 0.95f, false, true, OFF_RED});
-        }
-        if (r < ROW_FIELDS || (f == SF_PART2 && base_.layerCount == 0)) continue;
-        const int hit = r == hover_ ? boxAt(mx_, my_, s, r) : HIT_NONE;
-        // Pin: a small push-pin (head, body, collar, needle), in the accent color when pinned, faint gray when not.
-        const float py = y + 1 * s, pw = PIN_W * s;
-        {
-            const float cx = (MENU_X + PIN_X) * s + pw * 0.5f, a = pinned ? 0.95f : (hit == HIT_PIN ? 0.75f : 0.3f);
-            const float parts[4][4] = {{-4, 0, 8, 5}, {-2.5f, 5, 5, 4}, {-5, 9, 10, 2}, {-0.75f, 11, 1.5f, 5}};
-            for (const auto& q : parts)
-                panels.push_back({cx + q[0] * s, py + q[1] * s, std::max(1.f, q[2] * s), std::max(1.f, q[3] * s), a,
-                                  pinned, !pinned, vec3(0.6f)});
-        }
-        // ON / OFF box: "ON" in plain dim text, "OFF" on a red tag.
-        if (!sceneOptionDisableable(f, v)) continue;
-        const float ox = (MENU_X + ONOFF_X) * s;
-        if (off) panels.push_back({ox, py - 1 * s, ONOFF_W * s, (PIN_W + 2) * s, 0.9f, false, true, OFF_RED});
-        else if (hit == HIT_ONOFF) panels.push_back({ox, py - 1 * s, ONOFF_W * s, (PIN_W + 2) * s, 0.15f, true});
-        hud.push_back({off ? "OFF" : "ON", ox + ONOFF_W * 0.5f * s, y + 4 * s, 1.1f * s, off ? 1.f : (hit == HIT_ONOFF ? 0.9f : 0.4f), false, true});
+        hud.push_back({ROW_NAMES[r], (MENU_X + 12) * s, y + 3 * s, 1.3f * s, r == sel_ ? 0.85f : 0.5f});
+        hud.push_back({rowValue(r), (MENU_X + VALUE_X) * s, y + 3 * s, 1.3f * s, r == sel_ ? 1.f : 0.8f, r < ROW_SECTION});
     }
     const float hy = (MENU_FIRST + ROWS * ROW_H + 10) * s;
     // Shortcuts, one per line: the key in bold (drawn twice, a pixel apart), what it does next to it.
-    const char* keys[6][2] = {{"SPACE", "PIN / UNPIN"}, {"X", "ENABLE / DISABLE"}, {"C", "UNPIN ALL"}, {"R", "NEW SCENE"},
-                              {"F", "FILL BOARD"}, {"ESC", "QUIT"}};
-    for (int i = 0; i < 6; i++) {
+    const char* keys[KEYS][2] = {{"ARROWS", "CHOOSE / CHANGE"}, {"T", "NEXT UNIVERSE"}, {"V", "NEXT VARIANT"},
+                                 {"I", "INSTANT SWITCH"},       {"F", "FILL BOARD"},    {"B", "SLOW MOTION"},
+                                 {"X", "TETRIS"},               {"L", "LEVEL UP"},      {"ESC", "QUIT"}};
+    for (int i = 0; i < KEYS; i++) {
         const float y = hy + i * 17 * s;
         for (float dx : {0.f, std::max(1.f, std::round(s))}) hud.push_back({keys[i][0], (MENU_X + 12) * s + dx, y, 1.2f * s, 0.8f});
         hud.push_back({keys[i][1], (MENU_X + 104) * s, y, 1.1f * s, 0.5f});
@@ -355,16 +265,12 @@ std::vector<HudText> SceneViewer::buildHud() {
         }
         if (toast_ > 0) hud.push_back({toastText_, (MENU_X + 12) * s, (y + 2) * s, 1.1f * s, std::min(1.f, toast_), true});
     }
-    // The scene code, bottom left (also printed in the terminal after each change).
-    hud.push_back({base_.name, 28 * s, h - 60.f * s, 1.3f * s, 0.45f});
-    hud.push_back({"#" + base_.code, 28 * s, h - 40.f * s, 1.5f * s, 0.85f, true});
     R_.setPanels(std::move(panels));
     return hud;
 }
 
 // The computer plays at a calm, human pace: a moment to think, unhurried moves, soft drops.
 void SceneViewer::autoplay(float dt) {
-    if (game_.bonusReady()) game_.activateBonus();
     if (!game_.hasPiece()) { planned_ = false; return; }
     if (!planned_) {
         planned_ = game_.planMove(planRot_, planX_);
@@ -383,10 +289,13 @@ void SceneViewer::autoplay(float dt) {
     planned_ = false;
 }
 
-// No song: a steady beat at the scene's tempo, and section / level envelopes like the game's.
+// No song: a steady beat, and section / level envelopes like the game's.
 void SceneViewer::updateMusic(float dt) {
     const float bpm = BPM;
     const double beat = time_ * bpm / 60.0;
+    music_.bpm = bpm;
+    music_.beat = beat;
+    music_.hasSong = true;
     // Section feel (density, speed, glow, saturation), as structureProfile gives it halfway through a section.
     const float prof[SEG_COUNT][4] = {{0.45f, 0.55f, 0.65f, 0.8f}, {0.7f, 0.8f, 0.9f, 0.95f}, {0.73f, 0.98f, 1.f, 0.97f},
                                       {1.0f, 1.2f, 1.25f, 1.1f},   {1.1f, 1.45f, 1.45f, 1.15f}, {0.3f, 0.4f, 0.7f, 0.75f},
@@ -396,8 +305,7 @@ void SceneViewer::updateMusic(float dt) {
     music_.speed = approach(music_.speed, p[1], 1.f, dt);
     music_.glow = approach(music_.glow, p[2], 1.f, dt);
     music_.saturation = approach(music_.saturation, p[3], 1.f, dt);
-    const float intensity = level_ == 2 ? 0.9f : (level_ == 1 ? 0.55f : 0.25f);
-    music_.intensity = approach(music_.intensity, intensity, 0.5f, dt);
+    music_.intensity = approach(music_.intensity, levelEnergy(level_), 0.5f, dt);
     music_.energy = approach(music_.energy, saturate((0.3f + 0.7f * smoothstepf(80.f, 135.f, bpm)) * (0.45f + 0.55f * music_.intensity)), 1.f, dt);
     const float E = music_.energy;
     // A kick on every beat from the mid level on.
@@ -443,25 +351,25 @@ void SceneViewer::onKey(int key, int action, int mods) {
         }
         return;
     }
+    const bool press = action == GLFW_PRESS;
     switch (key) {
     case GLFW_KEY_ESCAPE: case GLFW_KEY_Q: glfwSetWindowShouldClose(win_, 1); break;
     case GLFW_KEY_UP: sel_ = (sel_ + ROWS - 1) % ROWS; break;
     case GLFW_KEY_DOWN: sel_ = (sel_ + 1) % ROWS; break;
     case GLFW_KEY_LEFT: change(sel_, -1); break;
     case GLFW_KEY_RIGHT: change(sel_, 1); break;
-    case GLFW_KEY_SPACE: if (action == GLFW_PRESS) togglePin(sel_); break;
-    case GLFW_KEY_X: if (action == GLFW_PRESS) toggleEnabled(sel_); break;
-    case GLFW_KEY_C:
-        if (action == GLFW_PRESS) for (bool& p : pin_) p = false;
-        break;
-    case GLFW_KEY_R: if (action == GLFW_PRESS) randomScene(); break;
-    case GLFW_KEY_F: if (action == GLFW_PRESS) game_.debugFillBoard(rng_()); break;
+    case GLFW_KEY_T: if (press) change(ROW_UNIVERSE, (mods & GLFW_MOD_SHIFT) ? -1 : 1); break;
+    case GLFW_KEY_V: if (press) change(ROW_VARIANT, (mods & GLFW_MOD_SHIFT) ? -1 : 1); break;
+    case GLFW_KEY_I: if (press) show(false); break;
+    case GLFW_KEY_F: if (press) game_.debugFillBoard(rng_()); break;
+    case GLFW_KEY_B: if (press) { game_.debugChargeBonus(); game_.activateBonus(); } break;
+    case GLFW_KEY_X: if (press) tetris(); break;
+    case GLFW_KEY_L: if (press) R_.levelUp(); break;
     case GLFW_KEY_D:
-        if (action == GLFW_PRESS) { typing_ = true; skipChar_ = true; } // the 'd' itself is not typed
+        if (press) { typing_ = true; skipChar_ = true; } // the 'd' itself is not typed
         break;
     default: break;
     }
-    (void)mods;
 }
 
 void SceneViewer::onChar(unsigned cp) {
@@ -481,8 +389,8 @@ void SceneViewer::onChar(unsigned cp) {
     }
 }
 
-// Runs tools/scenereview.py add in the background: it renders the scene for the dashboard (same code, section and
-// level) and opens a thread "to process" with the comment.
+// Runs tools/scenereview.py add in the background: it renders the universe for the dashboard (same universe,
+// variant, section and level) and opens a thread "to process" with the comment.
 void SceneViewer::sendToDashboard() {
     if (comment_.find_first_not_of(' ') == std::string::npos) return;
     const std::string script = std::string(ZEN_SOURCE_DIR) + "/tools/scenereview.py";
@@ -496,7 +404,7 @@ void SceneViewer::sendToDashboard() {
 #else
     const std::string python = "python3";
 #endif
-    const std::string cmd = python + " " + platform::quoteArg(script) + " add --code " + platform::quoteArg(base_.code) +
+    const std::string cmd = python + " " + platform::quoteArg(script) + " add --code " + platform::quoteArg(spec()) +
                             " --section " + segmentName(section_) + " --level " + std::to_string(level_) +
                             " --message " + platform::quoteArg(comment_);
     std::printf("[zenscene] sending to the dashboard: %s\n", comment_.c_str());
@@ -516,16 +424,8 @@ void SceneViewer::onMouse(int button, int action) {
     }
     if (typing_ || action != GLFW_PRESS || hover_ < 0) return;
     sel_ = hover_;
-    if (button == GLFW_MOUSE_BUTTON_LEFT) {
-        if (const int hit = boxAt(mx_, my_, s_, hover_); hit != HIT_NONE) {
-            if (hit == HIT_PIN) togglePin(hover_);
-            else toggleEnabled(hover_);
-            return;
-        }
-    }
     if (button == GLFW_MOUSE_BUTTON_LEFT) change(hover_, 1);
     else if (button == GLFW_MOUSE_BUTTON_RIGHT) change(hover_, -1);
-    else if (button == GLFW_MOUSE_BUTTON_MIDDLE) togglePin(hover_);
 }
 
 void SceneViewer::onScroll(double dy) {
@@ -575,17 +475,26 @@ int SceneViewer::run() {
     s_ = std::max(1.f, fbh / 900.f);
     sel_ = std::clamp(opt_.select, 0, ROWS - 1);
 
-    loadSourceOptions();
     game_.reset(rng_());
     game_.debugFillBoard(rng_()); // blocks right away
+    seed_ = rng_();
     if (opt_.section >= 0) {
         section_ = opt_.section;
         const int lv[SEG_COUNT] = {0, 1, 1, 2, 2, 0, 0};
         level_ = lv[section_];
     }
     if (opt_.level >= 0) level_ = opt_.level;
-    if (opt_.code.empty()) randomScene();
-    else setCode(opt_.code);
+    if (!opt_.universe.empty()) {
+        int v = -1;
+        const int u = universes::parse(opt_.universe, &v);
+        if (u < 0) std::fprintf(stderr, "[zenscene] unknown universe '%s'\n", opt_.universe.c_str());
+        universe_ = std::max(0, u);
+        variant_ = std::max(0, v);
+    } else {
+        universe_ = universes::pick(SongLook{}, seed_, -1);
+        variant_ = (int)(seed_ % std::max<size_t>(1, universes::entry(universe_).variants.size()));
+    }
+    show(false);
 
     double last = glfwGetTime();
     float shotT = 0;
@@ -614,8 +523,8 @@ int SceneViewer::run() {
             toast_ = st == 1 ? 1e9f : 4.f;
         }
 
-        // The computer plays; gravity follows the section's pace at the scene's tempo. Dashboard snapshots get a
-        // filled board shortly before the shot, then left as it is.
+        // The computer plays; gravity follows the section's pace. Dashboard snapshots get a filled board shortly
+        // before the shot, then left as it is.
         const float fillAt = opt_.shotAfter - 1.5f;
         const bool filled = review && shotT >= fillAt;
         if (review && !filled && shotT + dt >= fillAt) game_.debugFillBoard(rng_());
@@ -627,14 +536,15 @@ int SceneViewer::run() {
         } else {
             autoplay(dt);
             const float pace[SEG_COUNT] = {0.5f, 0.8f, 1.f, 1.2f, 1.3f, 0.4f, 0.5f};
-            float bpm = BPM;
-            while (bpm > 130.f) bpm *= 0.5f;
-            while (bpm < 65.f) bpm *= 2.f;
-            gravAcc_ += dt * bpm / 60.f * pace[section_];
+            gravAcc_ += dt * BPM / 60.f * pace[section_] * (game_.bonusActive() ? 0.25f : 1.f);
             for (; gravAcc_ >= 1.f; gravAcc_ -= 1.f) game_.gravityStep();
         }
         game_.update(dt);
-        for (const GameEvent& ev : game_.events()) R_.onEvent(ev, game_);
+        for (const GameEvent& ev : game_.events()) {
+            R_.onEvent(ev, game_);
+            if (ev.type == GameEvent::BonusStart) R_.setBonus(true);
+            if (ev.type == GameEvent::BonusEnd) R_.setBonus(false);
+        }
         game_.events().clear();
         updateMusic(dt);
 
@@ -649,7 +559,7 @@ int SceneViewer::run() {
             std::printf("[shot] %s\n", opt_.shot.c_str());
             if (review)
                 std::printf("[review] {\"code\": \"%s\", \"scene\": \"%s\", \"level\": %d, \"section\": \"%s\", \"bpm\": %.0f}\n",
-                            base_.code.c_str(), base_.name.c_str(), level_, segmentName(section_), BPM);
+                            spec().c_str(), R_.label().c_str(), level_, segmentName(section_), BPM);
             break;
         }
         glfwSwapBuffers(win_);
@@ -663,18 +573,17 @@ int SceneViewer::run() {
 
 void usage() {
     std::printf(
-        "usage: zenscene [options] [CODE]\n"
-        "  Shows a scene (a random one, or the one of a scene code as zentris shows and prints it) while the\n"
-        "  computer plays. The menu on the left pins any choice of the scene and picks the song phase; the\n"
-        "  scene code is printed after each change (zentris --scene CODE shows the same scene).\n"
+        "usage: zenscene [options] [UNIVERSE[:VARIANT]]\n"
+        "  Shows a universe (a random one, or the one given, as zentris shows it in its corner) while the computer\n"
+        "  plays. The menu on the left picks the universe, its variant, the song phase and the transition used for\n"
+        "  the next change of universe (T: next universe, V: next variant, both with that transition).\n"
         "  --size WxH        window size (default 1600x900)\n"
         "  --shot OUT.png    render for a few seconds (--shot-after SEC, default 8), save a screenshot, exit\n"
         "  --section NAME    song section shown (intro, verse, build, chorus, drop, break, outro)\n"
         "  --level N         scene level shown: 0 calm, 1 mid, 2 peak (default: the section's usual one)\n"
         "  --review-shot OUT.png  a screenshot without the menu and with a filled board, prints a [review] line\n"
         "  --select N        menu row selected at start\n"
-        "  --random-codes N  print N random scene codes (options switched on only) and exit\n"
-        "  --disabled        the menu also offers the options switched off (X switches the shown one on / off)\n");
+        "  --list            print the universes and their variants, then exit\n");
 }
 
 } // namespace
@@ -690,7 +599,6 @@ int main(int argc, char** argv) {
         else if (a == "--shot-after") o.shotAfter = (float)std::atof(next().c_str());
         else if (a == "--select") o.select = std::atoi(next().c_str());
         else if (a == "--review-shot") o.reviewShot = next();
-        else if (a == "--disabled") o.showDisabled = true;
         else if (a == "--level") o.level = std::clamp(std::atoi(next().c_str()), 0, 2);
         else if (a == "--section") {
             const std::string v = next();
@@ -700,16 +608,17 @@ int main(int argc, char** argv) {
                 if (up == segmentName(k)) o.section = k;
             if (o.section < 0) { std::fprintf(stderr, "unknown section '%s'\n", v.c_str()); return 1; }
         }
-        else if (a == "--scene") o.code = next();
-        else if (a == "--random-codes") { // prints N random scene codes (options switched on only), then exits
-            const int n = std::atoi(next().c_str());
-            loadSourceOptions();
-            std::mt19937_64 rng{std::random_device{}() ^ (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count()};
-            for (int k = 0; k < n; k++) std::printf("%s\n", sceneCode(pickIdentity(Footprint{}, rng())).c_str());
+        else if (a == "--universe" || a == "--scene") o.universe = next();
+        else if (a == "--list") {
+            for (int k = 0; k < universes::count(); k++) {
+                const UniverseEntry& e = universes::entry(k);
+                std::printf("%-10s %s%s\n", e.name, e.blurb, e.hidden ? " (test, never picked)" : "");
+                for (size_t v = 0; v < e.variants.size(); v++) std::printf("  %s:%s\n", e.name, e.variants[v].c_str());
+            }
             return 0;
         }
         else if (!a.empty() && a[0] == '-') { usage(); return 1; }
-        else o.code = a;
+        else o.universe = a;
     }
     return SceneViewer(std::move(o)).run();
 }
