@@ -51,11 +51,12 @@ private:
     // Rings: expanding vector shockwaves (Tetris: circles; level up: the well's outline).
     struct Ring { vec3 c; float r0, speed, t, life, inten; int sides; float aspect; };
     std::vector<Ring> rings_;
-    // A locked piece's outline flaring hot; a cleared row's beam collapsing; hard drop streaks.
+    // A locked piece's outline flaring hot; hard drop streaks; rings along the floor.
     struct Flare { std::vector<vec3> seg; vec3 c; float t; };
     std::vector<Flare> flares_;
-    struct RowFlash { float y, t; };
-    std::vector<RowFlash> rowFlashes_;
+    struct FloorRing { float t, amt, life; };
+    std::vector<FloorRing> floorRings_;
+    void floorRing(float amount, float life);
     struct Streak { float x, y0, y1, t; };
     std::vector<Streak> streaks_;
 
@@ -80,15 +81,15 @@ private:
     bool hasSong_ = false;
     uint64_t seed_ = 0;
     int level_ = 1;
-    int phos_ = 0, phosPrev_ = 0;     // phosphor shown, and the one the retrace sweep is replacing
+    int phos_ = 0, phosPrev_ = 0;     // phosphor shown, and the one it is replacing
     int basePhos_ = 0;                // the song's phosphor (the bonus shows its complement)
-    bool palSweep_ = false;           // the running sweep changes the phosphor
+    bool palSweep_ = false;           // the running change turns the phosphor
     float slowAmt_ = 0;               // slow-motion bonus presence (eased)
     float lv_ = 1.f, lvFrom_ = 1.f, lvTo_ = 1.f; // scene level, continuous 0 calm .. 2 peak
-    float sweepT_ = 9.f, sweepDur_ = 1.f, sweepAmt_ = 0.f; // retrace bar
+    float sweepT_ = 9.f, sweepDur_ = 1.f; // the running change (level ease, phosphor fade)
     float degauss_ = 0.f;
     vec3 phosColor(int p) const;
-    void sweep(int want, float seconds, float amount);
+    void retune(int want, float seconds);
 
     // ---- Music-driven state.
     float beats_ = 0, lastBeatPhase_ = 0; // beats counted from the start (tempo-locked scrolling)

@@ -146,14 +146,13 @@ void main() {
 }
 )";
 
-// The tube: energy -> phosphor color, curved glass, faint scanlines, retrace bar, degauss wobble, power-off.
+// The tube: energy -> phosphor color, curved glass, faint scanlines, degauss wobble, power-off.
 inline const char* COMPOSITE_FS = R"(#version 330 core
 in vec2 vUv;
 uniform sampler2D uAccum, uBloom;
 uniform vec2 uRes;
-uniform vec3 uPhos0, uPhos1;   // phosphor below / above the split
-uniform float uSplit;          // 0..1 from the top: above it the screen shows uPhos1
-uniform float uBar, uBarAmt;   // retrace bar position from the top (0..1) and strength
+uniform vec3 uPhos0, uPhos1;   // the phosphor being replaced, and the new one
+uniform float uPhosMix;        // 0..1: how far the whole tube has turned to uPhos1
 uniform float uGain, uBloomAmt, uCurv, uScan, uTime, uDegauss, uFade;
 uniform vec2 uCollapse;        // CRT power-off: horizontal / vertical extent of the picture (1 = full)
 uniform float uDot;            // the last bright line / dot while the tube switches off
@@ -185,8 +184,7 @@ void main() {
     vec2 b = texture(uBloom, uv).xy * inside;
     float I = e.x + uBloomAmt * b.x;
     float H = e.y + uBloomAmt * 0.7 * b.y;
-    float fromTop = 0.5 - c.y;
-    vec3 phos = mix(uPhos0, uPhos1, smoothstep(uSplit + 0.004, uSplit - 0.004, fromTop));
+    vec3 phos = mix(uPhos0, uPhos1, uPhosMix);
     // Power-off: the picture is squeezed to a line then a dot; what's left of it brightens as it shrinks.
     float squeeze = 1.0 / max(0.04, sqrt(uCollapse.x * uCollapse.y));
     vec3 lin = (phos * I + vec3(1.0, 0.97, 0.92) * H) * uGain * min(sqrt(squeeze), 2.5);
@@ -196,14 +194,6 @@ void main() {
         float r = sqrt(dx * dx + dy * dy);
         float beam = exp(-0.5 * r * r / 3.0) + 0.3 * exp(-r / 14.0);
         lin += (phos * 1.2 + vec3(0.7)) * beam * uDot;
-    }
-    // Retrace bar: a bright horizontal beam sweeping down; what it has passed is freshly drawn.
-    if (uBarAmt > 0.0) {
-        float d = (fromTop - uBar) * uRes.y;
-        float bar = exp(-0.5 * d * d / 3.0) + 0.3 * exp(-abs(d) / 16.0);
-        float wake = d < 0.0 ? exp(d / (uRes.y * 0.06)) : 0.0;
-        lin += (phos * 1.2 + vec3(0.45)) * uBarAmt * bar;
-        lin *= 1.0 + 0.6 * uBarAmt * wake;
     }
     lin = lin * lin / (lin + 0.035); // toe: faint halos and bloom tails sink back into black
     vec3 col = 1.0 - exp(-lin);

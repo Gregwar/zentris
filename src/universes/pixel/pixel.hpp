@@ -51,6 +51,7 @@ private:
     void simulate(const Game& g, const MusicState& m, float dt, float wdt);
     void compose(const Frame& f);
     void burst(float x, float y, int n, float speed, uint8_t c1, uint8_t c2, bool big);
+    void contactDust(const GameEvent& ev, int perSide, float strength);
     int lx(float u) const { return bx0_ + 40 + pixu::iround(u * pixu::CELL); }  // board units -> canvas
     int ly(float v) const { return by0_ + pixu::iround((10.f - v) * pixu::CELL); }
 
@@ -63,7 +64,7 @@ private:
     pixu::Canvas cv_, prevCv_;
     std::vector<uint8_t> rgba_;
 
-    // Variant (and the previous one while a new song wipes in).
+    // Variant (and the previous one while a new song dissolves in).
     int variant_ = 0, prevVariant_ = -1;
     pixu::Palette pal_{}, prevPal_{};
     pixu::World world_, prevWorld_;
@@ -74,9 +75,9 @@ private:
     int level_ = 1;
     float lv_ = 1, midP_ = 1, peakP_ = 0, levelRate_ = 1.f, sway_ = 0;
     float impactIn_ = -1, impact_ = 0;
-    // Slow motion: the night palette sweeps from the well.
+    // Slow motion: the night palette dissolves in (0..1).
     bool bonus_ = false;
-    float nightR_ = 0;
+    float nightK_ = 0;
     float flash_ = 0;      // a palette flash (lighter): Tetris, drops into a peak
     float kick_ = 0;
     float dimT_ = 0;
