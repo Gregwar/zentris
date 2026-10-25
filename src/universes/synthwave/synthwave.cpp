@@ -363,6 +363,8 @@ void SynthwaveUniverse::setLevel(int level, float energy, float seconds, float i
         level_ = level;
         lv_ = lvFrom_ = lvTo_ = (float)level;
         lvT_ = 1.f;
+        pk_ = level >= 2 ? 1.f : 0.f;
+        dropWait_ = -1.f;
         return;
     }
     const bool rising = level > level_;
@@ -374,11 +376,40 @@ void SynthwaveUniverse::setLevel(int level, float energy, float seconds, float i
     if (rising) {
         horizonFlash_ = std::max(horizonFlash_, 0.4f + 0.5f * impact);
         if (level >= 2) {
-            flash_ = std::max(flash_, 0.3f + 0.5f * impact);
-            flareKick_ = std::max(flareKick_, 0.6f + 0.6f * impact);
-            glintBurst(1 + (int)(2 * impact), 1.f);
+            // The breath before the drop: the fog closes in and the light dims while the speed creeps up; the
+            // peak itself waits for the drop's downbeat (drop(), ~0.5 s later; a fallback fires it otherwise).
+            dropWait_ = 0.f;
         }
     }
+    if (level < 2) dropWait_ = -1.f;
+}
+
+// The drop's downbeat: the car punches into high speed (the road, the lines and the lamps streak past), the sun
+// and the haze bloom, an anamorphic line crosses the horizon, a wide ring of light runs into the fog. One soft
+// exposure flash, then the living peak takes over.
+void SynthwaveUniverse::drop(float strength) {
+    const float s = std::clamp(strength, 0.35f, 1.f);
+    dropWait_ = -1.f;
+    pk_ = 1.f;
+    dropEnv_ = std::max(dropEnv_, s);
+    dropFlash_ = std::max(dropFlash_, s);
+    warp_ = std::max(warp_, s);
+    sunFlare_ = std::max(sunFlare_, s);
+    flareKick_ = std::max(flareKick_, 1.3f * s);
+    hazeLit_ = std::max(hazeLit_, 1.1f * s);
+    horizonFlash_ = 1.f;
+    barFlare_ = 1.6f * s;
+    beatHit_ = 1.f;
+    pushKick(2.2f * s, lerp(pal_.sunCore, pal_.flare, 0.4f));
+    glintBurst(2 + (int)(3 * s), 1.f);
+}
+
+void SynthwaveUniverse::pushKick(float amp, const vec3& col) {
+    kickAge_[kickNext_] = 0.f;
+    kickAmp_[kickNext_] = amp;
+    kickCol_[kickNext_] = col;
+    kickNext_ = (kickNext_ + 1) % 4;
+    sinceKick_ = 0.f;
 }
 
 void SynthwaveUniverse::refresh(float strength) {
@@ -567,14 +598,20 @@ void SynthwaveUniverse::simulate(const Game& game, const MusicState& music, floa
         const float ph = music.beatPhase;
         if (ph < lastBeatPhase_ - 0.5f) beats_ += 1.f;
         lastBeatPhase_ = ph;
-        const float e = 1.f - std::pow(1.f - ph, 2.2f);
-        const float eased = beats_ + lerpf(ph, e, 0.5f * wm);
+        // at the peak each beat is a surge (most of the beat's way in its first third)
+        const float e = 1.f - std::pow(1.f - ph, lerpf(2.2f, 3.4f, pk_));
+        const float eased = beats_ + lerpf(ph, e, 0.5f * wm + 0.45f * pk_);
         float d = lastEased_ < 0.f ? 0.f : eased - lastEased_;
         if (d < 0.f || d > 2.f) d = 0.f;
         lastEased_ = eased;
-        const float cpb = 0.04f + 0.4f * wm + 0.55f * wp;
+        // the peak: one street lamp (3 units) passes on every beat
+        const float cpb = lerpf(0.04f + 0.4f * wm + 0.55f * wp, 3.f, pk_);
+        const float before = scroll_;
         if (music.hasSong) scroll_ += d * cpb * (wdt / std::max(dt, 1e-4f));
-        else scroll_ += wdt * (0.1f + 0.6f * wm);
+        else scroll_ += wdt * (0.1f + 0.6f * wm + 5.f * pk_);
+        // the drop's punch into high speed, and a little surge on every kick
+        scroll_ += wdt * (55.f * warp_ * warp_ + 5.f * kickEnv_ * pk_ * drive_);
+        if (dt > 1e-4f) scrollVel_ = lerpf(scrollVel_, (scroll_ - before) / dt, 1.f - std::exp(-dt * 12.f));
     }
 
     // Kicks: flares bloom and the haze lights up (peak); light pulses run into the fog on the beats (mid).
@@ -582,28 +619,74 @@ void SynthwaveUniverse::simulate(const Game& game, const MusicState& music, floa
     sinceGlint_ += dt;
     const float kick = std::max(music.kick, kickIn_);
     kickIn_ = approach(kickIn_, 0.f, 6.f, dt);
-    auto pushKick = [&](float amp) {
-        kickAge_[kickNext_] = 0.f;
-        kickAmp_[kickNext_] = amp;
-        kickNext_ = (kickNext_ + 1) % 4;
-        sinceKick_ = 0.f;
-    };
+    kickEnv_ = kick > kickEnv_ ? kick : approach(kickEnv_, kick, 5.f, dt);
+
+    // The peak gate: held while waiting for the drop's downbeat (a fallback hit if it never comes), then on.
+    if (dropWait_ >= 0.f) {
+        dropWait_ += dt;
+        if (dropWait_ > 1.2f) drop(0.55f);
+    }
+    if (dropWait_ < 0.f) pk_ = approach(pk_, level_ >= 2 ? 1.f : 0.f, level_ >= 2 ? 1.5f : 0.6f, dt);
+    inhale_ = approach(inhale_, dropWait_ >= 0.f ? 1.f : 0.f, dropWait_ >= 0.f ? 2.5f : 8.f, dt);
+    // How hard the song drives: faster, more energetic, denser songs hit harder.
+    drive_ = std::clamp((0.55f + 0.45f * smoothstepf(85.f, 140.f, music.bpm)) * (0.7f + 0.35f * saturate(music.energy))
+                            * (0.9f + 0.15f * saturate(music.density)), 0.4f, 1.15f);
+    {
+        float hi = 0.f;
+        for (int b = 10; b < NUM_BANDS; b++) hi += music.bandsFast[b];
+        hi /= (float)(NUM_BANDS - 10);
+        highs_ = hi > highs_ ? approach(highs_, hi, 20.f, dt) : approach(highs_, hi, 4.f, dt);
+    }
+
+    // The beat grid: at the peak a light pulse runs into the fog on every beat (a wide one on each bar, its
+    // color changing bar to bar), the lamps flash, the horizon's line lights; at mid a soft pulse on each bar.
+    if (music.hasSong) {
+        const double bi = std::floor(music.beat);
+        if (bi != lastBeatI_) {
+            const bool first = lastBeatI_ < -1e8;
+            lastBeatI_ = bi;
+            const long long ib = (long long)bi;
+            const bool down = ((ib % 4) + 4) % 4 == 0;
+            if (!first && pk_ > 0.2f) {
+                if (down) bar_ = (int)(((ib / 4) % 4 + 4) % 4);
+                const vec3 cols[4] = {pal_.grid, pal_.sunEdge, pal_.flare, pal_.accent};
+                const vec3 c = cols[bar_];
+                pushKick((down ? 1.25f : 0.6f) * pk_ * drive_, down ? lerp(c, vec3(1.f), 0.2f) : c);
+                beatHit_ = down ? 1.f : 0.65f;
+                if (down) {
+                    barFlare_ = std::max(barFlare_, 0.9f * pk_);
+                    if (((ib / 4) % 4) == 0) glintBurst(2, 0.5f); // every phrase (4 bars)
+                }
+            } else if (!first && wm > 0.5f && down && sinceKick_ > 0.3f) {
+                pushKick(0.4f, pal_.grid);
+            }
+        }
+    }
+    // kicks between the beats still send their own pulse; every kick blooms the flare and lights the haze
     if (kick > 0.55f && prevKick_ <= 0.55f && sinceKick_ > 0.18f && wp > 0.3f) {
-        pushKick(0.5f + 0.5f * wp);
-        flareKick_ = std::max(flareKick_, (0.35f + 0.5f * kick) * wp);
-        hazeLit_ = std::max(hazeLit_, 0.5f + 0.4f * kick * wp);
+        pushKick((0.5f + 0.5f * wp) * (pk_ > 0.2f ? 0.8f : 1.f), pal_.grid);
+        flareKick_ = std::max(flareKick_, (0.35f + 0.5f * kick) * wp + 0.5f * kick * pk_ * drive_);
+        hazeLit_ = std::max(hazeLit_, 0.5f + 0.4f * kick * wp + 0.25f * kick * pk_ * drive_);
         if (kick > 0.85f && sinceGlint_ > 2.f) {
             glintBurst(1, 0.3f);
             sinceGlint_ = 0.f;
         }
-    } else if (music.hasSong && wm > 0.5f && wp < 0.3f && music.beatPulse > 0.9f && sinceKick_ > 0.3f) {
-        pushKick(0.35f);
+    }
+    // highs: sparkles on the rails and the sun's rim
+    if (pk_ > 0.5f && highs_ > 0.35f && sinceGlint_ > lerpf(1.2f, 0.35f, saturate((highs_ - 0.35f) * 2.5f))) {
+        glintBurst(1, 0.2f);
+        sinceGlint_ = 0.f;
     }
     prevKick_ = kick;
     for (int i = 0; i < 4; i++) kickAge_[i] += wdt;
+    warp_ = approach(warp_, 0.f, 0.9f, dt);
+    dropEnv_ = approach(dropEnv_, 0.f, 0.65f, dt);
+    dropFlash_ = approach(dropFlash_, 0.f, 2.6f, dt);
+    beatHit_ = approach(beatHit_, 0.f, 4.f, dt);
+    barFlare_ = approach(barFlare_, 0.f, 1.8f, dt);
 
     cars_ = approach(cars_, wp, 1.0f, dt);
-    hazeLit_ = approach(hazeLit_, 0.12f * wm + 0.3f * wp + 0.5f * horizonFlash_, 2.0f, dt);
+    hazeLit_ = approach(hazeLit_, 0.12f * wm + 0.3f * wp + 0.5f * horizonFlash_ + 0.1f * pk_, 2.0f, dt);
     flareKick_ = approach(flareKick_, 0.f, 2.6f, dt);
     flash_ = approach(flash_, 0.f, 3.f, dt);
     sunFlare_ = approach(sunFlare_, 0.f, 1.1f, dt);
@@ -687,7 +770,19 @@ void SynthwaveUniverse::buildLamps(float alpha) {
             if (a <= 0.01f) continue;
             const vec2 top = v2(x, H - d + pole * d / GA);
             const float r = 0.25f + 0.07f * d;
-            light(lines_, top, r, pal_.lamp * (2.2f + 0.8f * wp), a);
+            const float hit = 1.f + (0.9f * beatHit_ + 0.6f * kickEnv_) * pk_ * drive_ + 1.2f * dropEnv_;
+            light(lines_, top, r, pal_.lamp * (2.2f + 0.8f * wp) * hit, a);
+            // at speed, each lamp leaves a light trail (where it was a moment ago, deeper in the fog)
+            if (scrollVel_ > 4.f) {
+                const float zb = zr + std::min(scrollVel_, 70.f) * 0.035f;
+                const float db = GB / zb;
+                const vec2 back = v2(side * X * db / GA, H - db + pole * db / GA);
+                // (not over the HUD columns: the labels and the gauge stay clean)
+                auto clearOf = [&](vec2 q) { return std::max(smoothstepf(11.4f, 12.6f, std::fabs(q.x)), smoothstepf(-7.f, -7.6f, q.y)); };
+                const float clear = std::min(clearOf(top), clearOf(back));
+                const float k = smoothstepf(4.f, 14.f, scrollVel_) * (1.f - smoothstepf(2.5f, 5.f, d)) * clear;
+                line(lines_, back, top, pal_.lamp * 0.9f * hit, r * 0.35f, 0.03f * d, a * k * 0.8f);
+            }
             // its reflection on the wet road
             line(lines_, v2(x, H - d), top, pal_.skyTop + pal_.haze * 0.1f, 0.012f * d, 0.f, a * 0.5f);
             line(lines_, v2(x, H - d - 0.1f * d), v2(x, H - d - 0.8f * d), pal_.lamp * 0.05f, 0.002f, 0.06f * d, a);
@@ -807,6 +902,19 @@ void SynthwaveUniverse::buildFx() {
         const float k = g.t / g.life;
         const float a = std::sin(PI * saturate(k)) * world;
         glint(fxLines_, g.p, g.size * (0.7f + 0.5f * std::sin(PI * k)), g.col * 2.f, a);
+    }
+    // The peak's horizon line: an anamorphic streak across the far road on each bar (and the drop), split
+    // around the well so the stack stays clean.
+    if (barFlare_ > 0.01f) {
+        const float H = horizon() + 0.12f;
+        const float a = saturate(barFlare_) * world;
+        const vec3 c = lerp(pal_.flare, pal_.sunCore, 0.3f) * (1.f + 0.6f * saturate(barFlare_ - 1.f));
+        // full outside the HUD columns, a faint thread under them
+        const float cx = layout::RIGHT_COLUMN[2] + 0.3f;
+        line(fxLines_, v2(-60.f, H), v2(-cx, H), c, 0.025f, 0.1f, a * 0.9f);
+        line(fxLines_, v2(cx, H), v2(60.f, H), c, 0.025f, 0.1f, a * 0.9f);
+        line(fxLines_, v2(-cx, H), v2(-WELL_X - 0.25f, H), c, 0.015f, 0.05f, a * 0.25f);
+        line(fxLines_, v2(WELL_X + 0.25f, H), v2(cx, H), c, 0.015f, 0.05f, a * 0.25f);
     }
     // The Tetris: an anamorphic flare crossing the screen through the toast, a few lens ghosts toward the sun.
     if (tetrisT_ < 2.6f) {
@@ -1059,8 +1167,14 @@ void SynthwaveUniverse::drawWorld(const MusicState& music) {
     const float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 2.f, lv_);
     const float over = overT_ >= 0.f ? smoothstepf(0.3f, 2.2f, overT_) : 0.f;
     const vec2 sp = sunPos();
-    const float R = lerpf(4.3f, 1.7f, pal_.moon) * (1.f + 0.04f * sunFlare_);
-    const float sunGain = (0.8f + 0.15f * wm + 0.15f * wp) * (1.f + 0.6f * sunFlare_ + 0.2f * flash_) * (1.f - 0.6f * over);
+    // light variants (pale haze) take the peak's light more gently: they would wash out
+    const float hazeLum = dot(pal_.haze, vec3(0.2126f, 0.7152f, 0.0722f));
+    const float soft = 1.f - 0.6f * smoothstepf(0.02f, 0.07f, hazeLum);
+    const float pkick = kickEnv_ * pk_ * drive_ * soft;
+    const float dropE = dropEnv_ * soft;
+    const float R = lerpf(4.3f, 1.7f, pal_.moon) * (1.f + 0.04f * sunFlare_ + 0.035f * pkick + 0.05f * dropEnv_);
+    const float sunGain = (0.8f + 0.15f * wm + 0.15f * wp) * (1.f + 0.6f * sunFlare_ + 0.2f * flash_ + 0.4f * pkick + 0.1f * pk_)
+                          * (1.f - 0.25f * inhale_) * (1.f - 0.6f * over);
     glUseProgram(progWorld_);
     set4f(progWorld_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
     set1f(progWorld_, "uHorizon", horizon());
@@ -1072,17 +1186,27 @@ void SynthwaveUniverse::drawWorld(const MusicState& music) {
     set1f(progWorld_, "uPx", px_);
     set4f(progWorld_, "uKickAge", kickAge_[0], kickAge_[1], kickAge_[2], kickAge_[3]);
     set4f(progWorld_, "uKickAmp", kickAmp_[0], kickAmp_[1], kickAmp_[2], kickAmp_[3]);
+    {
+        const char* names[4] = {"uKickCol[0]", "uKickCol[1]", "uKickCol[2]", "uKickCol[3]"};
+        for (int i = 0; i < 4; i++) set3f(progWorld_, names[i], kickCol_[i]);
+    }
+    set1f(progWorld_, "uPulseSpeed", 9.f + 9.f * pk_ * drive_);
+    set1f(progWorld_, "uPulseGlow", 0.025f + 0.14f * pk_);
+    set1f(progWorld_, "uQuiet", 0.35f + 0.3f * pk_ + 0.2f * dropEnv_);
+    set1f(progWorld_, "uStreaks", pk_ * drive_ * (0.35f + 1.3f * saturate(highs_)) * (1.f - over));
+    set1f(progWorld_, "uHighs", saturate(highs_));
     set1f(progWorld_, "uCars", cars_ * (1.f - over));
     set1f(progWorld_, "uRain", pal_.rain * (0.35f + 0.65f * wm));
     set1f(progWorld_, "uSkyline", pal_.skyline);
     set1f(progWorld_, "uStars", pal_.stars * (1.f - 0.5f * wp));
-    set1f(progWorld_, "uFog", pal_.fog * (1.15f - 0.2f * wm) * (1.f + 1.5f * over));
-    set1f(progWorld_, "uHazeLit", hazeLit_ + 0.4f * flash_ + 0.6f * sunFlare_);
-    set1f(progWorld_, "uGridGain", (0.1f + 0.26f * wm + 0.06f * wp) * (1.f + 0.6f * horizonFlash_) * (0.9f + 0.2f * saturate(music.energy)) * (1.f - over));
+    set1f(progWorld_, "uFog", pal_.fog * (1.15f - 0.2f * wm - 0.12f * pk_) * (1.f + 0.7f * inhale_) * (1.f + 1.5f * over));
+    set1f(progWorld_, "uHazeLit", (hazeLit_ + 0.4f * flash_ + 0.6f * sunFlare_ + 0.5f * pkick + 0.4f * dropE - 0.3f * inhale_) * lerpf(1.f, soft, pk_));
+    set1f(progWorld_, "uGridGain", (0.1f + 0.26f * wm + 0.06f * wp + 0.1f * pk_) * (1.f + 0.6f * horizonFlash_ + 0.6f * beatHit_ * pk_)
+                                       * (0.9f + 0.2f * saturate(music.energy)) * (1.f - 0.4f * inhale_) * (1.f - over));
     set1f(progWorld_, "uBars", slow_ * (1.f - saturate(bridge_.amount)));
     set1f(progWorld_, "uTrail", slow_);
     set3f(progWorld_, "uSkyTop", pal_.skyTop);
-    set3f(progWorld_, "uHaze", pal_.haze * (1.f + 0.4f * horizonFlash_));
+    set3f(progWorld_, "uHaze", pal_.haze * (1.f + 0.4f * horizonFlash_ + 0.35f * pkick + 0.4f * dropE));
     set3f(progWorld_, "uSunCore", pal_.sunCore);
     set3f(progWorld_, "uSunEdge", pal_.sunEdge);
     set3f(progWorld_, "uFloor", pal_.floor);
@@ -1091,7 +1215,7 @@ void SynthwaveUniverse::drawWorld(const MusicState& music) {
     set4f(progWorld_, "uWell", -WELL_X, WELL_BOT, WELL_X, WELL_TOP + 2.5f);
     set4f(progWorld_, "uColL", layout::LEFT_COLUMN[0], layout::LEFT_COLUMN[1], layout::LEFT_COLUMN[2], layout::LEFT_COLUMN[3]);
     set4f(progWorld_, "uColR", layout::RIGHT_COLUMN[0], layout::RIGHT_COLUMN[1], layout::RIGHT_COLUMN[2], layout::RIGHT_COLUMN[3]);
-    set1f(progWorld_, "uRail", (0.55f + 0.25f * wm + 0.6f * horizonFlash_) * (1.f - 0.6f * saturate(bridge_.amount)) * (1.f - 0.7f * over));
+    set1f(progWorld_, "uRail", (0.55f + 0.25f * wm + 0.6f * horizonFlash_ + 0.5f * beatHit_ * pk_) * (1.f - 0.6f * saturate(bridge_.amount)) * (1.f - 0.7f * over));
     set1f(progWorld_, "uBridge", saturate(bridge_.amount));
     set3f(progWorld_, "uBridgeCol", bridge_.color);
     set1f(progWorld_, "uSeed", seedF_);
@@ -1199,7 +1323,8 @@ void SynthwaveUniverse::render(const Frame& f, GLuint fbo) {
         sh = bloomH_[i];
     }
     // ---- Anamorphic streaks from the quarter-resolution highlights (before the upsampling adds into them).
-    const float streakAmt = (2.5f + 2.f * smoothstepf(1.1f, 2.f, lv_) + 5.f * flareKick_ + 3.5f * sunFlare_ + 3.f * slow_)
+    const float streakAmt = (2.5f + 2.f * smoothstepf(1.1f, 2.f, lv_) + 5.f * flareKick_ + 3.5f * sunFlare_ + 3.f * slow_
+                             + 2.5f * kickEnv_ * pk_ * drive_ + 4.f * dropEnv_)
                             * world * (1.f - 0.8f * over);
     glUseProgram(progStreak_);
     set1i(progStreak_, "uTex", 0);
@@ -1251,7 +1376,8 @@ void SynthwaveUniverse::render(const Frame& f, GLuint fbo) {
     set1f(progPost_, "uBridge", saturate(bridge_.amount));
     set1f(progPost_, "uBloomAmt", 0.5f * world);
     set1f(progPost_, "uStreakAmt", streakAmt);
-    set1f(progPost_, "uExposure", 1.f);
+    // the peak breathes with the kicks; the drop is one soft flash; the breath before it dims the light
+    set1f(progPost_, "uExposure", (1.f + (0.12f * kickEnv_ * pk_ * drive_ + 0.22f * dropFlash_) * (1.f - 0.6f * smoothstepf(0.02f, 0.07f, dot(pal_.haze, vec3(0.2126f, 0.7152f, 0.0722f))))) * (1.f - 0.18f * inhale_));
     set1f(progPost_, "uOver", over * 0.6f);
     set3f(progPost_, "uStreakTint", pal_.flare * 1.4f);
     {

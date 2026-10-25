@@ -50,6 +50,12 @@ uniform float uRail;         // the well's rails: brightness
 uniform float uBridge;
 uniform vec3 uBridgeCol;
 uniform float uSeed;
+uniform vec3 uKickCol[4];    // each pulse's color (the peak changes it bar to bar)
+uniform float uPulseSpeed;   // how fast the pulses run into the fog
+uniform float uPulseGlow;    // the light band of a pulse on the wet road
+uniform float uStreaks;      // the peak's speed dashes on the road (highs make more of them)
+uniform float uHighs;
+uniform float uQuiet;        // how much the world dims behind the HUD columns (more at the peak)
 
 const float GA = 1.15, GB = 18.0; // floor: lateral and depth scales (few, wide lines)
 
@@ -131,13 +137,16 @@ vec3 skyCol(vec2 p, bool refl) {
     return col;
 }
 
-float kickPulse(float z) {
+float kickPulse(float z, out vec3 pc) {
     float s = 0.0;
+    pc = vec3(0.0);
     for (int i = 0; i < 4; i++) {
         float a = uKickAge[i];
         if (a > 3.0) continue;
-        float front = a * 9.0;
-        s += exp(-sq((z - front) / (0.4 + 0.5 * front))) * exp(-a * 1.3) * uKickAmp[i];
+        float front = a * uPulseSpeed;
+        float w = exp(-sq((z - front) / (0.4 + 0.5 * front))) * exp(-a * 1.3) * uKickAmp[i];
+        s += w;
+        pc += uKickCol[i] * w;
     }
     return s;
 }
@@ -203,11 +212,26 @@ vec3 floorCol(vec2 p) {
     float lz = (1.0 - smoothstep(lw * 0.5, lw * 0.5 + 1.0, dist.y)) * fadeZ;
     float bx = abs(fract(gx * 0.5 + 0.5) - 0.5) * 2.0 * d / GA;
     float glow = exp(-bx * 14.0) * fadeX * 0.35;
-    float pulse = kickPulse(zr);
+    vec3 pcol;
+    float pulse = kickPulse(zr, pcol);
     float near = smoothstep(0.0, 1.2, d) * mix(0.18, 1.0, smoothstep(8.0, 2.5, d));
-    float gain = uGridGain * (1.0 + 2.5 * pulse) * vis;
-    col += uGrid * (lx * 0.75 + lz * 0.22 + glow) * gain * near;
-    col += uGrid * pulse * 0.025 * vis * near;
+    float gain = uGridGain * vis;
+    col += (uGrid + 2.5 * pcol) * (lx * 0.75 + lz * 0.22 + glow) * gain * near;
+    col += pcol * uPulseGlow * vis * near;
+    // the peak: speed dashes on the road (reflections streaking past), more of them with the highs
+    if (uStreaks > 0.001) {
+        float lg = gx * 2.0;
+        float lane = floor(lg);
+        float hl = hash11(lane * 3.71 + 1.3);
+        float seg = fract(gz * 0.09 + hl * 7.0);
+        float cell = floor(gz * 0.09 + hl * 7.0);
+        float on = step(hash12(vec2(lane, cell)), 0.25 + 0.5 * uHighs) * step(0.4, hl);
+        float dash = smoothstep(0.0, 0.03, seg) * (1.0 - smoothstep(0.03, 0.45, seg));
+        float lat = abs(fract(lg) - 0.5) / max(fwidth(lg), 1e-4);
+        float lw2 = 1.0 - smoothstep(0.6, 1.8, lat);
+        vec3 sc = mix(uGrid, vec3(1.0), 0.35 + 0.3 * hash11(lane));
+        col += sc * lw2 * dash * on * uStreaks * 0.9 * vis * smoothstep(0.3, 1.5, d) * (1.0 - smoothstep(0.1, 0.3, fwidth(lg)));
+    }
     if (uCars > 0.001) col += cars(gx, zr, d) * uCars * 5.0 * mix(1.0, vis, 0.5);
     // fog over the far floor
     col = mix(col, hazeCol(p) * (0.6 + 0.6 * uHazeLit), (1.0 - vis) * 0.85);
@@ -240,9 +264,9 @@ void main() {
     // quiet behind the HUD columns and the corner where the universe's name is written
     float cl = sdBox(p - (uColL.xy + uColL.zw) * 0.5, (uColL.zw - uColL.xy) * 0.5);
     float cr = sdBox(p - (uColR.xy + uColR.zw) * 0.5, (uColR.zw - uColR.xy) * 0.5);
-    col *= 1.0 - 0.35 * (1.0 - smoothstep(-0.6, 1.6, min(cl, cr)));
+    col *= 1.0 - uQuiet * (1.0 - smoothstep(-0.6, 1.6, min(cl, cr)));
     vec2 corner = vec2(uView.x - uView.z, uView.y - uView.w);
-    col *= 1.0 - 0.45 * exp(-length((p - corner) * vec2(0.09, 0.32)) * 2.2);
+    col *= 1.0 - (0.45 + 0.7 * (uQuiet - 0.35)) * exp(-length((p - corner) * vec2(0.09, 0.32)) * 2.2);
 
     // the well: smoked frosted glass, the world dim through it, the sun's light diffused in it
     vec2 wc = (uWell.xy + uWell.zw) * 0.5, wh = (uWell.zw - uWell.xy) * 0.5;
@@ -600,13 +624,16 @@ void main() {
     // bloom with a touch of halation: the glow around highlights leans red
     c += bloom * uBloomAmt * vec3(1.08, 0.92, 0.88);
     float inWell = step(uWellUv.x, uv.x) * step(uv.x, uWellUv.z) * step(uWellUv.y, uv.y) * step(uv.y, uWellUv.w);
-    c += texture(uStreak, uv).rgb * uStreakTint * uStreakAmt * (1.0 - 0.5 * inWell);
+    // the streaks soften over the HUD columns too (the labels stay legible at the peak)
+    float wcx = (uWellUv.x + uWellUv.z) * 0.5, whw = (uWellUv.z - uWellUv.x) * 0.5;
+    float inCols = 1.0 - smoothstep(whw * 2.2, whw * 2.6, abs(uv.x - wcx));
+    c += texture(uStreak, uv).rgb * uStreakTint * uStreakAmt * (1.0 - 0.35 * inCols - 0.25 * inWell);
     vec3 raw = c; // the bridge is shown as is (both universes meet on the same color)
     // slow motion: the night drained of color, cooler, a little darker
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
     c = mix(c, l * vec3(0.78, 0.9, 1.1) * 1.05 + c * 0.2, uSlow * 0.6);
     // the lights going out (game over)
-    c *= uExposure * (1.0 - 0.82 * uOver);
+    c *= mix(uExposure, 1.0 + (uExposure - 1.0) * 0.35, inWell) * (1.0 - 0.82 * uOver);
     // film: a gentle toe (rich blacks) and a long shoulder (highlights roll into white)
     vec3 x = max(c, 0.0) * 1.1;
     vec3 tm = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
