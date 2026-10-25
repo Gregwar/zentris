@@ -384,7 +384,7 @@ void SumiUniverse::onEvent(const GameEvent& ev, const Game&) {
             const float order = fromRight ? 9.f - c.x : (float)c.x;
             Dying d;
             d.x = c.x; d.y = c.y; d.type = c.type; d.mask = mask;
-            d.t = 0; d.delay = 0.04f + order * (tetris ? 0.022f : 0.028f); d.dur = tetris ? 0.5f : 0.6f;
+            d.t = 0; d.delay = order * 0.018f; d.dur = 0.42f;
             d.nc = known ? ic.nc : v2(c.x + 13.7f, -(float)c.y + 5.1f);
             d.seed = known ? (float)(ic.id % 97) : 3.f;
             dying_.push_back(d);
@@ -400,45 +400,15 @@ void SumiUniverse::onEvent(const GameEvent& ev, const Game&) {
                 dr.size = rng_.range(0.07f, 0.16f);
                 dr.grow = rng_.range(1.5f, 3.2f);
                 dr.age = -d.delay;
-                dr.life = rng_.range(1.2f, 2.2f);
-                dr.alpha = rng_.range(0.35f, 0.6f);
+                dr.life = rng_.range(0.5f, 0.8f);
+                dr.alpha = rng_.range(0.2f, 0.35f);
                 dr.seed = rng_.range(0.f, 100.f);
                 dr.col = col;
                 drops_.push_back(dr);
             }
         }
-        // The brush that washes the rows away.
-        float yMean = 0;
-        int rows = 0;
-        for (int y = 0; y < Game::H; y++)
-            if (cleared[y]) { yMean += cellPos(0, (float)y).y; rows++; }
-        if (rows) yMean /= rows;
-        if (!tetris) {
-            for (int y = 0; y < Game::H; y++) {
-                if (!cleared[y]) continue;
-                float wy = cellPos(0, (float)y).y + rng_.range(-0.08f, 0.08f);
-                Stroke s;
-                float x0 = 5.7f + rng_.range(0.f, 0.4f), x1 = 5.5f + rng_.range(0.f, 0.6f);
-                s.a = fromRight ? v2(x0, wy + 0.05f) : v2(-x0, wy + 0.05f);
-                s.b = fromRight ? v2(-x1, wy - 0.06f) : v2(x1, wy - 0.06f);
-                s.width = 0.36f;
-                s.age = 0; s.draw = 0.3f; s.hold = 0.12f; s.fade = 0.6f;
-                s.dry = 0.5f; s.taper = 0.45f; s.dens = 0.6f; s.seed = rng_.range(0.f, 100.f);
-                s.wellFade = 1.f;
-                s.col = inkC_;
-                strokes_.push_back(s);
-            }
-        } else {
-            // Tetris: one bold calligraphic stroke through the four rows, and the red seal stamped.
-            Stroke s;
-            s.a = fromRight ? v2(9.6f, yMean + 0.5f) : v2(-9.6f, yMean + 0.5f);
-            s.b = fromRight ? v2(-9.2f, yMean - 0.45f) : v2(9.2f, yMean - 0.45f);
-            s.width = 1.25f;
-            s.age = 0; s.draw = 0.38f; s.hold = 0.9f; s.fade = 1.1f;
-            s.dry = 0.5f; s.taper = 0.55f; s.dens = 0.95f; s.seed = rng_.range(0.f, 100.f);
-            s.wellFade = 1.f;
-            s.col = inkC_;
-            strokes_.push_back(s);
+        // Nothing is painted over the rows: their ink melts back into the paper. A Tetris stamps the red seal.
+        if (tetris) {
             Stamp st;
             st.pos = v2(layout::HOLD_CENTER.x, 4.0f);
             st.size = 1.05f;
@@ -455,7 +425,6 @@ void SumiUniverse::onEvent(const GameEvent& ev, const Game&) {
                 st.seed = rng_.range(0.f, 100.f);
                 stamps_.push_back(st);
             }
-            spawnBloom(v2(0, yMean), 10.f, 0.9f, inkC_);
         }
         // Collapse the ink bookkeeping like the board.
         InkCell next[Game::H][Game::W];
@@ -720,7 +689,7 @@ void SumiUniverse::collectBoard(const Game& g, const MusicState&, std::vector<Sp
     for (const Dying& d : dying_) {
         float k = saturate((d.t - d.delay) / d.dur);
         vec3 p = cellPos((float)d.x, (float)d.y);
-        addBlock(out, v2(p.x, p.y + 0.15f * k), d.type, d.mask, 1.f, d.nc, d.seed, 0.f, -1.f, k, 1.f);
+        addBlock(out, v2(p.x, p.y), d.type, d.mask, 1.f, d.nc, d.seed, 0.f, -1.f, k, 1.f - k * k);
     }
     // Mask of a piece's own cells (for the falling piece, its ghost and the previews).
     auto pieceMask = [](int cells[4][2], int i) {
