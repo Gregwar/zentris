@@ -184,6 +184,14 @@ moves on to the next. Every universe ships a few curated **variants**, picked pe
   HEATHER HIGHLANDS), from the key and mode; the song's phases are times of day (dawn, day, golden hour, dusk),
   slow motion is a moonlit night. Its HUD font is Comfortaa (SIL Open Font License,
   `src/universes/diorama/OFL-Comfortaa.txt`).
+- **PIXEL**: native low-resolution pixel art, drawn on a small canvas (a well cell is 8 canvas pixels) and scaled
+  up with nearest sampling: sixteen colors per variant, ordered Bayer dithering, parallax ranges, stepped animation.
+  Eight places (PINE DUSK, RED CANYON, SNOW PEAKS, NEON CITY, SEA CLIFFS, CHERRY HILLS, EMBER PEAKS, JADE FALLS),
+  from the key's hue and the mood (`--universe pixel:cherry`). Calm is a still dusk landscape, mid brings nearer
+  layers and critters moving on the beat, peak adds weather (rain and lightning, sand, snow and aurora, petals,
+  ash, leaves) and a foreground that hops by whole pixels. Locks squash, clears explode into pixels, a Tetris fires
+  pixel fireworks across the screen, slow motion swaps to a night palette, and a game over crumbles the stack
+  grain by grain. Its two pixel fonts are drawn by hand in `src/universes/pixel/font.cpp`.
 
 ### Transitions between universes
 
@@ -267,7 +275,7 @@ ideas for the end. Universes marked ✅ exist, the others are ideas waiting to b
 | 1 | SUMI | Ink on washi paper, sumi black + one vermilion seal; brushed pieces told apart by ink treatment | Beats diffuse ink in the paper; calm = faint far mountain, peak = ensō brush circle and red sun; a clear is one brush stroke | ✅ |
 | 2 | VECTOR | Phosphor beams on black CRT glass, one phosphor per song, persistence trails; pieces are line glyphs | Calm = a lone oscilloscope trace; mid = scrolling vector grid; peak = spectrum mountains, Lissajous, beam overdrive; clears shatter into vector debris | ✅ |
 | 3 | DIORAMA | Sunlit clay miniature: the board on a floating island, soft shadows, tilt-shift | Phases are times of day (dawn, day, golden hour); kicks ripple the water; cleared blocks tumble into the sea; slow motion is a moonlit night | ✅ |
-| 4 | PIXEL | Native 320×180 pixel art, 16-color palette, Bayer dithering, parallax layers | Sprites animate on the beat; peak adds parallax layers and weather; clears are pixel explosions | |
+| 4 | PIXEL | Native 320×180 pixel art, 16-color palette, Bayer dithering, parallax layers | Sprites animate on the beat; peak adds parallax layers and weather; clears are pixel explosions | ✅ |
 | 5 | SYNTHWAVE | Sunset grid, chrome letters, palm silhouettes, gradient sun | The sun's bands breathe; the grid speed follows the tempo; peak = car lights racing to the horizon | |
 | 6 | CLOUDSCAPE | Above the clouds, volumetric light, endless sky | Calm = still dawn sea of clouds; peak = towering cumulus and sun rays; clears drift away as mist | |
 | 7 | ABYSS | Deep-sea darkness, bioluminescent jelly pieces, marine snow | Creatures pulse their light with the beat; peak brings a giant glowing whale passing by; clears burst into plankton sparks | |
