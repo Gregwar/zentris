@@ -75,7 +75,7 @@ float starField(vec2 p, float scale, float density) {
     float size = mix(0.012, 0.05, pow(hash12(id + 1.3), 4.0));
     float tw = 0.55 + 0.45 * sin(uTime * (0.8 + 2.5 * hash12(id + 9.1)) + h * 60.0);
     float core = 1.0 - smoothstep(size, size + 1.5 * uPx, d);
-    float glow = exp(-d / (size * 2.5 + 0.02)) * 0.25;
+    float glow = exp(-d / (size * 2.5 + 0.02)) * 0.1;
     return (core + glow) * tw * (0.4 + 1.6 * hash12(id + 5.5));
 }
 
@@ -117,7 +117,7 @@ vec3 skyCol(vec2 p, bool refl) {
     float sunVis = 1.0;
     // stars: dusk and night
     if (!refl) {
-        float st = starField(p, 1.5, 0.16) + 0.6 * starField(p + 31.7, 3.1, 0.12);
+        float st = starField(p, 1.5, 0.06) + 0.35 * starField(p + 31.7, 3.1, 0.035);
         col += vec3(0.85, 0.85, 1.0) * st * uStars * smoothstep(1.0, 6.0, h);
     }
     // lasers (peak): a fan from the vanishing point
@@ -149,7 +149,7 @@ vec3 skyCol(vec2 p, bool refl) {
         float m = smoothstep(0.5, 0.64, n * 0.7 + n2 * 0.45) * band * uClouds;
         float lit = smoothstep(0.6, 0.52, n * 0.7 + n2 * 0.45 - 0.05);
         vec3 cc = uMount * 0.7 + uSkyMid * 0.25 + uSunBot * 0.3 * lit * uSun.w;
-        col = mix(col, cc, m * 0.92);
+        col = mix(col, cc, m * 0.35);
     }
     // the mountain ranges: far (hazy, wireframed) and near (dark)
     float hf = farRidge(p.x);
@@ -162,7 +162,7 @@ vec3 skyCol(vec2 p, bool refl) {
         float w1 = abs(fract(k1) - 0.5) / max(fwidth(k1), 1e-4);
         float w2 = abs(fract(k2) - 0.5) / max(fwidth(k2), 1e-4);
         float wire = max(1.0 - smoothstep(0.5, 1.5, w1), 1.0 - smoothstep(0.5, 1.5, w2));
-        mc += uGrid * wire * (0.10 + 0.35 * wMid()) * smoothstep(0.0, 0.6, depth) * exp(-depth * 0.35);
+        mc += uGrid * wire * 0.06 * wMid() * smoothstep(0.0, 0.6, depth) * exp(-depth * 1.2);
         mc += uSunTop * exp(-depth * 9.0) * 0.55; // the rim the sun lights
         col = mc;
     }
@@ -651,7 +651,7 @@ void main() {
     shift *= mix(1.0, 0.15, inWell);
     uv.x += shift;
     // chroma bleed: the tape smears red and blue sideways a little
-    float bleed = (0.9 + 2.5 * uSlow + 5.0 * uRewind) / uRes.x * (1.0 - uBridge);
+    float bleed = (0.35 + 2.5 * uSlow + 5.0 * uRewind) / uRes.x * (1.0 - uBridge);
     vec3 c;
     c.r = texture(uScene, uv + vec2(bleed, 0.0)).r;
     c.g = texture(uScene, uv).g;
@@ -680,7 +680,7 @@ void main() {
     }
     // film grain, restrained
     float g = hash12(gl_FragCoord.xy + fract(t * 7.13) * 431.0) - 0.5;
-    c += g * 0.022 * (1.0 - uBridge * 0.8);
+    c += g * 0.008 * (1.0 - uBridge * 0.8);
     c *= 1.0 - uDim * 0.55;
     c *= uFade;
     frag = vec4(pow(max(c, 0.0), vec3(1.0 / 2.2)), 1.0);

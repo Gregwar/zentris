@@ -676,13 +676,13 @@ void SynthwaveUniverse::palm(vec2 base, float height, float lean, float scale, f
         prevR = R;
     }
     const vec2 crown = p2;
-    // the fronds: long arcs drooping from the crown, thin leaflets hanging from them
-    const float angles[11] = {-0.75f, -0.32f, 0.08f, 0.5f, 0.95f, 1.45f, 1.95f, 2.4f, 2.85f, 3.25f, 3.7f};
-    for (int k = 0; k < 11; k++) {
+    // the fronds: long arcs drooping from the crown, each a broad tapering blade
+    const float angles[8] = {-0.6f, -0.05f, 0.5f, 1.1f, 2.05f, 2.65f, 3.2f, 3.75f};
+    for (int k = 0; k < 8; k++) {
         const float h1 = hashf(seed * 13.1f + k * 3.7f), h2 = hashf(seed * 5.3f + k * 9.1f);
         const float a = angles[k] + (h1 - 0.5f) * 0.25f + sway * (0.7f + 0.6f * h2)
                         + 0.03f * std::sin(swayT_ * 2.3f + k * 1.9f + seed);
-        const float L = height * 0.34f * (0.8f + 0.4f * h2) * (k == 5 ? 0.6f : 1.f);
+        const float L = height * 0.34f * (0.8f + 0.4f * h2);
         const float up = std::sin(a);
         const float droop = 0.38f + 0.3f * h1 + 0.45f * std::max(0.f, up);
         const vec2 dir = v2(std::cos(a), up);
@@ -693,15 +693,11 @@ void SynthwaveUniverse::palm(vec2 base, float height, float lean, float scale, f
             vec2 s0 = spine(t0), s1 = spine(t1);
             vec2 tg = norm(s1 - s0), n = v2(-tg.y, tg.x);
             const float w = 0.045f * scale * (1.f - t0 * 0.85f);
-            quad(shapes_, s0 + n * w, s0 - n * w, s1 - n * w * 0.85f, s1 + n * w * 0.85f, col, alpha);
-            if (t0 < 0.06f) continue;
-            const float env = std::pow(std::sin(PI * (0.1f + 0.9f * t0)), 0.6f) * (1.f - 0.4f * t0);
-            const float ll = L * 0.34f * env;
-            const vec2 mid = s0 + (s1 - s0) * 0.6f;
-            for (int side = -1; side <= 1; side += 2) {
-                vec2 ld = norm(tg * 0.55f + n * (0.85f * (float)side) + v2(0.f, -0.45f));
-                tri(shapes_, s0, mid, s0 + ld * ll, col, alpha);
-            }
+            // a broad blade hanging under the spine, tapering to a point
+            const float e0 = std::pow(std::sin(PI * std::min(1.f, 0.08f + t0)), 0.7f) * (1.f - 0.75f * t0);
+            const float e1 = std::pow(std::sin(PI * std::min(1.f, 0.08f + t1)), 0.7f) * (1.f - 0.75f * t1);
+            const float b0 = w + L * 0.075f * e0, b1 = w * 0.85f + L * 0.075f * e1;
+            quad(shapes_, s0 + n * (w * 0.6f), s0 - n * b0, s1 - n * b1, s1 + n * (w * 0.5f), col, alpha);
         }
     }
 }
@@ -711,7 +707,6 @@ void SynthwaveUniverse::buildPalms(float alpha) {
     const float wm = smoothstepf(0.2f, 1.f, lv_);
     const float amp = 0.025f + 0.05f * wm;
     const float vx = viewH_.x;
-    const vec3 rim = lerp(pal_.sunBot, pal_.haze, 0.4f) * 0.9f;
     struct P { float x, baseY, height, lean, scale; int seed; };
     const P palms[4] = {
         {-std::max(14.f, vx - 3.4f), HORIZON - 6.6f, 14.f, 0.5f, 1.1f, 1},
@@ -721,9 +716,6 @@ void SynthwaveUniverse::buildPalms(float alpha) {
     };
     for (const P& p : palms) {
         const float sway = amp * std::sin(swayT_ * 1.3f + p.seed * 1.7f) + swayKick_ * 0.06f * (p.seed & 1 ? 1.f : -1.f);
-        // the rim the sun lights (toward the center), then the silhouette over it
-        const float toC = p.x < 0 ? 1.f : -1.f;
-        palm(v2(p.x, p.baseY), p.height, p.lean, p.scale, sway, p.seed, rim, alpha * 0.85f, v2(0.06f * toC, 0.05f) * p.scale);
         palm(v2(p.x, p.baseY), p.height, p.lean, p.scale, sway, p.seed, pal_.palm, alpha, v2(0, 0));
     }
 }
