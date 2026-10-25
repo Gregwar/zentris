@@ -97,7 +97,8 @@ private:
     float todFrom_ = 1, todTo_ = 1, tod_ = 1;           // time of day: 0 dawn, 1 day, 2 golden hour, 2.6 dusk
     int worldFrom_ = 0, worldTo_ = 0;                    // landscape palettes (variants)
     float transT_ = 1, transDur_ = 1;
-    float gust_ = 0, flare_ = 0, night_ = 0;
+    float gust_ = 0, flare_ = 0, night_ = 0; // night_: the bonus night (0..1)
+    float nightV_ = 0, nightAll_ = 0;       // how much the place is a night place; the darker of both
     bool inverted_ = false;
     float pauseFade_ = 0;
     float kick_ = 0, kickEnv_ = 0, lastKickT_ = 0;

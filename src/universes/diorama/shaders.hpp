@@ -70,8 +70,12 @@ vec3 shade(vec3 albedo, vec3 n, vec3 wp, float ao, float sh) {
     vec3 v = normalize(uCamPos - wp);
     float ndl = dot(n, uSunDir);
     float diff = clamp((ndl + 0.2) / 1.2, 0.0, 1.0);
+    // Gentle shadows: a little sun leaks into the cast shadows, contact shading is softened and the sky fills a
+    // touch more (the clay keeps its depth without dark pools).
+    sh = mix(0.27, 1.0, sh);
+    ao = mix(1.0, ao, 0.72);
     float lit = diff * sh;
-    vec3 hemi = mix(uGroundCol, uSkyCol, n.y * 0.5 + 0.5);
+    vec3 hemi = mix(uGroundCol, uSkyCol, n.y * 0.5 + 0.5) * 1.07;
     vec3 amb = hemi * ao * mix(uShadowTint, vec3(1.0), sh * 0.7 + 0.3 * diff);
     vec3 col = albedo * (uSunCol * lit + amb);
     float term = smoothstep(-0.3, 0.1, ndl) * (1.0 - smoothstep(0.1, 0.55, ndl));
@@ -483,7 +487,7 @@ void main() {
 }
 )";
 
-// ---------- HUD: rounded cards with a soft shadow, SDF text.
+// ---------- HUD: small wooden plaques with a soft shadow, SDF text.
 inline const char* HUD_VS = R"(#version 330 core
 layout(location = 0) in vec4 aPosUV; // pixel position, uv / local
 uniform vec2 uRes;
@@ -497,7 +501,7 @@ inline const char* PANEL_FS = R"(#version 330 core
 in vec2 vUV; // pixels relative to the card's center
 out vec4 frag;
 uniform vec2 uHalf;
-uniform float uRadius, uShadow, uAlpha;
+uniform float uRadius, uShadow, uAlpha, uWood;
 uniform vec3 uColor, uShadowCol;
 float box(vec2 p, vec2 b, float r) { vec2 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
 void main() {
@@ -507,6 +511,14 @@ void main() {
     float sa = uShadow > 0.0 ? (1.0 - smoothstep(-uShadow * 0.6, uShadow, ds)) * 0.35 : 0.0;
     // A whisper of paint: the top of the card is a touch lighter.
     vec3 c = uColor * (1.0 + 0.04 * clamp(-vUV.y / max(uHalf.y, 1.0), -1.0, 1.0));
+    if (uWood > 0.0) {
+        // A small plaque of dark stained wood: lengthwise grain, a lighter bevel on top, a darker lip below.
+        float g = sin(vUV.y * 0.9 + sin(vUV.x * 0.021 + vUV.y * 0.05) * 3.0) * 0.5 + 0.5;
+        float g2 = sin(vUV.y * 2.3 + vUV.x * 0.013) * 0.5 + 0.5;
+        c *= 0.9 + 0.12 * g + 0.06 * g2;
+        float edge = smoothstep(-uWood * 2.2, -0.5, d);
+        c = mix(c, c * (vUV.y < 0.0 ? 1.55 : 0.7), edge * 0.8);
+    }
     float outA = a + sa * (1.0 - a);
     vec3 outC = (c * a + uShadowCol * sa * (1.0 - a)) / max(outA, 1e-4);
     frag = vec4(outC, outA * uAlpha);
