@@ -1,5 +1,6 @@
 #pragma once
 // VECTOR: phosphor beams on a dark CRT (see vector.cpp).
+#include <array>
 #include <vector>
 
 #include "universe.hpp"
@@ -34,6 +35,11 @@ private:
         beam(a, b, i, i, hot, hot, width, layer);
     }
     float px_ = 1.f; // pixels per reference pixel (1080p)
+    // World beams are kept a step below the board: dimmer, thinner, never white-hot (the pieces own the hot core).
+    float worldK_ = 1.f;
+    // The faint glow filling each cell of the stack, the piece and the previews (triangles, xyz).
+    std::vector<float> cellFill_;
+    void cellFill(const vec3& c, float half);
 
     // ---- Scene parts.
     void buildWorld(const MusicState& music);
@@ -98,6 +104,7 @@ private:
     float overdrive_ = 0, kick_ = 0, flashWell_ = 0;
     float throb_ = 0;
     float camDolly_ = 0;
+    std::array<float, NUM_BANDS> bandSlow_{}; // the spectrum, smoothed (the mountains rise and settle, never twitch)
 
     // ---- Peak: the drop hit and the living peak (see drop() and render()).
     float dropT_ = 99.f, dropAmt_ = 0;     // seconds since the drop hit, and its strength

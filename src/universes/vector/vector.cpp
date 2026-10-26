@@ -321,9 +321,8 @@ void VectorUniverse::setLevel(int level, float, float seconds, float impact) {
         }
     }
     if (rising && level >= 2) {
-        // Into a drop: the tube is armed and the ridges start to rise, held halfway (tension); the drop's
+        // Into a drop: the ridges start to rise, held halfway (tension); the drop's
         // downbeat (drop(), ~0.45 s later) slams them the rest of the way.
-        degauss_ = 0.2f;
         if (impact >= 0.75f) {
             lvTo_ = 1.5f;
             peakWait_ = 0.f;
@@ -332,21 +331,22 @@ void VectorUniverse::setLevel(int level, float, float seconds, float impact) {
 }
 
 // The drop: one hit on the downbeat, restrained. The peak's mountains rise firmly out of the half-risen floor,
-// one ring of light races out along the floor, and the beams brighten once.
+// one ring of light races out along the floor, and the bloom swells once (no flash, no shudder).
 void VectorUniverse::drop(float strength) {
     const float s = saturate(strength);
     dropT_ = 0.f;
     dropAmt_ = s;
     slam_ = s;
     if (level_ >= 2) {
-        lv_ = lvFrom_ = lvTo_ = 2.f; // the peak arrives on the beat, not on the level's ease
+        // The peak arrives on the beat: the mountains rise out of the half-risen floor in half a second.
+        retune(phos_, 0.5f);
+        lvTo_ = 2.f;
         peakWait_ = -1.f;
     }
-    overdrive_ = std::max(overdrive_, 0.25f * s);
-    degauss_ = std::max(degauss_, 0.15f * s);
+    overdrive_ = std::max(overdrive_, 0.12f * s);
     bar_++;
     barT_ = 0.f;
-    floorRing(0.8f * s, 1.f);
+    floorRing(0.7f * s, 1.2f);
 }
 
 // A new section: the beams kick (overdrive) and the well's outline throws one frame outward.
@@ -384,6 +384,12 @@ vec2 VectorUniverse::project(const vec3& p) const {
 void VectorUniverse::beam(const vec3& a, const vec3& b, float ia, float ib, float ha, float hb, float width, int layer) {
     if (ia <= 0.004f && ib <= 0.004f && ha <= 0.004f && hb <= 0.004f) return;
     if (beams_.size() >= 80000) return;
+    if (layer == L_WORLD) {
+        // The world sits behind the stack: dimmer, thinner and pure phosphor (no white core).
+        ia *= worldK_; ib *= worldK_;
+        ha *= 0.25f * worldK_; hb *= 0.25f * worldK_;
+        width *= 0.8f;
+    }
     const float w = layer == L_SCREEN ? width : width * px_;
     beams_.push_back({vec4(a, std::max(0.55f, w)), vec4(b, (float)layer), vec4(ia, ib, ha, hb)});
 }
@@ -392,7 +398,7 @@ void VectorUniverse::beam(const vec3& a, const vec3& b, float ia, float ib, floa
 //   I diamond   O inner square   T saltire   S hatch   Z double bar   J dot   L cross
 void VectorUniverse::glyph(const vec3& c, float h, int type, float in, float hot, int layer, bool outline) {
     auto P = [&](float x, float y) { return c + vec3(x * h, y * h, 0); };
-    const float wid = 1.2f;
+    const float wid = 1.35f;
     if (outline) {
         beam(P(-1, -1), P(1, -1), in, hot, wid, layer);
         beam(P(1, -1), P(1, 1), in, hot, wid, layer);
@@ -446,6 +452,16 @@ void VectorUniverse::glyph(const vec3& c, float h, int type, float in, float hot
         break;
     }
     default: break;
+    }
+}
+
+// A cell's faint interior glow: the pieces read as lit objects, never as more lines of the background.
+void VectorUniverse::cellFill(const vec3& c, float h) {
+    const vec3 a = c + vec3(-h, -h, 0), b = c + vec3(h, -h, 0), d = c + vec3(h, h, 0), e = c + vec3(-h, h, 0);
+    for (const vec3& v : {a, b, d, a, d, e}) {
+        cellFill_.push_back(v.x);
+        cellFill_.push_back(v.y);
+        cellFill_.push_back(v.z);
     }
 }
 
@@ -536,7 +552,7 @@ void VectorUniverse::onEvent(const GameEvent& ev, const Game&) {
             // A vector shockwave and beam overdrive.
             rings_.push_back({vec3(0, yc, 0), 0.5f, 34.f, 0.f, 1.1f, 0.9f, 128, 1.f});
             if (ev.backToBack) rings_.push_back({vec3(0, yc, 0), 0.5f, 22.f, -0.15f, 1.1f, 0.7f, 4, 1.f});
-            overdrive_ = 1.f;
+            overdrive_ = 0.6f;
         } else {
             overdrive_ = std::max(overdrive_, 0.12f * ev.count);
         }
@@ -580,8 +596,8 @@ void VectorUniverse::buildWorld(const MusicState& music) {
     {
         const int N = 260;
         const float z = -95.f, y0 = camPos_.y;
-        const float A = (3.5f + 2.5f * wPeak) * (0.35f + 0.9f * music.audio.loud) * (1.f + 0.3f * throb_ + 0.9f * punch_);
-        const float in = (0.95f - 0.3f * wGrid + 0.2f * wPeak + 0.3f * punch_) * gain;
+        const float A = (3.5f + 1.f * wPeak) * (0.35f + 0.9f * music.audio.loud) * (1.f + 0.3f * throb_ + 0.25f * punch_);
+        const float in = (0.95f - 0.3f * wGrid + 0.05f * wPeak + 0.1f * punch_) * gain;
         vec3 prev;
         for (int i = 0; i <= N; i++) {
             const float x = -120.f + 240.f * i / N;
@@ -589,7 +605,7 @@ void VectorUniverse::buildWorld(const MusicState& music) {
                            (0.12f + mid) * 0.45f * std::sin(x * TAU / 24.f - t * 1.7f) +
                            (0.05f + high) * 0.2f * std::sin(x * TAU / 7.f + t * 4.3f));
             vec3 p(x, y0 + y, z);
-            const float ht = (0.04f + 0.5f * punch_) * in;
+            const float ht = 0.04f * in;
             if (i) beam(prev, p, in, in, ht, ht, 1.25f, L_WORLD);
             prev = p;
         }
@@ -599,7 +615,7 @@ void VectorUniverse::buildWorld(const MusicState& music) {
     for (auto& fr : floorRings_) {
         const float ru = std::min(1.f, fr.t / fr.life), rk = 1.f - ru;
         const float rad = 4.f + 150.f * (1.f - rk * rk * rk);
-        const float ri = 1.5f * fr.amt * rk * rk * gain, rh = 1.6f * fr.amt * rk * rk * rk * gain;
+        const float ri = 1.1f * fr.amt * rk * rk * gain, rh = 0.5f * fr.amt * rk * rk * rk * gain;
         const int N = 144;
         vec3 prev;
         for (int j = 0; j <= N; j++) {
@@ -617,22 +633,20 @@ void VectorUniverse::buildWorld(const MusicState& music) {
         auto& H = H_;
         auto& IN = IN_;
         auto& ZK = ZK_;
-        // The whole grid throbs in place on the beat (nothing travels across it); at peak each bar flashes the
-        // floor hot for an instant.
-        const float pulseAmp = wGrid * (0.05f + 0.15f * E) * std::min(1.f, music.beatPulse * 1.5f) + 0.25f * drive_ * punch_;
-        const float barAmp = 0.5f * drive_ * std::exp(-barT_ / 0.09f);
+        // The whole grid throbs in place on the beat (nothing travels across it), gently.
+        const float pulseAmp = wGrid * (0.05f + 0.12f * E) * std::min(1.f, music.beatPulse * 1.5f) + 0.1f * drive_ * punch_;
         float HOT[NR];
-        // Peak: the ridges change shape on each bar (a quick morph from the last bar's range to the new one).
-        const float morph = smoothstepf(0.f, 0.16f, barT_);
+        // Peak: the ridges change shape on each bar (a smooth morph from the last bar's range to the new one).
+        const float morph = smoothstepf(0.f, 0.7f, barT_);
         const float seedA = (float)(bar_ % 64) * 13.7f, seedB = (float)((bar_ + 63) % 64) * 13.7f;
-        const float lift = 1.f + 0.8f * punch_ + 0.6f * slam_;
+        const float lift = 1.f + 0.2f * punch_ + 0.25f * slam_;
         for (int k = 0; k < NR; k++) {
             const float z = Z0 - (k - frac) * DZ;
             ZK[k] = z;
             const float far = 1.f - smoothstepf(-70.f, -150.f, z);
             const float near = smoothstepf(14.f, 2.f, z);
-            IN[k] = (0.26f * far * near * (1.f + 1.2f * punch_) + pulseAmp * far * near + 0.6f * barAmp * far) * wGrid * gain;
-            HOT[k] = (0.25f * punch_ * drive_ + 0.5f * barAmp) * far * gain;
+            IN[k] = (0.26f * far * near * (1.f + 0.35f * punch_) + pulseAmp * far * near) * wGrid * gain;
+            HOT[k] = 0.1f * punch_ * drive_ * far * gain;
             for (int i = 0; i < NC; i++) {
                 const float x = (i - NC / 2) * DX;
                 float h = 0.f;
@@ -643,10 +657,10 @@ void VectorUniverse::buildWorld(const MusicState& music) {
                     float prof = vnoise(nx + seedA, ny);
                     if (morph < 1.f) prof = lerpf(vnoise(nx + seedB, ny), prof, morph);
                     const float ridge = smoothstepf(0.25f, 0.85f, prof);
-                    // The spectrum lifts them (band by distance from the well), with kicks, beats and the drop's slam.
-                    const float b = band((int)(u * 15.99f));
-                    h = wPeak * env * (0.6f + 11.f * ridge * ridge) * (0.25f + (1.f + 0.5f * drive_) * b) * lift;
-                    h = 15.f * std::tanh(h / 15.f); // a soft ceiling: the ridges stay under the HUD's labels
+                    // The spectrum lifts them (band by distance from the well, smoothed), breathing with the beats.
+                    const float b = bandSlow_[std::clamp((int)(u * 15.99f), 0, NUM_BANDS - 1)];
+                    h = wPeak * env * (0.5f + 7.5f * ridge * ridge) * (0.35f + 0.9f * b) * lift;
+                    h = 10.f * std::tanh(h / 10.f); // a soft ceiling: low ranges, the sky stays empty
                 }
                 H[k][i] = FLOOR_Y + h;
             }
@@ -656,9 +670,9 @@ void VectorUniverse::buildWorld(const MusicState& music) {
         for (int k = 0; k < NR; k++)
             for (int i = 0; i < NC; i++) {
                 const float hk = (H[k][i] - FLOOR_Y) / 18.f;
-                const float hot = (0.8f * punch_ + 0.6f * slam_) * wPeak * hk + HOT[k];
+                const float hot = (0.2f * punch_ + 0.2f * slam_) * wPeak * hk + HOT[k];
                 if (i + 1 < NC) {
-                    const float h2 = (0.8f * punch_ + 0.6f * slam_) * wPeak * (H[k][i + 1] - FLOOR_Y) / 18.f + HOT[k];
+                    const float h2 = (0.2f * punch_ + 0.2f * slam_) * wPeak * (H[k][i + 1] - FLOOR_Y) / 18.f + HOT[k];
                     beam(P(k, i), P(k, i + 1), IN[k] * transI * (1.f + 0.6f * hk), IN[k] * transI *
                          (1.f + 0.6f * (H[k][i + 1] - FLOOR_Y) / 18.f), hot * IN[k], h2 * IN[k], 1.05f, L_WORLD);
                 }
@@ -683,23 +697,23 @@ void VectorUniverse::buildWorld(const MusicState& music) {
     // right), slowly turning, set behind the mountains.
     if (wPeak > 0.01f) {
         static const int RATIOS[4][2] = {{3, 2}, {2, 3}, {3, 4}, {4, 3}};
-        const int* r = RATIOS[(seed_ + (uint64_t)bar_) % 4]; // a new figure on each bar
+        const int* r = RATIOS[(seed_ + (uint64_t)(bar_ / 4)) % 4]; // a new figure every four bars
         const int N = 240;
         for (int side = -1; side <= 1; side += 2) {
             const float ax = side < 0 ? bass : mid, ay = side < 0 ? mid : high;
             const vec3 C(side * 44.f, 13.f, -60.f);
-            const float zoom = 1.f + 0.3f * punch_;
+            const float zoom = 1.f + 0.06f * punch_;
             const float rad = 4.6f * (0.75f + 0.35f * ax) * zoom;
             const float ry = 4.6f * (0.75f + 0.35f * ay) * zoom;
             const float delta = t * 0.31f * side + (float)bar_ * 0.9f;
-            const float in = (0.42f + 0.45f * punch_) * wPeak * gain;
-            const float hot = (0.05f + 0.45f * punch_) * in;
+            const float in = (0.3f + 0.1f * punch_) * wPeak * gain;
+            const float hot = 0.04f * in;
             vec3 prev;
             for (int j = 0; j <= N; j++) {
                 const float th = TAU * j / N;
                 const float u = r[0] * th + delta;
                 vec3 p = C + vec3(rad * std::sin(u), ry * std::sin(r[1] * th), rad * std::cos(u));
-                if (j) beam(prev, p, in, in, hot, hot, 1.1f + 0.5f * punch_, L_WORLD);
+                if (j) beam(prev, p, in, in, hot, hot, 1.1f, L_WORLD);
                 prev = p;
             }
         }
@@ -716,7 +730,7 @@ void VectorUniverse::buildBoard(const Game& g, float dt) {
 
     // ---- The well: a crisp open box in perspective, with graduations like an instrument.
     {
-        const float in = (0.62f + 0.12f * th + 0.2f * punch_) * gain, hot = (0.6f * flashWell_ + 0.35f * punch_) * gain;
+        const float in = (0.62f + 0.1f * th + 0.06f * punch_) * gain, hot = 0.6f * flashWell_ * gain;
         const vec3 bl(-WELL_X, WELL_BOT, 0), br(WELL_X, WELL_BOT, 0), tl(-WELL_X, WELL_TOP, 0), tr(WELL_X, WELL_TOP, 0);
         const vec3 back(0, 0, -WELL_DEPTH);
         beam(tl, bl, in, hot, 1.5f, L_BOARD);
@@ -750,9 +764,12 @@ void VectorUniverse::buildBoard(const Game& g, float dt) {
             const Cell& c = g.cell(x, y);
             if (c.type < 0) continue;
             const float age = (1.f - c.flash) * Game::LOCK_FX_SECONDS;
-            const float hot = std::exp(-age / 0.16f) * (c.dropped ? 1.1f : 0.8f);
-            const float in = (0.6f + 0.06f * th + 0.5f * std::exp(-age / 0.5f)) * gain;
-            glyph(layout::cellPos((float)x, y - g.rowOffset(y)), CELL, c.type, in, hot * gain, L_BOARD);
+            // A white-hot core the world never has: the stack always reads in front of the background.
+            const float hot = 0.12f + std::exp(-age / 0.16f) * (c.dropped ? 1.1f : 0.8f);
+            const float in = (0.8f + 0.04f * th + 0.4f * std::exp(-age / 0.5f)) * gain;
+            const vec3 pos = layout::cellPos((float)x, y - g.rowOffset(y));
+            glyph(pos, CELL, c.type, in, hot * gain, L_BOARD);
+            cellFill(pos, CELL);
         }
 
     // ---- The piece in play, and its ghost (a dashed contour where it will land).
@@ -783,10 +800,12 @@ void VectorUniverse::buildBoard(const Game& g, float dt) {
             }
         }
         const float dyv = g.pieceVisualY() - p.y;
-        const float hot = 0.06f + 0.35f * g.lockProgress() * g.lockProgress();
+        const float hot = 0.16f + 0.35f * g.lockProgress() * g.lockProgress();
         for (auto& q : cells) {
             if (q[1] + dyv < 0.6f) continue;
-            glyph(layout::cellPos((float)q[0], q[1] + dyv), CELL, p.type, (1.05f + 0.1f * th) * gain, hot * gain, L_BOARD);
+            const vec3 pos = layout::cellPos((float)q[0], q[1] + dyv);
+            glyph(pos, CELL, p.type, (1.05f + 0.1f * th) * gain, hot * gain, L_BOARD);
+            cellFill(pos, CELL);
         }
     }
 
@@ -802,7 +821,8 @@ void VectorUniverse::buildBoard(const Game& g, float dt) {
         }
         for (auto& c : cells) {
             vec3 pos = center + vec3((c[0] - (minx + maxx) * 0.5f) * sc, -(c[1] - (miny + maxy) * 0.5f) * sc, 0);
-            glyph(pos, CELL * sc, type, in * gain, 0, L_BOARD);
+            glyph(pos, CELL * sc, type, in * gain, 0.08f * in * gain, L_BOARD);
+            if (in > 0.5f) cellFill(pos, CELL * sc);
         }
     };
     if (g.holdType() >= 0) preview(g.holdType(), vec3(-8.6f, 7.2f, 0), 0.62f, g.holdUsed() ? 0.3f : 0.85f);
@@ -1029,7 +1049,8 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
         const float raw = std::min(1.2f, std::max(beatEnv, 1.3f * music.kick));
         const float midDrive = 0.3f * wGrid0 * (1.f - wPeak0) * (0.4f + 0.6f * E);
         const float target = std::max(0.5f * drive_ * raw, midDrive * beatEnv); // the peak: firm, not busy
-        punch_ = target > punch_ ? target : approach(punch_, target, 14.f, dt);
+        // Smooth both ways: a quick swell, a slower settle (no hard flash on the beat).
+        punch_ = approach(punch_, target, target > punch_ ? 30.f : 6.f, dt);
     }
 
     sweepT_ += dt;
@@ -1054,7 +1075,7 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     const float still = 1.f - bridge_.amount;
     const float yaw = (0.008f + 0.018f * wPeak) * std::sin(worldTime_ * 0.17f) * still;
     const layout::Camera cam =
-        layout::camera(width_, height_, 1.f - (0.035f * camDolly_ + 0.012f * punch_) * still, yaw);
+        layout::camera(width_, height_, 1.f - 0.035f * camDolly_ * still, yaw);
     camPos_ = cam.eye;
     view_ = cam.view;
     proj_ = cam.proj;
@@ -1063,6 +1084,9 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     // ---- Beams.
     beams_.clear();
     fill_.clear();
+    cellFill_.clear();
+    for (int i = 0; i < NUM_BANDS; i++) bandSlow_[i] = approach(bandSlow_[i], music.bandsFast[i], 5.f, wdt);
+    worldK_ = 0.72f - 0.14f * wPeak;
     buildWorld(music);
     const size_t worldEnd = beams_.size();
     buildBoard(game, dt);
@@ -1118,7 +1142,7 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     set2f(progLine_, "uRes", (float)width_, (float)height_);
     set1f(progLine_, "uTime", (float)time);
     set1f(progLine_, "uJitter", 0.35f * px_ + 0.6f * degauss_ * px_);
-    set1f(progLine_, "uHalo", 0.07f + 0.08f * punch_);
+    set1f(progLine_, "uHalo", 0.07f + 0.02f * punch_);
     {
         // World beams fade behind the well's glass and the HUD columns.
         const vec3 q[4] = {{-WELL_X - 0.05f, WELL_BOT - 0.05f, 0}, {WELL_X + 0.05f, WELL_BOT - 0.05f, 0},
@@ -1139,7 +1163,9 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
         rect(-11.2f, -6.8f, -6.0f, 10.4f, rv);
         rect(6.0f, -3.6f, 11.2f, 10.4f, rv + 4);
         glUniform4fv(U(progLine_, "uRects"), 2, rv);
-        set1f(progLine_, "uQuadDim", 0.035f);
+        // No world line passes through the stack: the world fades out a cell before the well and is gone inside.
+        set1f(progLine_, "uQuadDim", 0.f);
+        set1f(progLine_, "uQuadPad", std::fabs(project(vec3(1, 0, 0)).x - project(vec3(0, 0, 0)).x) * 1.2f);
         set1f(progLine_, "uRectDim", 0.3f - 0.12f * wPeak); // busier peaks sink further behind the HUD
     }
     auto drawBeams = [&](size_t first, size_t count) {
@@ -1159,6 +1185,20 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     drawBeams(0, worldEnd);
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
+    if (!cellFill_.empty()) {
+        // The cells' faint interior glow, under their lines.
+        glUseProgram(progFill_);
+        setMat(progFill_, "uVP", vp_);
+        set1i(progFill_, "uScreen", 0);
+        set4f(progFill_, "uColor", 0.075f * (1.f - 0.75f * dimT_), 0.f, 0.f, 1.f);
+        glBindVertexArray(fillVao_);
+        glBindBuffer(GL_ARRAY_BUFFER, fillVbo_);
+        glBufferData(GL_ARRAY_BUFFER, cellFill_.size() * sizeof(float), cellFill_.data(), GL_STREAM_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(cellFill_.size() / 3));
+        glUseProgram(progLine_);
+        glBindVertexArray(lineVao_);
+        glBindBuffer(GL_ARRAY_BUFFER, beamVbo_);
+    }
     drawBeams(worldEnd, boardEnd - worldEnd);
     // zenscene's menu panels: dark glass under the text (or a lit bar for the accent ones).
     if (!f.panels.empty()) {
@@ -1234,10 +1274,11 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     set3f(progComp_, "uPhos0", phosColor(palSweep_ ? phosPrev_ : phos_));
     set3f(progComp_, "uPhos1", phosColor(phos_));
     set1f(progComp_, "uPhosMix", palSweep_ ? smoothstepf(0.f, 0.6f, sp) : 1.f);
-    // Beam overdrive: kicks and beats push the tube's gain and bloom at peaks; the drop adds one soft flash.
-    const float dropFlash = 0.5f * dropAmt_ * std::exp(-dropT_ / 0.22f);
-    set1f(progComp_, "uGain", 1.f + 0.35f * overdrive_ + 0.3f * punch_ + 0.35f * dropFlash);
-    set1f(progComp_, "uBloomAmt", 0.25f + 0.3f * overdrive_ + 0.55f * punch_ + 0.5f * dropFlash);
+    // Beam overdrive: kicks and beats lift the bloom a little at peaks; the drop swells it once, softly (the tube's
+    // gain barely moves: no full-screen brightness jumps).
+    const float dropGlow = dropAmt_ * (1.f - std::exp(-dropT_ / 0.08f)) * std::exp(-dropT_ / 0.6f);
+    set1f(progComp_, "uGain", 1.f + 0.2f * overdrive_ + 0.04f * punch_ + 0.06f * dropGlow);
+    set1f(progComp_, "uBloomAmt", 0.25f + 0.2f * overdrive_ + 0.12f * punch_ + 0.25f * dropGlow);
     set1f(progComp_, "uCurv", 0.07f * (1.f - bridge_.amount)); // the glass flattens onto the bridge
     set1f(progComp_, "uScan", 0.14f);
     set1f(progComp_, "uTime", (float)time);
