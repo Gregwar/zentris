@@ -760,12 +760,6 @@ void PolarUniverse::tile(float x, float y, float hw, float hh, const vec3& c, fl
 float PolarUniverse::freezeAge(const Game& g, int x, int y) const {
     const IceCell& ic = ice_[y][x];
     if (ic.id < 0 || g.cell(x, y).type != ic.type) return -1.f;
-    if (const char* e = std::getenv("POLAR_DEMO_AGE"); e && ic.t0 < -50.f) { // TEMP demo
-        const float a = (float)std::atof(e);
-        if (a >= 0.f) return a < FREEZE_SECONDS ? a : -1.f;
-        const float ages[6] = {0.3f, 1.2f, 2.5f, 4.f, 5.5f, -1.f};
-        return ages[(ic.id * 7 + 3) % 6];
-    }
     const float a = iceClock_ - ic.t0;
     return a < FREEZE_SECONDS ? a : -1.f;
 }
