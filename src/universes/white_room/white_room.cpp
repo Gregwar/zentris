@@ -1005,6 +1005,16 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
             nc++;
         }
         set1i(progRoom_, "uCubes", nc);
+        {
+            vec3 lo{1e3f, 1e3f, 1e3f}, hi{-1e3f, -1e3f, -1e3f};
+            for (int i = 0; i < nc; i++) {
+                const float r = cp[i * 4 + 3] * 1.74f;
+                lo = vec3{std::min(lo.x, cp[i * 4] - r), std::min(lo.y, cp[i * 4 + 1] - r), std::min(lo.z, cp[i * 4 + 2] - r)};
+                hi = vec3{std::max(hi.x, cp[i * 4] + r), std::max(hi.y, cp[i * 4 + 1] + r), std::max(hi.z, cp[i * 4 + 2] + r)};
+            }
+            set3f(progRoom_, "uCubeLo", lo);
+            set3f(progRoom_, "uCubeHi", hi);
+        }
         if (nc > 0) {
             glUniform4fv(ugl::U(progRoom_, "uCubeP"), nc, cp);
             glUniform4fv(ugl::U(progRoom_, "uCubeX"), nc, cx);

@@ -112,7 +112,7 @@ private:
         float age, life;    // seconds; fades over its last second
     };
     std::vector<Ejected> ejected_;
-    static constexpr int EJECT_MAX = 40;
+    static constexpr int EJECT_MAX = 24;
     void eject(float x, float y, int color, float power);
     void stepEjected(float dt);
     float dropSwing_ = 0.f;  // the drop's gels swinging in from far out (1 on the downbeat .. 0)

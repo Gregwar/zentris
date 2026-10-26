@@ -40,10 +40,11 @@ uniform sampler2D uOcc;       // the board's occupancy (blocks, piece, previews)
 uniform vec4 uOccRect;        // x0, y0, size (board units), texels per unit
 uniform float uOccLod;        // the map's last mip level
 uniform int uCubes;          // the cleared blocks thrown out (oriented cubes)
-uniform vec4 uCubeP[40];      // center, half size
-uniform vec4 uCubeX[40];      // its x axis, alpha (fading)
-uniform vec4 uCubeY[40];      // its y axis
-uniform vec4 uCubeC[40];      // albedo
+uniform vec4 uCubeP[24];      // center, half size
+uniform vec4 uCubeX[24];      // its x axis, alpha (fading)
+uniform vec4 uCubeY[24];      // its y axis
+uniform vec4 uCubeC[24];      // albedo
+uniform vec3 uCubeLo, uCubeHi; // a box around all the cubes: rays that miss it skip them (the cost stays with them)
 uniform float uBridge;
 uniform vec3 uBridgeCol;
 uniform float uShadowK;       // 1: shadows, 0: none (bridge)
@@ -102,6 +103,16 @@ vec3 cubeWorld(int i, vec3 v) {
     return X * v.x + Y * v.y + cross(X, Y) * v.z;
 }
 float sdBox3(vec3 p, vec3 b) { vec3 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0); }
+
+// does the segment from ro along rd (unit, up to tmax) pass within m of the cubes' box?
+bool nearCubes(vec3 ro, vec3 rd, float m, float tmax) {
+    vec3 inv = 1.0 / rd;
+    vec3 t0 = (uCubeLo - m - ro) * inv, t1 = (uCubeHi + m - ro) * inv;
+    vec3 tmin = min(t0, t1), tmax3 = max(t0, t1);
+    float tn = max(max(tmin.x, tmin.y), tmin.z), tf = min(min(tmax3.x, tmax3.y), tmax3.z);
+    return tf >= max(tn, 0.0) && tn <= tmax;
+}
+float boxDist(vec3 p) { vec3 d = max(max(uCubeLo - p, p - uCubeHi), 0.0); return length(d); }
 
 // ray / cube: t of entry (or -1)
 float cubeHit(vec3 ro, vec3 rd, int i) {
@@ -173,6 +184,10 @@ float plinthShadow(vec3 p, int i, float radius) {
 // the distance to it
 float cubeShadow(vec3 p, vec3 l, float soft, int self) {
     float vis = 1.0;
+    if (uCubes == 0) return vis;
+    // the widest penumbra it could have: the farthest cube's distance
+    float far = boxDist(p) + length(uCubeHi - uCubeLo);
+    if (!nearCubes(p, l, far * soft + 0.05, far)) return vis;
     for (int i = 0; i < uCubes; i++) {
         if (i == self) continue;
         float tca = dot(uCubeP[i].xyz - p, l);
@@ -189,13 +204,15 @@ float cubeShadow(vec3 p, vec3 l, float soft, int self) {
 // the floor darkened under and around the cubes (contact)
 float cubeAO(vec3 p, vec3 n, int self) {
     float ao = 1.0;
+    if (uCubes == 0 || boxDist(p) > 3.0) return ao;
     for (int i = 0; i < uCubes; i++) {
         if (i == self) continue;
         vec3 oc = uCubeP[i].xyz - p;
         float d2 = dot(oc, oc);
         float d = sqrt(d2);
         float r = uCubeP[i].w * 1.4;
-        ao *= 1.0 - clamp(dot(n, oc / d) * r * r / d2, 0.0, 1.0) * 0.85 * uCubeX[i].w;
+        // (faded out by a few sizes away, so that far from the cubes nothing is computed)
+        ao *= 1.0 - clamp(dot(n, oc / d) * r * r / d2, 0.0, 1.0) * 0.85 * uCubeX[i].w * smoothstep(3.0, 1.5, d);
     }
     return ao;
 }
@@ -264,7 +281,7 @@ vec3 trace(vec3 ro, vec3 rd, out vec3 bg) {
         col *= 1.0 - 0.1 * smoothstep(4.0, 16.0, p.y); // the far top fades a touch (an endless space)
     }
     bg = col;
-    if (uCubes == 0) return col;
+    if (uCubes == 0 || !nearCubes(ro, rd, 0.1, t)) return col;
     // the nearest cube the ray hits
     float tc = t;
     int ic = -1;
