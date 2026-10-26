@@ -759,7 +759,7 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
             const float x = rng_.chance(0.25f) ? rng_.range(-5.f, 5.f) : side * rng_.range(5.5f, viewH_.x - 0.5f);
             p.p = v2(x, rng_.range(groundY(x, seedF_) + 0.3f, 2.f));
             p.v = v2(rng_.range(-0.2f, 0.2f), rng_.range(-0.1f, 0.1f));
-            p.life = rng_.range(7.f, 12.f); p.size = rng_.range(0.04f, 0.06f); p.drag = 0.2f; p.kind = P_FIREFLY;
+            p.life = rng_.range(7.f, 12.f); p.size = rng_.range(0.05f, 0.07f); p.drag = 0.2f; p.kind = P_FIREFLY;
             p.col = vec3(1.f, 0.85f, 0.4f); p.seed = rng_.range(0.f, 50.f);
             parts_.push_back(p);
         }
@@ -1062,8 +1062,8 @@ void GardenUniverse::drawParticles(bool front, float world) {
         case P_FIREFLY: {
             const float blink = 0.5f + 0.5f * std::sin(p.age * 1.1f + p.seed * 3.f);
             const float b = a * blink * blink;
-            sprite(p.p.x, p.p.y, p.size * 5.f, p.size * 5.f, 0.f, 1, p.col, b * 0.12f, 0.f);
-            sprite(p.p.x, p.p.y, p.size, p.size, 0.f, 1, vec3(1.f, 0.95f, 0.7f), b, 0.3f);
+            sprite(p.p.x, p.p.y, p.size * 6.f, p.size * 6.f, 0.f, 1, p.col, b * 0.2f, 0.f);
+            sprite(p.p.x, p.p.y, p.size * 1.3f, p.size * 1.3f, 0.f, 1, vec3(1.f, 0.93f, 0.6f), b, 0.35f);
             break;
         }
         case P_FLOWER: sprite(p.p.x, p.p.y, p.size, p.size, p.rot, 2, p.col, a, p.seed, 5.f); break;
