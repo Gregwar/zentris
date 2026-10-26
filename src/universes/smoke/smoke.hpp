@@ -108,7 +108,13 @@ private:
     // ---- Effects.
     struct Puff { vec2 p, v; float r, grow, t, life, alpha, seed, delay, stretch; int kind; float minGlow = 0.f; int tint = -1; float drag = -1.f, fall = 0.f; }; // tint: a piece type whose color the smoke takes, -1 none; drag (< 0: the kind's own) and fall (gravity) for dust that sags back
     std::vector<Puff> puffs_;
-    int lastDrop_ = 0; // rows of the last hard drop, until its lock
+    int lastDrop_ = -1; // rows of the last hard drop, until its lock (-1: none)
+    // A hard-dropped piece's lock, waiting for the frame (the rows its lock cleared are known only then): its dust
+    // only comes out where it rests on something.
+    std::vector<GameEvent::CellInfo> landed_;
+    std::vector<int> landedFull_;
+    int landedDrop_ = 0;
+    void landDust(const Game& game);
     struct Dying { float x, y, t, delay; int type; bool over; float seed; float big = 1.f, cx = 0.f; }; // big: the plume's size (a Tetris), cx: the row's middle
     std::vector<Dying> dying_;
     struct Mote { vec3 p; float phase, size; };

@@ -500,34 +500,65 @@ void SmokeUniverse::puff(vec2 p, vec2 v, float r, float grow, float life, float 
 // Game events
 // =====================================================================================================
 
+// Dust kicked up by a hard drop's impact: it shoots up from the ends of the contact under the piece (only where a
+// block or the floor is right under it, and only toward open air: a bar resting on its left end puffs on the left
+// alone), quickly, then the air brakes it and it sags back down a little as it thins out.
+void SmokeUniverse::landDust(const Game& game) {
+    auto inPiece = [&](int x, int y) {
+        for (auto& q : landed_)
+            if (q.x == x && q.y == y) return true;
+        return false;
+    };
+    auto isFull = [&](int y) { return std::find(landedFull_.begin(), landedFull_.end(), y) != landedFull_.end(); };
+    // the board is already compacted when the lock cleared rows: a surviving row moved down by the cleared ones
+    // under it
+    auto filled = [&](int x, int y) {
+        if (y >= Game::H) return true; // the floor
+        if (isFull(y)) return true;
+        int shift = 0;
+        for (int r : landedFull_) shift += r > y;
+        return game.cell(x, y + shift).type >= 0;
+    };
+    int lo = -1, hi = -1; // the contact's leftmost and rightmost resting cells
+    for (size_t i = 0; i < landed_.size(); i++) {
+        const auto& q = landed_[i];
+        if (inPiece(q.x, q.y + 1) || !filled(q.x, q.y + 1)) continue;
+        if (lo < 0 || q.x < landed_[lo].x || (q.x == landed_[lo].x && q.y > landed_[lo].y)) lo = (int)i;
+        if (hi < 0 || q.x > landed_[hi].x || (q.x == landed_[hi].x && q.y > landed_[hi].y)) hi = (int)i;
+    }
+    const float hard = landedDrop_ >= 2 ? 1.f : 0.f;
+    for (int s = -1; s <= 1 && lo >= 0; s += 2) {
+        const auto& q = landed_[s < 0 ? lo : hi];
+        if (inPiece(q.x + s, q.y)) continue; // the piece goes on that way: the contact's end is under it, closed
+        const vec3 p = layout::cellPos((float)q.x, (float)q.y);
+        puff(v2(p.x + 0.45f * s, p.y - 0.35f), v2(0.6f * s, 3.f + 0.8f * hard), 0.3f, 1.5f + 0.5f * hard, 1.4f,
+             0.38f + 0.14f * hard, 0.f, 1.25f);
+        puffs_.back().drag = 2.6f; // braked hard by the air...
+        puffs_.back().fall = 1.9f; // ...then pulled back down while it fades
+        puffs_.back().minGlow = 0.45f; // caught in the stray light, even outside the beam
+        puffs_.back().tint = std::clamp(q.type, 0, 6); // dust of the piece's own color
+    }
+    landed_.clear();
+    landedFull_.clear();
+}
+
 void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
-    case GameEvent::Lock: {
-        // Dust kicked up by the impact: it shoots up from both ends of the contact under the piece, quickly, then
-        // the air brakes it and it sags back down a little as it thins out (higher after a hard drop).
-        if (ev.cells.empty()) break;
-        float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f;
-        for (auto& q : ev.cells) {
-            const vec3 p = layout::cellPos((float)q.x, (float)q.y);
-            x0 = std::min(x0, p.x); x1 = std::max(x1, p.x); y0 = std::min(y0, p.y);
+    case GameEvent::Lock:
+        // only a hard drop kicks up dust (a piece set down slowly makes none); thrown when the frame starts
+        if (lastDrop_ >= 0 && !ev.cells.empty()) {
+            landed_ = ev.cells;
+            landedFull_.clear();
+            landedDrop_ = lastDrop_;
         }
-        const float hard = lastDrop_ >= 2 ? 1.f : 0.f;
-        for (int s = -1; s <= 1; s += 2) {
-            const float ex = s < 0 ? x0 - 0.45f : x1 + 0.45f;
-            puff(v2(ex, y0 - 0.35f), v2(0.6f * s, 3.f + 0.8f * hard), 0.3f, 1.5f + 0.5f * hard, 1.4f,
-                 0.38f + 0.14f * hard, 0.f, 1.25f);
-            puffs_.back().drag = 2.6f; // braked hard by the air...
-            puffs_.back().fall = 1.9f; // ...then pulled back down while it fades
-            puffs_.back().minGlow = 0.45f; // caught in the stray light, even outside the beam
-            puffs_.back().tint = std::clamp(ev.cells[0].type, 0, 6); // dust of the piece's own color
-        }
-        lastDrop_ = 0;
+        lastDrop_ = -1;
         break;
-    }
     case GameEvent::HardDrop:
-        lastDrop_ = ev.count; // the lock that follows pushes more smoke
+        lastDrop_ = ev.count; // the lock that follows pushes the smoke
         break;
     case GameEvent::Clear: {
+        for (auto& c : ev.cells)
+            if (std::find(landedFull_.begin(), landedFull_.end(), c.y) == landedFull_.end()) landedFull_.push_back(c.y);
         const bool tetris = ev.count >= 4;
         // the blocks themselves turn to smoke: each one erodes from its edges in, its body lifting off as smoke of
         // its own color; the smoke of a row shares one field, so the row rises as one sheet (a Tetris, a plume)
@@ -1058,6 +1089,7 @@ void SmokeUniverse::render(const Frame& f, GLuint fbo) {
     const Game& game = f.game;
     const MusicState& music = f.music;
     const float dt = f.dt;
+    if (!landed_.empty()) landDust(game);
     {
         const Palette target = paletteOf(variant_);
         if (!palSet_) { pal_ = target; palSet_ = true; }
