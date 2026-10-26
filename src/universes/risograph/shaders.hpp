@@ -44,7 +44,7 @@ float screenAt(vec2 p, float d, int drum, bool lines) {
 // The background is printed in continuous densities (a riso gradient: no visible screen), into its own buffer, so
 // that the registration only ever moves the background, never the stack or the HUD. r = A, g = B, b = C.
 inline const char* WORLD_FS = R"(#version 330 core
-#define NSHAPES 7
+#define NSHAPES 8
 in vec2 vUv;
 out vec4 frag;
 uniform vec4 uView;            // center xy, half extents xy (board units)

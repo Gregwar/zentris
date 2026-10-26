@@ -88,14 +88,18 @@ const VariantDef VARIANTS[] = {
 // The drop's print: a new layer of big flat forms that inks in on the drop (each a beat-ish after the other,
 // growing a little as it inks, never sliding), stays for the whole peak and breathes with the kicks by density.
 // anchor: +1/-1 x is the distance from the shapes' / the free side's edge of the screen (board units).
-// drum: 0 A, 1 B, 2 C, 3 D (the hot ink); gradient angle and amount as the world's shapes; delay after the drop.
-struct DropForm { float anchor, x, y, sx, sy, rot, type, drum, dens, gang, gamt, delay; };
-// Cut paper: a big circle of the hot ink and a tall block of the third ink on the free side of the sheet, a half
-// sun of the hot ink rising from the bottom edge on the shapes' side, overprinting the world's discs.
+// drum: 0 A, 1 B, 2 C, 3 D (the hot ink); gradient angle and amount as the world's shapes; delay after the drop;
+// from / until: the levels it prints in (1 mid, 2 peak; until 2: lifted when the peak comes, 3: stays).
+struct DropForm { float anchor, x, y, sx, sy, rot, type, drum, dens, gang, gamt, delay; int from, until; };
+// Cut paper: a big circle of the hot ink and a tall block of the third ink on the free side of the sheet (between
+// the title and the bottom lines of text, clear of the score's column), a half
+// sun rising from the bottom edge on the shapes' side, overprinting the world's discs: printed in the second ink
+// from mid on, it turns to the hot ink on the drop.
 const DropForm DROP_FORMS[] = {
-    {-1, 3.5f, 6.5f, 7.5f, 0, 0, 0, 3, 0.8f, -0.3f, 0.5f, 0.f},
-    {-1, 9.f, -3.5f, 2.6f, 9.5f, 0.1f, 1, 2, 0.75f, PI * 0.5f, 0.5f, 0.12f},
-    {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 3, 0.8f, PI * 0.5f, 0.5f, 0.24f},
+    {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 1, 0.6f, PI * 0.5f, 0.5f, 0.f, 1, 2}, // mid: the half sun in the second ink
+    {-1, 2.5f, 1.f, 6.6f, 0, 0, 0, 3, 0.8f, -0.3f, 0.5f, 0.f, 2, 3},
+    {-1, 8.5f, 0.3f, 2.2f, 6.7f, 0.1f, 1, 2, 0.75f, PI * 0.5f, 0.5f, 0.12f, 2, 3},
+    {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 3, 0.8f, PI * 0.5f, 0.5f, 0.f, 2, 3}, // the peak: the half sun turns hot
 };
 constexpr int DROP_FORM_COUNT = (int)(sizeof(DROP_FORMS) / sizeof(DROP_FORMS[0]));
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
@@ -948,7 +952,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
     {
-        float A[28] = {}, B[28] = {}, C[28] = {};
+        float A[32] = {}, B[32] = {}, C[32] = {};
         const float breath = kickEnv_; // 0..1, smooth
         const float dropSwell = dropT_ < 9.f ? smoothstepf(0.f, 0.35f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.35f) * 0.45f) * dropAmp_ : 0.f;
         const float tame = 1.f - 0.25f * dark_; // inks laid like light on black paper glow more: keep them lower
@@ -980,8 +984,9 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         for (int i = 0; i < DROP_FORM_COUNT; i++) {
             const DropForm& d = DROP_FORMS[i];
             const int k = 4 + i;
-            const float in = smoothstepf(d.delay, d.delay + 0.3f, layerT_) * layer_;
-            const float grow = 0.9f + 0.1f * smoothstepf(d.delay, d.delay + 0.45f, layerT_);
+            const float peakIn = smoothstepf(d.delay, d.delay + 0.3f, layerT_) * layer_;
+            const float in = d.from == 1 ? wm * (d.until == 2 ? 1.f - peakIn : 1.f) : peakIn;
+            const float grow = d.from == 1 ? 1.f : 0.9f + 0.1f * smoothstepf(d.delay, d.delay + 0.45f, layerT_);
             const float x = d.anchor * side_ * (viewH_.x - d.x);
             A[k * 4] = viewC_.x + x; A[k * 4 + 1] = viewC_.y + d.y;
             A[k * 4 + 2] = d.sx * (d.type == 1.f ? 1.f : grow);
@@ -992,9 +997,9 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         }
         glUseProgram(progWorld_);
         set4f(progWorld_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
-        glUniform4fv(ugl::U(progWorld_, "uShapeA"), 7, A);
-        glUniform4fv(ugl::U(progWorld_, "uShapeB"), 7, B);
-        glUniform4fv(ugl::U(progWorld_, "uShapeC"), 7, C);
+        glUniform4fv(ugl::U(progWorld_, "uShapeA"), 8, A);
+        glUniform4fv(ugl::U(progWorld_, "uShapeB"), 8, B);
+        glUniform4fv(ugl::U(progWorld_, "uShapeC"), 8, C);
         set1f(progWorld_, "uPx", px_);
         // the sheet: B's faint gradient from the shapes' side (deeper from mid), and the peak's bloom of C, which
         // swells on the drop and breathes with the kicks (density only)
