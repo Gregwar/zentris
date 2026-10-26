@@ -385,6 +385,21 @@ void main() {
             outc = col * (1.0 + 0.22 * rim);
             outc = mix(outc, vec3(1.0), rim * max(n.y, 0.0) * 0.32);
             outc *= 1.0 - rim * max(-n.y, 0.0) * 0.25;
+            // compartments: each cell a little bag of paint, puffed (its top slopes catching the light, its lower
+            // ones deeper), the bags welded together along pinched seams where the piece's cells meet
+            vec2 qq = 0.5 * s - abs(p);
+            float e = min(qq.x, qq.y);
+            bool shared = qq.x < qq.y ? (p.x < 0.0 ? (m & 1) != 0 : (m & 2) != 0) : (p.y < 0.0 ? (m & 4) != 0 : (m & 8) != 0);
+            // a pillow: h = (1 - u^4)(1 - v^4) over the cell, lit by its smooth slopes (no facets)
+            vec2 uv = clamp(p / (0.5 * s), -1.0, 1.0);
+            vec2 u4 = 1.0 - uv * uv * uv * uv;
+            vec2 grad = vec2(-4.0 * uv.x * uv.x * uv.x * u4.y, -4.0 * uv.y * uv.y * uv.y * u4.x);
+            float lit = clamp(dot(-grad, vec2(-0.33, 0.94)) * 0.35, -1.0, 1.0);
+            float crease = shared ? 1.0 - smoothstep(0.0, 0.07 * s, e) : 0.0;
+            outc *= (0.95 + 0.3 * lit) * (1.0 - 0.5 * crease * crease);
+            outc = mix(outc, vec3(1.0), 0.3 * smoothstep(0.3, 1.0, lit) * (1.0 - rim));
+            // the weld: a fine line of the bag's plastic along the seam
+            outc = mix(outc, col * 0.45, shared ? (1.0 - smoothstep(0.004 * s, 0.004 * s + aa, e)) * 0.7 : 0.0);
             outc = mix(outc, vec3(1.0), vA3.y);
             a = inside * alpha;
         }
