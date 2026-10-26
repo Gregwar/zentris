@@ -16,6 +16,7 @@ namespace {
 EGLDisplay dpy_ = EGL_NO_DISPLAY;
 EGLContext ctx_ = EGL_NO_CONTEXT;
 EGLSurface surf_ = EGL_NO_SURFACE;
+bool nvidia_ = false;
 }
 
 bool init(int width, int height) {
@@ -61,6 +62,8 @@ bool init(int width, int height) {
             continue;
         }
         dpy_ = d; ctx_ = c; surf_ = s;
+        const char* vendor = eglQueryString(d, EGL_VENDOR);
+        nvidia_ = vendor && std::strstr(vendor, "NVIDIA");
         std::printf("[gl] headless EGL on device %d (%s)\n", i, eglQueryString(d, EGL_VENDOR));
         return true;
     }
@@ -68,6 +71,8 @@ bool init(int width, int height) {
 }
 
 void* proc(const char* name) { return (void*)eglGetProcAddress(name); }
+
+bool nvidia() { return nvidia_; }
 
 void shutdown() {
     if (dpy_ == EGL_NO_DISPLAY) return;
@@ -86,6 +91,7 @@ namespace headless {
 bool init(int, int) { return false; }
 void* proc(const char*) { return nullptr; }
 void shutdown() {}
+bool nvidia() { return false; }
 } // namespace headless
 
 #endif
