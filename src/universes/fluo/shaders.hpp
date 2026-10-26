@@ -174,7 +174,7 @@ uniform float uLight;          // the room's light (calm .. chorus)
 uniform float uDark;           // the blacklight (0 room light .. 1 lights off, UV on)
 uniform float uGlow;           // the paint's fluorescence (0..~1.3)
 uniform float uIgnite;         // the stains lighting up one region after another (0..1)
-uniform vec2 uSweep;           // the drop's two sweeping beams: x (the other at -x), strength
+uniform vec2 uSweep;           // the drop's sweeping beam: x, strength
 uniform float uSlow;          // slow motion: the paint drained of its color, the wall cooler
 uniform vec4 uWell;            // center xy, half extents xy
 uniform vec4 uColL, uColR;     // the HUD columns (x0 y0 x1 y1)
@@ -210,8 +210,8 @@ void main() {
     vec3 lit = wall * uLight * wash * vign;
     vec3 uvWall = (wall * 0.35 + uUvTint * (0.6 + 0.4 * tone)) * vign;
     {
-        float bx = (p.x - uSweep.x) / 6.5, bx2 = (p.x + uSweep.x) / 6.5;
-        uvWall *= 1.0 + uSweep.y * (0.75 * max(exp(-bx * bx), exp(-bx2 * bx2)) - 0.15);
+        float bx = (p.x - uSweep.x) / 7.5;
+        uvWall *= 1.0 + uSweep.y * (0.75 * exp(-bx * bx) - 0.15);
     }
     vec3 col = mix(lit, uvWall, uDark);
 
@@ -250,8 +250,8 @@ void main() {
         float n = vnoise(p * 0.16 + 4.0) * 0.75 + 0.25 * vnoise(p * 0.6);
         float ign = smoothstep(n * 0.8, n * 0.8 + 0.25, uIgnite);
         // the beams: the stains blaze where they pass, fall back toward plain paint between them
-        float bx = (p.x - uSweep.x) / 6.5, bx2 = (p.x + uSweep.x) / 6.5;
-        float beam = max(exp(-bx * bx), exp(-bx2 * bx2));
+        float bx = (p.x - uSweep.x) / 7.5;
+        float beam = exp(-bx * bx);
         float g = clamp(uGlow * ign * mix(1.0, 0.18 + 1.12 * beam, uSweep.y), 0.0, 1.3);
         vec3 fluo = max(mix(vec3(lum), base, 1.18), 0.0) * (1.05 + 0.25 * g) * relief * (0.85 + 0.2 * ndl);
         // the tube's reflection: a faint violet glint, still sliding with the light
