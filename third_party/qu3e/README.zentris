@@ -1,0 +1,11 @@
+qu3e: Randy Gaul's box-only rigid body engine (zlib license, LICENSE.txt), from
+https://github.com/RandyGaul/qu3e at commit 1f519c95460ce2852356576b0f895861edbfe0be (src/ only; the demo and its
+dependencies are left out). Used by WHITE ROOM for the cleared cubes piling up on the floor.
+
+Altered (each change marked "Zentris change"):
+src/common/q3Settings.h: the penetration slop is 0.01 (instead of 0.05); Q3_MAX_CORRECTION added.
+src/broadphase/q3DynamicAABBTree.cpp: the AABBs are fattened by 0.1 (instead of 0.5).
+src/dynamics/q3ContactSolver.cpp (PreSolve): the position correction's speed is bounded by Q3_MAX_CORRECTION, so a
+deep overlap slides apart instead of popping.
+src/dynamics/q3ContactManager.cpp (TestCollisions): a static body counts as asleep, so the contacts of
+sleeping bodies resting on a static one are not tested again every step.

@@ -37,6 +37,15 @@ add_library(glad STATIC third_party/glad/src/gl.c)
 target_include_directories(glad PUBLIC third_party/glad/include)
 set_target_properties(glad PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# qu3e: a small rigid body engine for boxes (zlib license), WHITE ROOM's cleared cubes piling up on the floor.
+file(GLOB_RECURSE QU3E_SOURCES CONFIGURE_DEPENDS third_party/qu3e/src/*.cpp)
+add_library(qu3e STATIC ${QU3E_SOURCES})
+target_include_directories(qu3e SYSTEM PUBLIC third_party/qu3e/src)
+set_target_properties(qu3e PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(qu3e PRIVATE -w)
+endif()
+
 # Audio decoding, analysis and song planning, shared by the game and the analysis viewer.
 add_library(zencore STATIC
   src/analysis.cpp
@@ -96,7 +105,7 @@ add_library(zenrender STATIC
   src/universes/registry.cpp
   ${ZEN_UNIVERSE_SOURCES}
 )
-target_link_libraries(zenrender PUBLIC zencore glad)
+target_link_libraries(zenrender PUBLIC zencore glad PRIVATE qu3e)
 target_include_directories(zenrender PUBLIC src)
 
 # Universe assets: every file in src/universes/<id>/embed/ is compiled in as a byte array, included with
