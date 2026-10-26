@@ -27,7 +27,6 @@
 
 #include <algorithm>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 
 #include "layout.hpp"
@@ -88,29 +87,17 @@ const VariantDef VARIANTS[] = {
 
 // The drop's print: a new layer of big flat forms that inks in on the drop (each a beat-ish after the other,
 // growing a little as it inks, never sliding), stays for the whole peak and breathes with the kicks by density.
-// anchor: 0 x is absolute (board units), +1/-1 x is the distance from the right/left edge of the screen.
-// drum: 0 A, 1 B, 2 C, 3 D (the hot ink). keep: how much lighter it prints over the well (0..1).
-struct DropForm { float anchor, x, y, sx, sy, rot, type, drum, dens, gang, gamt, keep, delay; };
-constexpr int DROP_ALTS = 3;
-const DropForm DROP_FORMS[DROP_ALTS][6] = {
-    // 0 SUN: a huge sun of the third ink rising behind the well, a horizon band of the hot ink across the sheet
-    {{0, 0.f, -4.f, 14.5f, 0, 0, 0, 2, 0.7f, PI * 0.5f, 0.75f, 0.7f, 0.f},
-     {0, 0.f, -9.6f, 40.f, 2.4f, 0, 1, 3, 0.75f, PI * 0.5f, 0.25f, 0.65f, 0.12f},
-     {0, 0.f, -13.4f, 40.f, 1.3f, 0, 1, 1, 0.55f, 0, 0, 0.65f, 0.24f},
-     {}, {}, {}},
-    // 1 CUT PAPER: overprinted cut forms on both sides of the well (circles, a block, a rising half sun, a ring)
-    {{-1, 3.5f, 6.5f, 7.5f, 0, 0, 0, 3, 0.8f, -0.3f, 0.5f, 0.f, 0.f},
-     {-1, 9.f, -3.5f, 2.6f, 9.5f, 0.1f, 1, 2, 0.75f, PI * 0.5f, 0.5f, 0.f, 0.12f},
-     {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 3, 0.8f, PI * 0.5f, 0.5f, 0.f, 0.24f},
-     {}, {}, {}},
-    // 2 HOT SHEET: the hot ink floods in from both edges, concentric arcs of the third ink rise behind the well
-    {{-1, 0.f, 0.f, 13.f, 16.f, 0, 1, 3, 0.8f, 0.f, 1.f, 0.f, 0.f},
-     {1, 0.f, 0.f, 13.f, 16.f, 0, 1, 3, 0.8f, PI, 1.f, 0.f, 0.f},
-     {0, 0.f, -13.4f, 9.f, 1.2f, 0, 4, 2, 0.85f, 0, 0, 0.7f, 0.12f},
-     {0, 0.f, -13.4f, 13.f, 1.2f, 0, 4, 1, 0.75f, 0, 0, 0.7f, 0.24f},
-     {0, 0.f, -13.4f, 17.f, 1.2f, 0, 4, 2, 0.85f, 0, 0, 0.7f, 0.36f},
-     {}},
+// anchor: +1/-1 x is the distance from the shapes' / the free side's edge of the screen (board units).
+// drum: 0 A, 1 B, 2 C, 3 D (the hot ink); gradient angle and amount as the world's shapes; delay after the drop.
+struct DropForm { float anchor, x, y, sx, sy, rot, type, drum, dens, gang, gamt, delay; };
+// Cut paper: a big circle of the hot ink and a tall block of the third ink on the free side of the sheet, a half
+// sun of the hot ink rising from the bottom edge on the shapes' side, overprinting the world's discs.
+const DropForm DROP_FORMS[] = {
+    {-1, 3.5f, 6.5f, 7.5f, 0, 0, 0, 3, 0.8f, -0.3f, 0.5f, 0.f},
+    {-1, 9.f, -3.5f, 2.6f, 9.5f, 0.1f, 1, 2, 0.75f, PI * 0.5f, 0.5f, 0.12f},
+    {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 3, 0.8f, PI * 0.5f, 0.5f, 0.24f},
 };
+constexpr int DROP_FORM_COUNT = (int)(sizeof(DROP_FORMS) / sizeof(DROP_FORMS[0]));
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 
 // The seven pieces (I O T S Z J L) as ink recipes: density of A, density of B, line screen (0 none, 1 on A, 2 on
@@ -961,7 +948,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
     {
-        float A[40] = {}, B[40] = {}, C[40] = {};
+        float A[28] = {}, B[28] = {}, C[28] = {};
         const float breath = kickEnv_; // 0..1, smooth
         const float dropSwell = dropT_ < 9.f ? smoothstepf(0.f, 0.35f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.35f) * 0.45f) * dropAmp_ : 0.f;
         const float tame = 1.f - 0.25f * dark_; // inks laid like light on black paper glow more: keep them lower
@@ -989,27 +976,25 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         A[12] = 0.f; A[13] = 0.6f; A[14] = 12.5f; A[15] = 12.5f;
         B[12] = 0.f; B[13] = 0.f; B[14] = 2.f; B[15] = 0.4f * stamp * world * tame;
         C[12] = -PI * 0.5f; C[13] = 0.8f; C[14] = 0.f; C[15] = 0.f;
-        // the drop's print (slots 4..9)
-        static const int alt = [] { const char* e = std::getenv("ZEN_RISO_ALT"); return e ? std::atoi(e) % DROP_ALTS : 0; }();
-        for (int i = 0; i < 6; i++) {
-            const DropForm& d = DROP_FORMS[alt][i];
+        // the drop's print (slots 4..)
+        for (int i = 0; i < DROP_FORM_COUNT; i++) {
+            const DropForm& d = DROP_FORMS[i];
             const int k = 4 + i;
-            if (d.dens <= 0.f) continue;
             const float in = smoothstepf(d.delay, d.delay + 0.3f, layerT_) * layer_;
             const float grow = 0.9f + 0.1f * smoothstepf(d.delay, d.delay + 0.45f, layerT_);
-            const float x = d.anchor == 0.f ? d.x : d.anchor * (viewH_.x - d.x);
+            const float x = d.anchor * side_ * (viewH_.x - d.x);
             A[k * 4] = viewC_.x + x; A[k * 4 + 1] = viewC_.y + d.y;
             A[k * 4 + 2] = d.sx * (d.type == 1.f ? 1.f : grow);
             A[k * 4 + 3] = d.type == 1.f ? d.sy * grow : d.sy;
-            B[k * 4] = d.rot; B[k * 4 + 1] = d.type; B[k * 4 + 2] = d.drum;
+            B[k * 4] = d.rot * side_; B[k * 4 + 1] = d.type; B[k * 4 + 2] = d.drum;
             B[k * 4 + 3] = std::min(1.f, d.dens * (0.82f + 0.18f * breath)) * in * world * tame * (1.f - 0.7f * slow_);
-            C[k * 4] = d.gang; C[k * 4 + 1] = d.gamt; C[k * 4 + 2] = d.keep;
+            C[k * 4] = side_ > 0 ? d.gang : PI - d.gang; C[k * 4 + 1] = d.gamt;
         }
         glUseProgram(progWorld_);
         set4f(progWorld_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
-        glUniform4fv(ugl::U(progWorld_, "uShapeA"), 10, A);
-        glUniform4fv(ugl::U(progWorld_, "uShapeB"), 10, B);
-        glUniform4fv(ugl::U(progWorld_, "uShapeC"), 10, C);
+        glUniform4fv(ugl::U(progWorld_, "uShapeA"), 7, A);
+        glUniform4fv(ugl::U(progWorld_, "uShapeB"), 7, B);
+        glUniform4fv(ugl::U(progWorld_, "uShapeC"), 7, C);
         set1f(progWorld_, "uPx", px_);
         // the sheet: B's faint gradient from the shapes' side (deeper from mid), and the peak's bloom of C, which
         // swells on the drop and breathes with the kicks (density only)

@@ -44,24 +44,22 @@ float screenAt(vec2 p, float d, int drum, bool lines) {
 // The background is printed in continuous densities (a riso gradient: no visible screen), into its own buffer, so
 // that the registration only ever moves the background, never the stack or the HUD. r = A, g = B, b = C.
 inline const char* WORLD_FS = R"(#version 330 core
-#define NSHAPES 10
+#define NSHAPES 7
 in vec2 vUv;
 out vec4 frag;
 uniform vec4 uView;            // center xy, half extents xy (board units)
-uniform vec4 uShapeA[NSHAPES]; // center xy, size xy (disc / half disc: radius in x; ring: radius, thickness)
-uniform vec4 uShapeB[NSHAPES]; // rotation, type (0 disc, 1 rectangle, 2 half disc, 3 ring, 4 half ring), drum, density
-uniform vec4 uShapeC[NSHAPES]; // gradient angle, gradient amount, density kept off inside the well (0..1), -
+uniform vec4 uShapeA[NSHAPES]; // center xy, size xy (disc / half disc: radius in x)
+uniform vec4 uShapeB[NSHAPES]; // rotation, type (0 disc, 1 rectangle, 2 half disc), drum (3: D), density
+uniform vec4 uShapeC[NSHAPES]; // gradient angle, gradient amount, -, -
 uniform float uPx;             // board units per pixel
 uniform vec4 uWell;            // the well: center xy, half extents xy (the sheet's gradients keep clear of it)
 uniform float uSide;           // +1: the shapes (and the gradients) are on the right
 uniform vec4 uSheet;           // C's bloom (density), B's wash (density), wash angle, slow drift phase
 uniform vec4 uBlot;            // a lock's soft blot of B: center xy, age 0..1, strength
 float wellDist(vec2 p) { vec2 e = abs(p - uWell.xy) - uWell.zw; return length(max(e, 0.0)); }
-float wellSd(vec2 p) { vec2 e = abs(p - uWell.xy) - uWell.zw; return length(max(e, 0.0)) + min(max(e.x, e.y), 0.0); }
 void main() {
     vec2 p = uView.xy + (vUv * 2.0 - 1.0) * uView.zw;
     vec4 ink = vec4(0.0); // A, B, C and the peak's hot ink D
-    float wd = wellDist(p), wsd = wellSd(p);
     for (int i = 0; i < NSHAPES; i++) {
         float dens = uShapeB[i].w;
         if (dens <= 0.003) continue;
@@ -71,10 +69,7 @@ void main() {
         int type = int(uShapeB[i].y + 0.5);
         float d;
         if (type == 1) { vec2 e = abs(q) - uShapeA[i].zw; d = length(max(e, 0.0)) + min(max(e.x, e.y), 0.0); }
-        else if (type >= 3) {
-            d = abs(length(q) - uShapeA[i].z) - uShapeA[i].w;
-            if (type == 4) d = max(d, -q.y);
-        } else {
+        else {
             d = length(q) - uShapeA[i].z;
             if (type == 2) d = max(d, -q.y);
         }
@@ -87,12 +82,11 @@ void main() {
         float t = clamp(0.5 + 0.5 * dot(p - uShapeA[i].xy, gd) / max(ext, 0.01), 0.0, 1.0);
         float de = dens * mix(1.0, 1.0 - uShapeC[i].y, t * t * (3.0 - 2.0 * t));
         int drum = int(uShapeB[i].z + 0.5);
-        // the drop's forms lighten over the well, so the stack keeps its contrast
-        de *= 1.0 - uShapeC[i].z * (1.0 - smoothstep(-2.0, 2.0, wsd));
         float cov = inside * de;
         ink[drum] = 1.0 - (1.0 - ink[drum]) * (1.0 - cov);
     }
     // the sheet: large soft gradients, kept off the well and the text's side
+    float wd = wellDist(p);
     float clear = smoothstep(0.6, 5.0, wd);
     vec2 n = (p - uView.xy) / uView.zw; // -1..1
     // a slow cloud in the ink, so the gradient reads as printed (very low frequency, not a pattern)
