@@ -44,21 +44,28 @@ float screenAt(vec2 p, float d, int drum, bool lines) {
 // The background is printed in continuous densities (a riso gradient: no visible screen), into its own buffer, so
 // that the registration only ever moves the background, never the stack or the HUD. r = A, g = B, b = C.
 inline const char* WORLD_FS = R"(#version 330 core
-#define NSHAPES 8
+#define NSHAPES 16
 in vec2 vUv;
 out vec4 frag;
 uniform vec4 uView;            // center xy, half extents xy (board units)
 uniform vec4 uShapeA[NSHAPES]; // center xy, size xy (disc / half disc: radius in x)
-uniform vec4 uShapeB[NSHAPES]; // rotation, type (0 disc, 1 rectangle, 2 half disc), drum (3: D), density
-uniform vec4 uShapeC[NSHAPES]; // gradient angle, gradient amount, -, -
+uniform vec4 uShapeB[NSHAPES]; // rotation, type (0 disc, 1 rectangle, 2 half disc, 3 crescent, 4 arc, 5 zigzag),
+                               // drum (3: D), density
+uniform vec4 uShapeC[NSHAPES]; // gradient angle, gradient amount, clearing (how much it fades behind the well and the
+                               // HUD's columns, 0..1), parameter (crescent: bite offset; arc: half angle; zigzag:
+                               // amplitude)
 uniform float uPx;             // board units per pixel
 uniform vec4 uWell;            // the well: center xy, half extents xy (the sheet's gradients keep clear of it)
+uniform vec4 uCols;            // the HUD's columns, as one rect: center xy, half extents xy
 uniform float uSide;           // +1: the shapes (and the gradients) are on the right
 uniform vec4 uSheet;           // C's bloom (density), B's wash (density), wash angle, slow drift phase
 uniform vec4 uBlot;            // a lock's soft blot of B: center xy, age 0..1, strength
 float wellDist(vec2 p) { vec2 e = abs(p - uWell.xy) - uWell.zw; return length(max(e, 0.0)); }
+float colsDist(vec2 p) { vec2 e = abs(p - uCols.xy) - uCols.zw; return length(max(e, 0.0)); }
 void main() {
     vec2 p = uView.xy + (vUv * 2.0 - 1.0) * uView.zw;
+    // the play area (the well and the HUD's columns): forms crossing it print there only faintly
+    float playClear = smoothstep(0.0, 2.2, min(wellDist(p), colsDist(p)));
     vec4 ink = vec4(0.0); // A, B, C and the peak's hot ink D
     for (int i = 0; i < NSHAPES; i++) {
         float dens = uShapeB[i].w;
@@ -68,8 +75,20 @@ void main() {
         q = vec2(c * q.x + s * q.y, -s * q.x + c * q.y);
         int type = int(uShapeB[i].y + 0.5);
         float d;
+        float r = uShapeA[i].z, prm = uShapeC[i].w;
         if (type == 1) { vec2 e = abs(q) - uShapeA[i].zw; d = length(max(e, 0.0)) + min(max(e.x, e.y), 0.0); }
-        else {
+        else if (type == 3) { // a crescent: a disc with a bite out of it
+            d = max(length(q) - r, -(length(q - vec2(r * prm, 0.0)) - r * 0.92));
+        } else if (type == 4) { // an arc of a ring, round ends: radius, half thickness in y, half angle
+            vec2 sc = vec2(sin(prm), cos(prm));
+            vec2 a = vec2(abs(q.x), q.y);
+            d = (sc.y * a.x > sc.x * a.y ? length(a - sc * r) : abs(length(a) - r)) - uShapeA[i].w;
+        } else if (type == 5) { // a zigzag ribbon: half length, half thickness in y, amplitude
+            float per = 2.6 * prm;
+            float tri = abs(fract(q.x / per + 0.25) - 0.5) * 4.0 - 1.0;
+            float sl = 4.0 * prm / per;
+            d = max(abs(q.y - prm * tri) / sqrt(1.0 + sl * sl) - uShapeA[i].w, abs(q.x) - r);
+        } else {
             d = length(q) - uShapeA[i].z;
             if (type == 2) d = max(d, -q.y);
         }
@@ -78,11 +97,11 @@ void main() {
         // a linear gradient across the shape: full density on one side, fading smoothly toward the other
         float ga = uShapeC[i].x;
         vec2 gd = vec2(cos(ga), sin(ga));
-        float ext = type == 1 ? dot(abs(gd), uShapeA[i].zw) : uShapeA[i].z;
+        float ext = type == 1 ? dot(abs(gd), uShapeA[i].zw) : r;
         float t = clamp(0.5 + 0.5 * dot(p - uShapeA[i].xy, gd) / max(ext, 0.01), 0.0, 1.0);
         float de = dens * mix(1.0, 1.0 - uShapeC[i].y, t * t * (3.0 - 2.0 * t));
         int drum = int(uShapeB[i].z + 0.5);
-        float cov = inside * de;
+        float cov = inside * de * (1.0 - uShapeC[i].z * (1.0 - playClear));
         ink[drum] = 1.0 - (1.0 - ink[drum]) * (1.0 - cov);
     }
     // the sheet: large soft gradients, kept off the well and the text's side

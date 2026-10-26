@@ -87,21 +87,53 @@ const VariantDef VARIANTS[] = {
 };
 
 // The drop's print: a new layer of big flat forms that inks in on the drop (each a beat-ish after the other,
-// growing a little as it inks, never sliding), stays for the whole peak and breathes with the kicks by density.
+// growing a little as it inks), stays for the whole peak and breathes with the kicks by density and a smooth swell.
 // anchor: +1/-1 x is the distance from the shapes' / the free side's edge of the screen (board units).
 // drum: 0 A, 1 B, 2 C, 3 D (the hot ink); gradient angle and amount as the world's shapes; delay after the drop;
 // from / until: the levels it prints in (1 mid, 2 peak; until 2: lifted when the peak comes, 3: stays).
-struct DropForm { float anchor, x, y, sx, sy, rot, type, drum, dens, gang, gamt, delay; int from, until; };
+// The forms float like paper cut-outs on a slow current: they wander around their place (amplitudes ax, ay, at
+// rates wx, wy per unit of the current's clock, phase ph) and turn (a sway of rsw at the rate wr, plus a steady
+// spin rs), the gradient across them turning too (gs). The current runs with the section (still at calm, slow at
+// mid, clearly moving at the peak, gathering pace on the drop), so every motion is smooth.
+struct DropForm {
+    float anchor, x, y, sx, sy, rot, type, drum, dens, gang, gamt, delay;
+    int from, until;
+    float ax, ay, wx, wy, ph, rsw, wr, rs, gs;
+};
 // Cut paper: a big circle of the hot ink and a tall block of the third ink on the free side of the sheet (between
 // the title and the bottom lines of text, clear of the score's column), a half
 // sun rising from the bottom edge on the shapes' side, overprinting the world's discs: printed in the second ink
 // from mid on, it turns to the hot ink on the drop.
 const DropForm DROP_FORMS[] = {
-    {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 1, 0.6f, PI * 0.5f, 0.5f, 0.f, 1, 2}, // mid: the half sun in the second ink
-    {-1, 2.5f, 1.f, 6.6f, 0, 0, 0, 3, 0.8f, -0.3f, 0.5f, 0.f, 2, 3},
-    {-1, 8.5f, 0.3f, 2.2f, 6.7f, 0.1f, 1, 2, 0.75f, PI * 0.5f, 0.5f, 0.12f, 2, 3},
-    {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 3, 0.8f, PI * 0.5f, 0.5f, 0.f, 2, 3}, // the peak: the half sun turns hot
+    {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 1, 0.6f, PI * 0.5f, 0.5f, 0.f, 1, 2, // mid: the half sun in the second ink
+     3.2f, 1.4f, 0.31f, 0.43f, 0.6f, 0.30f, 0.37f, 0.f, 0.f},
+    {-1, 2.5f, 1.f, 6.6f, 0, 0, 0, 3, 0.8f, -0.3f, 0.5f, 0.f, 2, 3, // the hot circle
+     3.0f, 1.5f, 0.36f, 0.29f, 0.f, 0.f, 0.f, 0.f, 0.32f},
+    {-1, 8.5f, 0.3f, 2.2f, 6.7f, 0.1f, 1, 2, 0.75f, PI * 0.5f, 0.5f, 0.12f, 2, 3, // the tilted block
+     2.6f, 2.0f, 0.27f, 0.41f, 2.2f, 0.42f, 0.23f, 0.05f, 0.f},
+    {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 3, 0.8f, PI * 0.5f, 0.5f, 0.f, 2, 3, // the peak: the half sun turns hot
+     3.2f, 1.4f, 0.31f, 0.43f, 0.6f, 0.30f, 0.37f, 0.f, 0.f},
 };
+// Smaller printed forms gliding across the sheet at the peak, entering from an edge and leaving by the other (then
+// coming round again), at their own pace and heading, turning slowly; they overprint the big forms and each other
+// as they cross, and pass behind the well and the HUD's columns only faintly. lane: a point of the path (x as a
+// fraction of the half width, y in board units), heading (radians), speed (board units per unit of the current),
+// start: how far before the edge it starts (board units), the meander across its path (amplitude, rate).
+struct Glider {
+    float type, drum, dens, sx, sy, prm, rot0, spin, gang, gamt;
+    float lx, ly, heading, speed, start, mAmp, mRate;
+};
+const Glider GLIDERS[] = {
+    // a long strip of the third ink along the upper sheet, left to right
+    {1, 2, 0.7f, 4.2f, 0.42f, 0, 0.1f, 0.03f, 0.f, 0.45f, 0.f, 4.6f, -0.04f, 4.2f, 0.5f, 0.8f, 0.31f},
+    // a crescent of the hot ink across the lower sheet, right to left
+    {3, 3, 0.75f, 2.5f, 0, 0.5f, 0.6f, -0.22f, PI * 0.5f, 0.4f, 0.f, -4.2f, PI + 0.06f, 3.4f, 3.f, 0.9f, 0.27f},
+    // a small disc of the second ink rising on the shapes' side
+    {0, 1, 0.65f, 1.5f, 0, 0, 0, 0, -PI * 0.5f, 0.5f, 0.74f, 0.f, PI * 0.5f + 0.05f, 2.6f, 1.f, 1.3f, 0.23f},
+    // a zigzag ribbon of the hot ink, right to left through the middle (behind the well, faint)
+    {5, 3, 0.7f, 3.6f, 0.26f, 0.55f, -0.1f, 0.04f, 0.f, 0.3f, 0.f, 0.8f, PI - 0.1f, 3.0f, 14.f, 0.8f, 0.29f},
+};
+constexpr int GLIDER_COUNT = (int)(sizeof(GLIDERS) / sizeof(GLIDERS[0]));
 constexpr int DROP_FORM_COUNT = (int)(sizeof(DROP_FORMS) / sizeof(DROP_FORMS[0]));
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 
@@ -540,6 +572,20 @@ void RisographUniverse::simulate(const Game& game, const MusicState& music, floa
     }
     drift_ += wdt * (0.02f + 0.05f * wm); // the ink's cloud drifts very slowly
 
+    // The current: still at calm, a slow drift at mid, clearly moving at the peak; the drop gathers pace over its
+    // first second or so (a smooth swell of speed, settling over a few seconds). Eased twice: no jerk.
+    {
+        const float boost = dropT_ < 12.f ? 0.7f * smoothstepf(0.f, 1.2f, dropT_) * std::exp(-std::max(0.f, dropT_ - 1.2f) / 3.5f) * dropAmp_ : 0.f;
+        const float tgt = (0.28f * wm + 0.72f * wp + boost) * (1.f - saturate(bridge_.amount));
+        speedMid_ = approach(speedMid_, tgt, 2.2f, dt);
+        speed_ = approach(speed_, speedMid_, 2.2f, dt);
+        flow_ += speed_ * wdt;
+        // the gliders print at the peak; once gone, their clock restarts so that they enter from the edges again
+        glideIn_ = approach(glideIn_, level_ >= 2 || dropT_ < 2.f ? 1.f : 0.f, glideIn_ < 0.5f && level_ >= 2 ? 3.f : 0.8f, dt);
+        if (glideIn_ < 0.002f) glide_ = 0.f;
+        else glide_ += speed_ * wdt;
+    }
+
     // The kicks breathe the ink's density (from mid, fully at the peak): ~0.2 s in, ~0.5 s out, never a jump.
     const float kick = std::max(music.kick, kickIn_);
     kickIn_ = approach(kickIn_, 0.f, 6.f, dt);
@@ -547,6 +593,7 @@ void RisographUniverse::simulate(const Game& game, const MusicState& music, floa
     prevKick_ = kick;
     kickTgt_ *= std::exp(-dt * 6.f);
     kickEnv_ = approach(kickEnv_, kickTgt_, kickTgt_ > kickEnv_ ? 9.f : 2.5f, dt);
+    breathS_ = approach(breathS_, kickEnv_, 10.f, dt); // the forms' swell: the breath eased once more
     stampT_ += wdt;
     blotT_ += wdt;
 
@@ -953,7 +1000,9 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
     {
-        float A[32] = {}, B[32] = {}, C[32] = {};
+        constexpr int NS = 16; // WORLD_FS's NSHAPES
+        float A[NS * 4] = {}, B[NS * 4] = {}, C[NS * 4] = {};
+        const float fl = flow_;
         const float breath = kickEnv_; // 0..1, smooth
         const float dropSwell = dropT_ < 9.f ? smoothstepf(0.f, 0.35f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.35f) * 0.45f) * dropAmp_ : 0.f;
         const float tame = 1.f - 0.25f * dark_; // inks laid like light on black paper glow more: keep them lower
@@ -964,12 +1013,13 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         const float grad[3] = {0.95f, 0.7f, 0.85f};
         for (int i = 0; i < 3; i++) {
             const Shape& s = shape_[i];
-            // a slow float of the shapes from mid on (a period of ~30 s)
-            const float fy = std::sin(worldTime_ * 0.21f + i * 2.1f) * 0.3f * wm;
+            // the shapes float on the current (still at calm, slowly from mid on)
+            const float fx = std::sin(fl * 0.19f + i * 2.7f) * 1.6f;
+            const float fy = std::sin(fl * 0.23f + i * 2.1f) * 1.1f + std::sin(worldTime_ * 0.21f + i * 2.1f) * 0.3f * wm;
             // the shapes swell a little with the kicks' breath (smooth, a few percent)
-            const float sz = 1.f + 0.025f * breath * wp;
-            A[i * 4] = s.x; A[i * 4 + 1] = s.y + fy; A[i * 4 + 2] = s.sx * sz; A[i * 4 + 3] = (s.type == 1 ? s.sy : s.sx) * sz;
-            B[i * 4] = s.rot; B[i * 4 + 1] = s.type; B[i * 4 + 2] = drum[i];
+            const float sz = 1.f + 0.035f * breathS_ * wp;
+            A[i * 4] = s.x + fx; A[i * 4 + 1] = s.y + fy; A[i * 4 + 2] = s.sx * sz; A[i * 4 + 3] = (s.type == 1 ? s.sy : s.sx) * sz;
+            B[i * 4] = s.rot + 0.12f * std::sin(fl * 0.17f + i); B[i * 4 + 1] = s.type; B[i * 4 + 2] = drum[i];
             B[i * 4 + 3] = std::min(1.f, dens[i]) * reprint_[i] * world;
             // full density at the outer side, fading toward the well
             C[i * 4] = std::atan2(-(s.y - viewC_.y) * 0.4f, -s.x); C[i * 4 + 1] = grad[i]; C[i * 4 + 2] = 0.f;
@@ -989,18 +1039,46 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
             const float in = d.from == 1 ? wm * (d.until == 2 ? 1.f - peakIn : 1.f) : peakIn;
             const float grow = d.from == 1 ? 1.f : 0.9f + 0.1f * smoothstepf(d.delay, d.delay + 0.45f, layerT_);
             const float x = d.anchor * side_ * (viewH_.x - d.x);
-            A[k * 4] = viewC_.x + x; A[k * 4 + 1] = viewC_.y + d.y;
-            A[k * 4 + 2] = d.sx * (d.type == 1.f ? 1.f : grow);
-            A[k * 4 + 3] = d.type == 1.f ? d.sy * grow : d.sy;
-            B[k * 4] = d.rot * side_; B[k * 4 + 1] = d.type; B[k * 4 + 2] = d.drum;
+            // floating on the current, and a smooth swell with the kicks
+            const float wx = d.ax * std::sin(fl * d.wx + d.ph), wy = d.ay * std::sin(fl * d.wy + d.ph * 1.7f + 1.3f);
+            const float sw = (d.from == 1 ? 1.f : grow) * (1.f + 0.06f * breathS_ * wp);
+            A[k * 4] = viewC_.x + x + wx * side_; A[k * 4 + 1] = viewC_.y + d.y + wy;
+            A[k * 4 + 2] = d.sx * (d.type == 1.f ? 1.f + 0.06f * breathS_ * wp : sw);
+            A[k * 4 + 3] = d.type == 1.f ? d.sy * sw : d.sy;
+            B[k * 4] = (d.rot + d.rsw * std::sin(fl * d.wr + d.ph) + d.rs * fl) * side_; B[k * 4 + 1] = d.type; B[k * 4 + 2] = d.drum;
             B[k * 4 + 3] = std::min(1.f, d.dens * (0.82f + 0.18f * breath)) * in * world * tame * (1.f - 0.7f * slow_);
-            C[k * 4] = side_ > 0 ? d.gang : PI - d.gang; C[k * 4 + 1] = d.gamt;
+            C[k * 4] = (side_ > 0 ? d.gang : PI - d.gang) + d.gs * fl * side_; C[k * 4 + 1] = d.gamt;
+            C[k * 4 + 2] = 0.65f; // faint where it crosses the play area
+        }
+        // the gliders (slots 8..): along their lane, entering from one edge and leaving by the other
+        for (int i = 0; i < GLIDER_COUNT; i++) {
+            const Glider& g = GLIDERS[i];
+            const int k = 8 + i;
+            const float hd = side_ > 0 ? g.heading : PI - g.heading;
+            const vec2 dir = v2(std::cos(hd), std::sin(hd)), perp = v2(-dir.y, dir.x);
+            const vec2 lane = v2(g.lx * side_ * viewH_.x, g.ly);
+            // the run: from just off the screen to just off the other side (the size of the form beyond each edge)
+            const float m = std::max(g.sx, g.sy) + 1.5f;
+            float R = 1e9f;
+            if (std::fabs(dir.x) > 0.05f) R = std::min(R, (viewH_.x + std::fabs(lane.x) + m) / std::fabs(dir.x));
+            if (std::fabs(dir.y) > 0.05f) R = std::min(R, (viewH_.y + std::fabs(lane.y) + m) / std::fabs(dir.y));
+            const float run = std::fmod(g.speed * glide_, 2.f * R + g.start);
+            const float t = -R - g.start + run;
+            const float mea = g.mAmp * std::sin(fl * g.mRate + i * 1.9f);
+            const vec2 pos = v2(lane.x + dir.x * t + perp.x * mea, lane.y + dir.y * t + perp.y * mea);
+            const float sw = 1.f + 0.07f * breathS_ * wp;
+            A[k * 4] = viewC_.x + pos.x; A[k * 4 + 1] = viewC_.y + pos.y;
+            A[k * 4 + 2] = g.sx * sw; A[k * 4 + 3] = g.sy * (g.type == 1.f ? sw : 1.f);
+            B[k * 4] = (g.rot0 + g.spin * fl + 0.25f * std::sin(fl * 0.3f + i)) * side_; B[k * 4 + 1] = g.type; B[k * 4 + 2] = g.drum;
+            B[k * 4 + 3] = std::min(1.f, g.dens * (0.85f + 0.15f * breath)) * glideIn_ * world * tame * (1.f - 0.7f * slow_);
+            C[k * 4] = (side_ > 0 ? g.gang : PI - g.gang) + 0.2f * fl; C[k * 4 + 1] = g.gamt;
+            C[k * 4 + 2] = 0.8f; C[k * 4 + 3] = g.prm;
         }
         glUseProgram(progWorld_);
         set4f(progWorld_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
-        glUniform4fv(ugl::U(progWorld_, "uShapeA"), 8, A);
-        glUniform4fv(ugl::U(progWorld_, "uShapeB"), 8, B);
-        glUniform4fv(ugl::U(progWorld_, "uShapeC"), 8, C);
+        glUniform4fv(ugl::U(progWorld_, "uShapeA"), NS, A);
+        glUniform4fv(ugl::U(progWorld_, "uShapeB"), NS, B);
+        glUniform4fv(ugl::U(progWorld_, "uShapeC"), NS, C);
         set1f(progWorld_, "uPx", px_);
         // the sheet: B's faint gradient from the shapes' side (deeper from mid), and the peak's bloom of C, which
         // swells on the drop and breathes with the kicks (density only)
@@ -1008,6 +1086,8 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         const float wash = (0.03f + 0.1f * wm + 0.03f * breath) * world * tame;
         set1f(progWorld_, "uSide", (float)side_);
         set4f(progWorld_, "uWell", 0.f, 0.f, 5.f, 10.f);
+        set4f(progWorld_, "uCols", 0.f, 0.5f * (layout::LEFT_COLUMN[1] + layout::LEFT_COLUMN[3]), layout::RIGHT_COLUMN[2],
+              0.5f * (layout::LEFT_COLUMN[3] - layout::LEFT_COLUMN[1]));
         set4f(progWorld_, "uSheet", bloom, wash, std::atan2(-0.35f, 1.f * side_), drift_);
         const float bt = saturate(blotT_ / 0.45f);
         set4f(progWorld_, "uBlot", blotPos_.x, blotPos_.y, bt, bt < 1.f ? blotK_ * world * (1.f - 0.5f * slow_) : 0.f);
