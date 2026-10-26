@@ -109,6 +109,7 @@ struct Variant {
     uint32_t shallow, deep;
     uint32_t sky[3][2]; // zenith, horizon at dawn, day, golden hour (dusk and night are shared)
     int big, small, accent; // tree shapes
+    int night = 0; // 1: a night place (moonlight; its skies are calm / mid / peak nights, not dawn / day / golden hour)
 };
 const Variant VARIANTS[] = {
     {"MEADOW COVE",
@@ -156,6 +157,23 @@ const Variant VARIANTS[] = {
      {0xA58FBC, 0x8A9C78, 0xDCD4C4, 0x9E9488, 0x948E8A, 0x5E4E48, 0x6E8A62, 0x586F52, 0xEFEAE6, 0xD8CED0, 0xE6E0DE,
       0xE2DBD8, 0x9C8EB4, 0x8F96B0, 0xB3B8CC, 0xFFC27A},
      0x7FA9C0, 0x3E6488, {{0x5A6090, 0xD9C0CC}, {0x7894BE, 0xD8DEE6}, {0x6A6498, 0xEEB290}}, P_PINE, P_BUSH, P_BUSH},
+    // Night places: the same island under the moon, the tower's lanterns lit. Their pieces are brighter and a
+    // touch more saturated so the stack reads against the dark sky.
+    {"MOONLIT COVE",
+     {0x6FE3EA, 0xFFE07A, 0xC6A4FF, 0x9AEB98, 0xFF8A8E, 0x86A8FF, 0xFFB46A},
+     {0x9EC4A0, 0x88B490, 0xE8E0CC, 0xB8AAA0, 0xB0B0B4, 0x7E6656, 0x6FA88A, 0x558E78, 0xB4AEB0, 0x9C969C, 0xA8A2A6,
+      0x9A949A, 0x7FA0A8, 0x7090AC, 0x8EA2C8, 0xFFC27A},
+     0x5FA8C0, 0x1C3E6E, {{0x0C1638, 0x2A3E6A}, {0x0E1C46, 0x34507E}, {0x1A1A4A, 0x5A4878}}, P_ROUND, P_ROUND, P_CYPRESS, 1},
+    {"LANTERN HARBOR",
+     {0x5FDCD2, 0xFFD45E, 0xD69AF0, 0xA8E07A, 0xFF7466, 0x7C9CFF, 0xFFA04E},
+     {0xC8A882, 0xB89670, 0xEAD6B4, 0xC48A6A, 0xB08470, 0x7A5640, 0x7E9A6A, 0x62805A, 0xB89A80, 0xA08470, 0xAC9078,
+      0x9A7E6A, 0xA87E70, 0x8A7488, 0x9A8CAE, 0xFFB45E},
+     0x4F9AB0, 0x182E5C, {{0x180E30, 0x4A2A50}, {0x1C1238, 0x5A3458}, {0x24143A, 0x844A5E}}, P_CYPRESS, P_PALM, P_ROUND, 1},
+    {"FIREFLY FJORD",
+     {0x62D8E8, 0xF8E46A, 0xB4A0FF, 0x86F0A8, 0xFF7C9C, 0x6C9CFF, 0xFFA670},
+     {0x7FA48A, 0x6C9480, 0xD8D6CC, 0x9C9AA2, 0x929298, 0x5E5050, 0x3F7468, 0x2F6058, 0xA4AAB0, 0x8C9298, 0x9AA0A6,
+      0x8E949A, 0x5F8A8A, 0x5C7A98, 0x7A8EB8, 0xFFCC80},
+     0x4AA0B4, 0x10305A, {{0x061A24, 0x184A4C}, {0x081E2C, 0x1E5A58}, {0x0A2032, 0x2E6A62}}, P_PINE, P_PINE, P_BUSH, 1},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 const char* TOD_NAMES[4] = {"DAWN", "DAY", "GOLDEN HOUR", "DUSK"};
@@ -196,10 +214,52 @@ const TodKey TOD[4] = {
     {0x3C4586, 0xF0957A, 0xFF8E62, 1.9f, 0x8A80B8, 0.52f, 0xC99488, 0.3f, 0x9E8ACB, 0xFF7E55,
      0.0028f, 0.12f, 1.f, 0.7f, 0.4f, 0.6f, 0.6f, 1.f, 0.98f, 0.15f, {0.7f, 0.2f, 0.68f}, {0.6f, 0.012f, -0.8f}},
 };
-// night: the slow-motion bonus (moonlight, the blocks become lanterns)
+// night: the light of the night places, and the slow-motion bonus elsewhere (moonlight, the blocks become lanterns)
 const TodKey NIGHT = {0x0A1030, 0x1E2A52, 0x9DB4FF, 0.62f, 0x41528E, 0.36f, 0x262840, 0.2f, 0x7078B8, 0x7F98D8,
                       0.005f, 0.3f, 0.5f, 0.4f, 0.15f, 0.2f, 0.18f, 1.f, 1.0f, 1.f, {-0.45f, 0.62f, 0.62f}, {-0.35f, 0.3f, -0.88f}};
+// still night: the slow-motion bonus in a night place (time stands still: a pale silver moon, a green glow on the
+// horizon, every star out, the water glassy, the blocks become lanterns)
+const TodKey STILL = {0x080E30, 0x1F6470, 0xCFE4FF, 0.66f, 0x5470B0, 0.4f, 0x2E3450, 0.22f, 0x8A9ADA, 0x8FF0D8,
+                      0.004f, 0.22f, 0.9f, 0.55f, 0.f, 0.03f, 0.04f, 0.35f, 0.88f, 1.f, {0.1f, 0.7f, 0.7f}, {0.05f, 0.42f, -0.9f}};
 const float TOD_AT[4] = {0.f, 1.f, 2.f, 2.6f};
+const char* NIGHT_NAMES[4] = {"MOONRISE", "MIDNIGHT", "STARLIGHT", "LANTERN HOUR"};
+
+// A light (one key, or a blend of keys) in linear values.
+struct Light {
+    vec3 zenith, horizon, sun, sky, ground, shadowTint, sunFog, sunDir, skySun;
+    float sunI, skyI, groundI, fog, mist, glow, rim, cloud, wind, wave, lantern, exposure, stars;
+};
+Light lightOf(const TodKey& k) {
+    return {hex(k.zenith), hex(k.horizon), hex(k.sun), hex(k.sky), hex(k.ground), hex(k.shadowTint), hex(k.sunFog), k.sunDir,
+            k.skySun, k.sunI, k.skyI, k.groundI, k.fog, k.mist, k.glow, k.rim, k.cloud, k.wind, k.wave, k.lantern, k.exposure,
+            k.stars};
+}
+Light mixLight(const Light& a, const Light& b, float t) {
+    Light r;
+    r.zenith = lerp(a.zenith, b.zenith, t);
+    r.horizon = lerp(a.horizon, b.horizon, t);
+    r.sun = lerp(a.sun, b.sun, t);
+    r.sky = lerp(a.sky, b.sky, t);
+    r.ground = lerp(a.ground, b.ground, t);
+    r.shadowTint = lerp(a.shadowTint, b.shadowTint, t);
+    r.sunFog = lerp(a.sunFog, b.sunFog, t);
+    r.sunDir = lerp(a.sunDir, b.sunDir, t);
+    r.skySun = lerp(a.skySun, b.skySun, t);
+    r.sunI = lerpf(a.sunI, b.sunI, t);
+    r.skyI = lerpf(a.skyI, b.skyI, t);
+    r.groundI = lerpf(a.groundI, b.groundI, t);
+    r.fog = lerpf(a.fog, b.fog, t);
+    r.mist = lerpf(a.mist, b.mist, t);
+    r.glow = lerpf(a.glow, b.glow, t);
+    r.rim = lerpf(a.rim, b.rim, t);
+    r.cloud = lerpf(a.cloud, b.cloud, t);
+    r.wind = lerpf(a.wind, b.wind, t);
+    r.wave = lerpf(a.wave, b.wave, t);
+    r.lantern = lerpf(a.lantern, b.lantern, t);
+    r.exposure = lerpf(a.exposure, b.exposure, t);
+    r.stars = lerpf(a.stars, b.stars, t);
+    return r;
+}
 
 // Island and world layout.
 constexpr float WATER_Y = -12.8f, GROUND_Y = -11.6f;
@@ -959,12 +1019,12 @@ TransitionHints DioramaUniverse::hints() const {
     h.ink = hex(0x4D3B3E);
     h.accent = hex(V.piece[2]);
     h.light = true;
-    if (inverted_) { // night (slow motion)
-        h.background = hex(NIGHT.horizon);
+    if (inverted_ || V.night) { // night (a night place, or the slow motion)
+        h.background = V.night ? lerp(hex(V.sky[1][1]), hex(V.sky[1][0]), 0.4f) : hex(NIGHT.horizon);
         h.ink = hex(0xFFF9EF);
         h.light = false;
     }
-    h.styles = TS_TILES | TS_REBUILD | TS_RIPPLE;
+    h.styles = TS_REBUILD | TS_RIPPLE; // not TILES: scattered flipping cards over the island are too busy
     return h;
 }
 
@@ -1019,7 +1079,7 @@ void DioramaUniverse::splash(vec3 pos, float strength) {
     }
 }
 
-void DioramaUniverse::spawnBody(vec3 pos, int type, vec3 vel, float delay, float spin) {
+void DioramaUniverse::spawnBody(vec3 pos, int type, vec3 vel, float delay, float spin, float life) {
     if (bodies_.size() >= 400) return;
     Body b;
     b.pos = pos;
@@ -1028,7 +1088,8 @@ void DioramaUniverse::spawnBody(vec3 pos, int type, vec3 vel, float delay, float
     b.angle = 0;
     b.spin = spin;
     b.delay = delay;
-    b.life = 7.f;
+    b.life = life;
+    b.shrink = std::min(0.6f, life);
     b.scale = 1.f;
     b.type = type;
     b.wet = false;
@@ -1053,24 +1114,33 @@ void DioramaUniverse::onEvent(const GameEvent& ev, const Game& game) {
         bool dropped = false;
         for (auto& c : ev.cells)
             if (c.y >= 0 && c.y < Game::H && game.cell(c.x, c.y).dropped) dropped = true;
-        // A puff of dust where the piece settles (its bottom faces), bigger after a hard drop.
-        for (auto& c : ev.cells) {
-            if (inPiece(c.x, c.y + 1)) continue;
-            vec3 p = cellPos((float)c.x, (float)c.y) + vec3(0, -0.5f, 0.35f);
-            spawnDust(p, vec3(0, 0.15f, 0.4f), dropped ? 3 : 2, dropped ? 1.3f : 0.8f);
+        // One puff of dust pushed out from under the piece where it settles (along its bottom faces, outward
+        // from their middle), bigger after a hard drop.
+        std::vector<vec3> contact;
+        for (auto& c : ev.cells)
+            if (!inPiece(c.x, c.y + 1)) contact.push_back(cellPos((float)c.x, (float)c.y) + vec3(0, -0.5f, 0.35f));
+        if (contact.empty()) break;
+        float x0 = 1e9f, x1 = -1e9f, yb = 1e9f;
+        for (auto& p : contact) { x0 = std::min(x0, p.x - 0.5f); x1 = std::max(x1, p.x + 0.5f); yb = std::min(yb, p.y); }
+        const float xm = 0.5f * (x0 + x1);
+        const int n = dropped ? 7 : 4;
+        for (int i = 0; i < n; i++) {
+            // spread along the lowest contact, the outer grains pushed out the most
+            const float u = n > 1 ? (float)i / (n - 1) : 0.5f;
+            const float x = lerpf(x0 + 0.2f, x1 - 0.2f, u), side = (x - xm) / std::max(0.5f, 0.5f * (x1 - x0));
+            spawnDust(vec3(x, yb, 0.35f), vec3(side * 1.2f, 0.1f, 0.35f), 1, dropped ? 1.2f : 0.75f);
         }
         break;
     }
     case GameEvent::Clear: {
-        // Cleared blocks pop off the tower and tumble down: onto the island, into the sea.
+        // Cleared blocks pop off the tower toward the viewer and shrink away as they tumble (gone in ~0.5 s).
         const bool tetris = ev.count >= 4;
         for (auto& c : ev.cells) {
             vec3 p = cellPos((float)c.x, (float)c.y);
             float side = (c.x - 4.5f) / 4.5f;
             vec3 vel(side * rng_.range(2.0f, 3.6f) + rng_.range(-0.5f, 0.5f), rng_.range(4.5f, 7.5f) + (tetris ? 1.5f : 0.f),
                      rng_.range(4.f, 6.5f));
-            spawnBody(p, c.type, vel, std::fabs(c.x - 4.5f) * 0.03f + rng_.range(0.f, 0.04f), rng_.range(4.f, 10.f));
-            if ((c.x + c.y) % 2 == 0) spawnDust(p + vec3(0, -0.4f, 0.4f), vec3(side, 0.2f, 0.5f), 2, 0.9f);
+            spawnBody(p, c.type, vel, std::fabs(c.x - 4.5f) * 0.012f + rng_.range(0.f, 0.03f), rng_.range(4.f, 10.f), 0.45f);
         }
         rings_.push_back({0.f, 0.35f + 0.15f * ev.count});
         if (tetris) {
@@ -1078,7 +1148,7 @@ void DioramaUniverse::onEvent(const GameEvent& ev, const Game& game) {
             float yc = 0;
             for (auto& c : ev.cells) yc += cellPos(0, (float)c.y).y;
             yc /= (float)ev.cells.size();
-            for (int i = 0; i < 110 && parts_.size() < 3000; i++) {
+            for (int i = 0; i < 50 && parts_.size() < 3000; i++) {
                 Particle p;
                 p.kind = i % 3 == 0 ? 1 : 2;
                 p.pos = vec3(rng_.range(-4.5f, 4.5f), yc + rng_.range(-1.5f, 1.5f), rng_.range(0.3f, 1.2f));
@@ -1086,7 +1156,7 @@ void DioramaUniverse::onEvent(const GameEvent& ev, const Game& game) {
                 float sp = rng_.range(6.f, 13.f);
                 p.vel = vec3(std::cos(a) * sp * 0.9f, std::sin(a) * sp, rng_.range(1.f, 5.f));
                 p.color = p.kind == 1 ? lerp(env_.piece[i % 7], vec3(1.f, 0.92f, 0.94f), 0.55f) : env_.piece[i % 7];
-                p.maxLife = p.life = rng_.range(2.6f, 3.8f);
+                p.maxLife = p.life = rng_.range(1.1f, 1.7f);
                 p.size = p.kind == 1 ? rng_.range(0.2f, 0.28f) : rng_.range(0.13f, 0.19f);
                 p.rot = rng_.range(0.f, TAU);
                 p.rotV = rng_.range(-6.f, 6.f);
@@ -1109,7 +1179,7 @@ void DioramaUniverse::onEvent(const GameEvent& ev, const Game& game) {
         for (auto& c : ev.cells) {
             vec3 p = cellPos((float)c.x, (float)c.y);
             vec3 vel(rng_.range(-1.5f, 1.5f) + (c.x - 4.5f) * 0.35f, rng_.range(0.5f, 2.5f), rng_.range(2.5f, 4.8f));
-            spawnBody(p, c.type, vel, 0.25f + (c.y - topRow) * 0.075f + rng_.range(0.f, 0.12f), rng_.range(2.f, 6.f));
+            spawnBody(p, c.type, vel, 0.25f + (c.y - topRow) * 0.075f + rng_.range(0.f, 0.12f), rng_.range(2.f, 6.f), 7.f);
         }
         break;
     }
@@ -1133,42 +1203,59 @@ void DioramaUniverse::computeEnv(float dt, const MusicState& music) {
     int k = 0;
     while (k < 2 && tod_ > TOD_AT[k + 1]) k++;
     const float f = smoothstepf(0.f, 1.f, saturate((tod_ - TOD_AT[k]) / (TOD_AT[k + 1] - TOD_AT[k])));
-    const TodKey &A = TOD[k], &B = TOD[k + 1];
+    const Variant &VA = VARIANTS[worldFrom_], &VB = VARIANTS[worldTo_];
+    // Night places (blended across a song change) and the bonus night.
+    nightV_ = lerpf((float)VA.night, (float)VB.night, wm);
     const float n = smoothstepf(0.f, 1.f, night_);
-    auto C = [&](uint32_t a, uint32_t b, uint32_t c) { return lerp(lerp(hex(a), hex(b), f), hex(c), n); };
-    auto F = [&](float a, float b, float c) { return lerpf(lerpf(a, b, f), c, n); };
+    nightAll_ = std::max(nightV_, n);
+    Light L = mixLight(lightOf(TOD[k]), lightOf(TOD[k + 1]), f);
+    if (nightV_ > 0.f) {
+        // A night place: the moon crosses the sky with the phases (rising on the left, high, low on the right),
+        // brighter toward the peak.
+        Light N = lightOf(NIGHT);
+        const float u = saturate(tod_ / 2.6f);
+        N.sunDir = normalize(vec3(lerpf(-0.6f, 0.6f, u), 0.45f + 0.3f * std::sin(u * PI), 0.62f));
+        N.skySun = normalize(vec3(lerpf(-0.5f, 0.5f, u), 0.05f + 0.1f * std::sin(u * PI), -0.86f));
+        N.sunI *= 0.9f + 0.25f * u;
+        N.stars *= 1.f - 0.3f * u;
+        N.cloud = 0.25f;
+        L = mixLight(L, N, nightV_);
+    }
+    // The bonus: night (in a day place) or the still night (in a night place).
+    L = mixLight(L, mixLight(lightOf(NIGHT), lightOf(STILL), nightV_), n);
     Env& e = env_;
-    // Sky: the variant's own dawn / day / golden-hour gradients (dusk and night are shared).
+    // Sky: the variant's own gradients (dawn / day / golden hour, or its three nights); dusk is shared by the day
+    // places, a night place keeps its peak night.
     auto skyKey = [&](int key, int which) {
-        if (key >= 3) return hex(which ? TOD[3].horizon : TOD[3].zenith);
-        return lerp(hex(VARIANTS[worldFrom_].sky[key][which]), hex(VARIANTS[worldTo_].sky[key][which]), wm);
+        auto one = [&](const Variant& V) { return key >= 3 && !V.night ? hex(which ? TOD[3].horizon : TOD[3].zenith) : hex(V.sky[std::min(key, 2)][which]); };
+        return lerp(one(VA), one(VB), wm);
     };
-    e.zenith = lerp(lerp(skyKey(k, 0), skyKey(k + 1, 0), f), hex(NIGHT.zenith), n);
-    e.horizon = lerp(lerp(skyKey(k, 1), skyKey(k + 1, 1), f), hex(NIGHT.horizon), n);
-    e.sunCol = C(A.sun, B.sun, NIGHT.sun) * F(A.sunI, B.sunI, NIGHT.sunI);
-    e.skyCol = C(A.sky, B.sky, NIGHT.sky) * F(A.skyI, B.skyI, NIGHT.skyI);
-    e.groundCol = C(A.ground, B.ground, NIGHT.ground) * F(A.groundI, B.groundI, NIGHT.groundI);
-    e.shadowTint = C(A.shadowTint, B.shadowTint, NIGHT.shadowTint);
-    e.sunFogCol = C(A.sunFog, B.sunFog, NIGHT.sunFog);
+    const Light B = mixLight(lightOf(NIGHT), lightOf(STILL), nightV_);
+    e.zenith = lerp(lerp(skyKey(k, 0), skyKey(k + 1, 0), f), B.zenith, n);
+    e.horizon = lerp(lerp(skyKey(k, 1), skyKey(k + 1, 1), f), B.horizon, n);
+    e.sunCol = L.sun * L.sunI;
+    e.skyCol = L.sky * L.skyI;
+    e.groundCol = L.ground * L.groundI;
+    e.shadowTint = L.shadowTint;
+    e.sunFogCol = L.sunFog;
     // Mist leans blue at dawn (blue hour), warm toward the sun later.
-    e.fogCol = lerp(e.horizon, e.zenith, lerpf(0.12f + 0.33f * (1.f - smoothstepf(0.f, 0.9f, tod_)), 0.3f, n));
-    e.fogDensity = F(A.fog, B.fog, NIGHT.fog);
-    e.mist = F(A.mist, B.mist, NIGHT.mist);
-    e.sunGlow = F(A.glow, B.glow, NIGHT.glow) * (1.f + 0.6f * flare_);
-    e.rim = F(A.rim, B.rim, NIGHT.rim);
-    e.cloud = F(A.cloud, B.cloud, NIGHT.cloud);
-    e.stars = F(A.stars, B.stars, NIGHT.stars);
-    e.lantern = F(A.lantern, B.lantern, NIGHT.lantern);
-    e.exposure = F(A.exposure, B.exposure, NIGHT.exposure);
-    e.sunDir = normalize(lerp(lerp(A.sunDir, B.sunDir, f), NIGHT.sunDir, n));
-    e.skySunDir = normalize(lerp(lerp(A.skySun, B.skySun, f), NIGHT.skySun, n));
+    e.fogCol = lerp(e.horizon, e.zenith, lerpf(0.12f + 0.33f * (1.f - smoothstepf(0.f, 0.9f, tod_)), 0.3f, nightAll_));
+    e.fogDensity = L.fog;
+    e.mist = L.mist;
+    e.sunGlow = L.glow * (1.f + 0.6f * flare_);
+    e.rim = L.rim;
+    e.cloud = L.cloud;
+    e.stars = L.stars;
+    e.lantern = L.lantern;
+    e.exposure = L.exposure;
+    e.sunDir = normalize(L.sunDir);
+    e.skySunDir = normalize(L.skySun);
     // Music: the wind and the water carry the energy; the beat is felt, not hammered.
     const float E = music.energy;
-    e.wind = F(A.wind, B.wind, NIGHT.wind) * (0.55f + 0.8f * E) + 0.18f * music.beatPulse + 0.9f * gust_;
-    e.wave = F(A.wave, B.wave, NIGHT.wave) * (0.5f + 0.9f * E) + 0.25f * gust_;
-    e.glint = (1.f + 0.6f * music.bandsFast[NUM_BANDS - 3] * E) * (1.f - 0.4f * n);
+    e.wind = L.wind * (0.55f + 0.8f * E) + 0.18f * music.beatPulse + 0.9f * gust_;
+    e.wave = L.wave * (0.5f + 0.9f * E) + 0.25f * gust_;
+    e.glint = (1.f + 0.6f * music.bandsFast[NUM_BANDS - 3] * E) * (1.f - 0.4f * nightAll_);
     // Landscape palette (blended across a song change).
-    const Variant &VA = VARIANTS[worldFrom_], &VB = VARIANTS[worldTo_];
     for (int i = 0; i < 16; i++) e.pal[i] = lerp(hex(VA.c[i]), hex(VB.c[i]), wm);
     e.shallow = lerp(hex(VA.shallow), hex(VB.shallow), wm);
     e.deep = lerp(hex(VA.deep), hex(VB.deep), wm);
@@ -1252,7 +1339,7 @@ void DioramaUniverse::simulate(const Game& game, const MusicState& music, float 
             b.pos += b.vel * dt;
             b.angle += b.spin * 0.3f * dt;
         }
-        if (b.life < 0.6f) b.scale = std::max(0.f, b.life / 0.6f);
+        if (b.life < b.shrink) b.scale = std::max(0.f, b.life / b.shrink);
         if (b.life <= 0.f || b.pos.y < WATER_Y - 3.f) { b = bodies_.back(); bodies_.pop_back(); continue; }
         i++;
     }
@@ -1273,7 +1360,7 @@ void DioramaUniverse::simulate(const Game& game, const MusicState& music, float 
     }
 
     // Leaves let go of the trees in the wind (golden hour, gusts).
-    const float leafRate = std::max(0.f, env_.wind - 0.45f) * 3.f * (1.f - night_);
+    const float leafRate = std::max(0.f, env_.wind - 0.45f) * 3.f * (1.f - nightAll_);
     if (rng_.uniform() < leafRate * wdt && parts_.size() < 3000) {
         Particle p;
         p.kind = 1;
@@ -1293,7 +1380,7 @@ void DioramaUniverse::simulate(const Game& game, const MusicState& music, float 
 
     // Birds cross the sky in daylight (and after a Tetris or a new level).
     birdTimer_ -= wdt;
-    const float day = smoothstepf(0.4f, 0.9f, tod_) * (1.f - smoothstepf(2.2f, 2.5f, tod_)) * (1.f - night_);
+    const float day = smoothstepf(0.4f, 0.9f, tod_) * (1.f - smoothstepf(2.2f, 2.5f, tod_)) * (1.f - nightAll_);
     if (birdTimer_ <= 0.f) {
         const bool forced = birdTimer_ > -0.5f && birdTimer_ < 0.f && false;
         (void)forced;
@@ -1508,7 +1595,7 @@ void DioramaUniverse::setCommonUniforms(GLuint p) {
     set1f(p, "uMist", e.mist);
     set1f(p, "uWaterY", WATER_Y);
     set1f(p, "uTime", worldTime_);
-    set1f(p, "uNight", night_);
+    set1f(p, "uNight", nightAll_);
     set1f(p, "uRim", e.rim);
     set1f(p, "uSunGlow", e.sunGlow);
     set1f(p, "uStars", e.stars);
@@ -1577,7 +1664,7 @@ void DioramaUniverse::drawScene(bool depthOnly, bool mirror) {
     setMat(pb, "uVP", VP);
     setMat(pb, "uMirror", M);
     set1f(pb, "uClipY", clipY);
-    if (!depthOnly) set1f(pb, "uLanternGlow", 0.85f * night_);
+    if (!depthOnly) set1f(pb, "uLanternGlow", lerpf(0.3f * nightV_, 0.85f, smoothstepf(0.f, 1.f, night_)));
     drawInstances(cube_, solid_, pb);
     drawInstances(sphere_, beads_, pb);
 }
@@ -1777,7 +1864,7 @@ void DioramaUniverse::render(const Frame& f, GLuint fbo) {
     set1f(progComp_, "uSat", lerpf(1.04f, 0.5f, pauseFade_));
     set1f(progComp_, "uTime", t);
     set1f(progComp_, "uAspect", aspect);
-    set1f(progComp_, "uVignette", 0.22f + 0.1f * night_);
+    set1f(progComp_, "uVignette", 0.22f + 0.1f * nightAll_);
     {
         // The sun's soft glow, where it is painted in the sky.
         vec4 c = vp_ * vec4(camPos_ + env_.skySunDir * 1000.f, 1.f);
@@ -1785,7 +1872,7 @@ void DioramaUniverse::render(const Frame& f, GLuint fbo) {
         vec2 uv{-10, -10};
         if (c.w > 0.f) {
             uv = {c.x / c.w * 0.5f + 0.5f, c.y / c.w * 0.5f + 0.5f};
-            amt = (0.18f * smoothstepf(1.5f, 2.1f, tod_) * (1.f - night_) + 0.25f * flare_) *
+            amt = (0.18f * smoothstepf(1.5f, 2.1f, tod_) * (1.f - nightAll_) + 0.25f * flare_) *
                   smoothstepf(-0.05f, 0.02f, env_.skySunDir.y);
         }
         set2f(progComp_, "uSunUV", uv.x, uv.y);
@@ -1812,8 +1899,9 @@ void DioramaUniverse::render(const Frame& f, GLuint fbo) {
 void DioramaUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<Card>& cardsIn,
                               const std::vector<HudRect>& panels) {
     const float hs = std::max(1.f, height_ / 900.f);
-    const vec3 CARD = hexS(0xFBF5EA), INK = hexS(0x4D3B3E), ACCENT_INK = hexS(0xC4603F), LIGHT = hexS(0xFFF9EF),
-               ACCENT_LIGHT = hexS(0xFFD9A6), SHADOW = hexS(0x3A2830);
+    // Dark stained wood plaques (no white panels), cream lettering, a warm gold accent.
+    const vec3 CARD = hexS(0x4A3329), ACCENT_INK = hexS(0xC4603F), LIGHT = hexS(0xFFF5E4), ACCENT_LIGHT = hexS(0xFFCF8A),
+               SHADOW = hexS(0x2A1C1E);
     auto quad = [&](float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, std::vector<float>& out) {
         const float q[24] = {x0, y0, u0, v0, x1, y0, u1, v0, x1, y1, u1, v1, x0, y0, u0, v0, x1, y1, u1, v1, x0, y1, u0, v1};
         out.insert(out.end(), q, q + 24);
@@ -1837,9 +1925,10 @@ void DioramaUniverse::drawHud(const std::vector<HudText>& hud, const std::vector
         quad(r.x - m, r.y - m, r.x + r.w + m, r.y + r.h + m, -hw - m, -hh - m, hw + m, hh + m, v);
         glBufferData(GL_ARRAY_BUFFER, v.size() * sizeof(float), v.data(), GL_STREAM_DRAW);
         set2f(progPanel_, "uHalf", hw, hh);
-        set1f(progPanel_, "uRadius", r.round > 0.f ? std::min(std::min(hw, hh), 14.f * hs * r.round) : 0.f);
+        set1f(progPanel_, "uRadius", r.round > 0.f ? std::min(std::min(hw, hh), 6.f * hs * r.round) : 0.f);
         set1f(progPanel_, "uShadow", sh);
-        set1f(progPanel_, "uAlpha", r.alpha);
+        set1f(progPanel_, "uAlpha", r.round > 0.f ? std::min(1.f, r.alpha * 1.04f) : r.alpha);
+        set1f(progPanel_, "uWood", r.round > 0.f && !r.accent ? hs : 0.f);
         set3f(progPanel_, "uColor", r.custom ? r.color : r.accent ? ACCENT_INK : CARD);
         set3f(progPanel_, "uShadowCol", SHADOW);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(v.size() / 4));
@@ -1889,7 +1978,7 @@ void DioramaUniverse::drawHud(const std::vector<HudText>& hud, const std::vector
         bool onCard = false;
         for (const R& r : rects)
             if (r.alpha > 0.3f && !r.accent && !r.custom && cxm > r.x && cxm < r.x + r.w && cym > r.y && cym < r.y + r.h) onCard = true;
-        const vec3 col = onCard ? (h.accent ? ACCENT_INK : INK) : (h.accent ? ACCENT_LIGHT : LIGHT);
+        const vec3 col = h.accent ? ACCENT_LIGHT : LIGHT;
         const float bias = size < 16.f ? 0.03f : 0.f; // small text a touch bolder
         if (!onCard) {
             // Soft shadow: the same glyphs, offset down, widened and blurred through the distance field.
@@ -1930,7 +2019,7 @@ float DioramaUniverse::textWidth(const std::string& text, float scale) const {
 
 
 // ---------------------------------------------------------------------------------------------------------
-// HUD layout: the host's lines (text, anchor, size) in the diorama's typography, on warm painted cards: the song
+// HUD layout: the host's lines (text, anchor, size) in the diorama's typography, on small dark wooden plaques: the song
 // and the place in corner cards, the stats on a plaque on the left stele, the slot labels as pills, the
 // celebrations, the controls and the dialogs on cards of their own.
 
@@ -1959,7 +2048,9 @@ void DioramaUniverse::layoutHud(const std::vector<HudText>& in, std::vector<HudT
         cards.push_back({x - th * 0.8f, t.y - th * 0.48f, w + th * 1.6f, th * 1.9f, 0.94f * std::min(1.f, alpha * 1.6f)});
     };
     const float tod = tod_;
-    const char* moment = night_ > 0.5f ? "NIGHT" : TOD_NAMES[tod < 0.5f ? 0 : tod < 1.5f ? 1 : tod < 2.3f ? 2 : 3];
+    const int mi = tod < 0.5f ? 0 : tod < 1.5f ? 1 : tod < 2.3f ? 2 : 3;
+    const bool nightPlace = VARIANTS[worldTo_].night != 0;
+    const char* moment = night_ > 0.5f ? (nightPlace ? "STILL NIGHT" : "NIGHT") : nightPlace ? NIGHT_NAMES[mi] : TOD_NAMES[mi];
 
     Box song, place, stats, help, dialog, toast;
     for (size_t i = 0; i < in.size(); i++) {

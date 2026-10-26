@@ -63,7 +63,7 @@ private:
     void spawnDust(vec3 pos, vec3 dir, int n, float strength);
     void splash(vec3 pos, float strength);
     void addRipple(float x, float z, float strength);
-    void spawnBody(vec3 pos, int type, vec3 vel, float delay, float spin);
+    void spawnBody(vec3 pos, int type, vec3 vel, float delay, float spin, float life);
     void startLight(float tod, int world, float seconds, float impact);
 
     int samples_ = 4;
@@ -97,7 +97,8 @@ private:
     float todFrom_ = 1, todTo_ = 1, tod_ = 1;           // time of day: 0 dawn, 1 day, 2 golden hour, 2.6 dusk
     int worldFrom_ = 0, worldTo_ = 0;                    // landscape palettes (variants)
     float transT_ = 1, transDur_ = 1;
-    float gust_ = 0, flare_ = 0, night_ = 0;
+    float gust_ = 0, flare_ = 0, night_ = 0; // night_: the bonus night (0..1)
+    float nightV_ = 0, nightAll_ = 0;       // how much the place is a night place; the darker of both
     bool inverted_ = false;
     float pauseFade_ = 0;
     float kick_ = 0, kickEnv_ = 0, lastKickT_ = 0;
@@ -110,7 +111,7 @@ private:
     float focus_ = 1.f;
 
     // Effects.
-    struct Body { vec3 pos, vel, axis; float angle, spin, delay, life, scale; int type; bool wet; vec3 color; };
+    struct Body { vec3 pos, vel, axis; float angle, spin, delay, life, shrink, scale; int type; bool wet; vec3 color; };
     std::vector<Body> bodies_;
     struct Particle { vec3 pos, vel, color; float life, maxLife, size, rot, rotV; int kind; float grav, drag, alpha; };
     std::vector<Particle> parts_;
