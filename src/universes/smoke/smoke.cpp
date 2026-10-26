@@ -803,7 +803,7 @@ void SmokeUniverse::buildFx() {
         const float glow = std::max(lit, 0.4f);
         const vec3 pc = cur_.piece[d.type];
         const vec3 c = pc * (0.35f + 0.95f * glow) * (0.4f + 0.6f * lightOn);
-        const float a = 0.65f * (1.f - smoothstepf(0.6f, 1.45f, t));
+        const float a = 0.65f / (0.6f + 0.4f * B) * (1.f - smoothstepf(0.6f, 1.45f, t)); // a Tetris: bigger, not denser
         wisps_.push_back({{d.x, 0.5f * (bottom + top), 1.6f, 0.5f * (top - bottom) / 1.6f}, {c.x, c.y, c.z, a},
                           {4.f, d.seed * 13.f, V, t}});
     }
@@ -1148,6 +1148,7 @@ void SmokeUniverse::render(const Frame& f, GLuint fbo) {
     };
     drawSprites(motes_);
     drawSprites(sprites_); // the smoke behind the blocks
+    drawSprites(wisps_);   // cleared blocks turned to smoke: seen where they erode, never over the stack
     if (!tiles_.empty()) {
         glUseProgram(progTile_);
         glBindTexture(GL_TEXTURE_2D, noiseTex_);
@@ -1180,7 +1181,6 @@ void SmokeUniverse::render(const Frame& f, GLuint fbo) {
         glBufferData(GL_ARRAY_BUFFER, tiles_.size() * sizeof(Tile), tiles_.data(), GL_STREAM_DRAW);
         glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)tiles_.size());
     }
-    drawSprites(wisps_); // cleared blocks turned to smoke, in front: thin, and gone in a moment
     drawSprites(blades_);
     drawHud(f.hud, f.panels);
     glDisable(GL_BLEND);

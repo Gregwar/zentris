@@ -471,7 +471,7 @@ void main() {
         float wcol = 0.55 + 0.3 * h;
         float col = 1.0 - smoothstep(wcol * 0.3, wcol, abs(xo - v0.x));
         // tendrils: thin sheets stretched along the rise, carried with the smoke (keyed on te)
-        float n1 = texture(uNoise, vec2(xo * 0.06 + seed * 1.3, te * 0.12 + seed)).b;
+        float n1 = texture(uNoise, vec2(xo * 0.09 + seed * 1.3, te * 0.3 + h * 0.02 + seed)).b;
         float n2 = texture(uNoise, vec2(xo * 0.05 + seed * 0.4, te * 0.2 + h * 0.03)).g;
         float sheet = 1.0 - abs(n1 * 2.0 - 1.0);
         float hk = smoothstep(0.0, 0.8, h);
