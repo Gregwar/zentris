@@ -33,6 +33,9 @@ float weight(int i);
 int pick(const SongLook& look, uint64_t seed, int current);
 // "VECTOR · P3 AMBER": a universe and one of its variants, as the HUD shows them (UTF-8 middle dot).
 std::string label(int universe, int variant);
+// Checks a --universe spec ("NAME" or "NAME:VARIANT"): true if it names a universe (and, when one is given, a
+// variant of it); otherwise prints what is unknown and what exists (the universes, or that universe's variants).
+bool check(const std::string& spec);
 // The next universe in the registry order after `current` (hidden ones skipped unless `withHidden`).
 int next(int current, bool withHidden = false);
 } // namespace universes

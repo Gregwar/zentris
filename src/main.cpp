@@ -607,11 +607,6 @@ int App::run() {
     // keeps it.
     if (!opt_.universe.empty()) {
         forcedUniverse_ = universes::parse(opt_.universe, &forcedVariant_);
-        if (forcedUniverse_ < 0) {
-            std::fprintf(stderr, "[app] unknown universe '%s'; universes:", opt_.universe.c_str());
-            for (int i = 0; i < universes::count(); i++) std::fprintf(stderr, " %s", universes::entry(i).name);
-            std::fprintf(stderr, "\n");
-        }
     }
     look_ = makeSongLook(nullptr, runSeed_);
     {
@@ -1081,6 +1076,8 @@ int main(int argc, char** argv) {
         else if (a == "--clip-after" && i + 1 < argc) o.clipAfter = std::stof(argv[++i]);
         else o.paths.push_back(a);
     }
+    if (!o.universe.empty() && !universes::check(o.universe)) return 1;
+    if (!o.toUniverse.empty() && !universes::check(o.toUniverse)) return 1;
     // No songs given: the default playlist.
     if (o.paths.empty()) o.paths.push_back(DEFAULT_PLAYLIST);
     App app(o);

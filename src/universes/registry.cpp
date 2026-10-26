@@ -38,7 +38,9 @@ static std::string upper(std::string s) {
 }
 
 int find(const std::string& name) {
-    const std::string n = upper(name);
+    std::string n = upper(name);
+    for (char& c : n)
+        if (c == '_') c = ' '; // the registry id works too ("white_room")
     for (int i = 0; i < count(); i++)
         if (n == entry(i).name) return i;
     // a name of several words can be given by its first one ("polar" for POLAR NIGHT)
@@ -65,6 +67,24 @@ int parse(const std::string& spec, int* variant) {
     if (*variant >= (int)vs.size()) *variant = -1;
     if (*variant < 0) std::fprintf(stderr, "[universe] %s has no variant '%s'\n", entry(u).name, v.c_str());
     return u;
+}
+
+bool check(const std::string& spec) {
+    const size_t colon = spec.find(':');
+    const int u = find(spec.substr(0, colon));
+    if (u < 0) {
+        std::fprintf(stderr, "unknown universe '%s'. Universes:\n", spec.substr(0, colon).c_str());
+        for (int i = 0; i < count(); i++)
+            if (!entry(i).hidden) std::fprintf(stderr, "  %s\n", entry(i).name);
+        return false;
+    }
+    if (colon == std::string::npos || spec.size() == colon + 1) return true;
+    int v = -1;
+    parse(spec, &v);
+    if (v >= 0) return true;
+    std::fprintf(stderr, "%s variants:\n", entry(u).name);
+    for (size_t k = 0; k < entry(u).variants.size(); k++) std::fprintf(stderr, "  %zu  %s\n", k, entry(u).variants[k].c_str());
+    return false;
 }
 
 std::string label(int universe, int variant) {

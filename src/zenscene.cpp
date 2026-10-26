@@ -490,7 +490,6 @@ int SceneViewer::run() {
     if (!opt_.universe.empty()) {
         int v = -1;
         const int u = universes::parse(opt_.universe, &v);
-        if (u < 0) std::fprintf(stderr, "[zenscene] unknown universe '%s'\n", opt_.universe.c_str());
         universe_ = std::max(0, u);
         variant_ = std::max(0, v);
     } else {
@@ -623,5 +622,6 @@ int main(int argc, char** argv) {
         else if (!a.empty() && a[0] == '-') { usage(); return 1; }
         else o.universe = a;
     }
+    if (!o.universe.empty() && !universes::check(o.universe)) return 1;
     return SceneViewer(std::move(o)).run();
 }
