@@ -98,6 +98,7 @@ private:
     // ---- Song, variant, palette.
     int variant_ = 0;
     bool palSet_ = false;
+    bool inDrop_ = false; // a drop: the water takes another variant's light (the jellies keep their hues)
     Palette pal_{};
     uint64_t seed_ = 0;
     float seedF_ = 0.f;

@@ -101,6 +101,9 @@ const VariantDef VARIANTS[] = {
      {0x8fe9ff, 0xffe6a0, 0xc7a5ff, 0x9df5c8, 0xff9cc0, 0x8ea2ff, 0xffbe8a}},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
+// The water's light for a drop, from another variant: cyan and emerald turn violet, violet and coral cyan, ember
+// ultramarine and back, ice coral, moon jelly emerald.
+const int DROP_VARIANT[VARIANT_COUNT] = {1, 0, 1, 5, 6, 3, 0, 2};
 
 AbyssUniverse::Palette paletteOf(int v) {
     const VariantDef& d = VARIANTS[((v % VARIANT_COUNT) + VARIANT_COUNT) % VARIANT_COUNT];
@@ -364,6 +367,7 @@ void AbyssUniverse::setSong(const SongLook& look, float seconds) {
 void AbyssUniverse::setLevel(int level, float energy, float seconds, float impact) {
     level = std::clamp(level, 0, 2);
     energy_ = energy;
+    if (level < 2) inDrop_ = false;
     if (!hasLevel_ || seconds < 0.1f) {
         hasLevel_ = true;
         level_ = level;
@@ -402,6 +406,7 @@ void AbyssUniverse::setLevel(int level, float energy, float seconds, float impac
 
 // The drop's first downbeat: the bioluminescence surges through the water, then settles to the peak's bloom.
 void AbyssUniverse::drop(float strength) {
+    if (level_ >= 2) inDrop_ = true;
     surge_ = std::max(surge_, saturate(0.6f + 0.4f * strength));
     bloom_ = std::max(bloom_, 0.8f * strength);
     flash_ = std::max(flash_, 0.6f * strength);
@@ -1308,7 +1313,12 @@ void AbyssUniverse::render(const Frame& f, GLuint fbo) {
     const MusicState& music = f.music;
     const float dt = f.dt;
     {
-        const Palette target = paletteOf(variant_);
+        Palette target = paletteOf(variant_);
+        if (inDrop_) {
+            const Palette jellies = target;
+            target = paletteOf(DROP_VARIANT[variant_ % VARIANT_COUNT]);
+            for (int i = 0; i < 7; i++) target.piece[i] = jellies.piece[i];
+        }
         if (!palSet_) { pal_ = target; palSet_ = true; }
         else lerpPalette(pal_, target, 1.f - std::exp(-dt * 1.4f));
     }
