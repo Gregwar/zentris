@@ -31,7 +31,6 @@ private:
     struct Inst { vec4 a, b, q, c; };
     struct Sprite { vec4 a, b, c; }; // pos + size, color + alpha, kind / rotation / glow / aspect
     // A rounded card under HUD text (pixels, top-left origin).
-    struct Card { float x, y, w, h, alpha; bool accent = false; };
     GLuint compile(const char* vs, const char* fs, const char* name);
     void createTargets();
     void destroyTargets();
@@ -42,8 +41,8 @@ private:
     void drawWorld(GLuint prog, bool depthOnly);
     void drawScene(bool depthOnly, bool mirror);
     void setCommonUniforms(GLuint prog);
-    void layoutHud(const std::vector<HudText>& in, std::vector<HudText>& out, std::vector<Card>& cards) const;
-    void drawHud(const std::vector<HudText>& hud, const std::vector<Card>& cards, const std::vector<HudRect>& panels);
+    void layoutHud(const std::vector<HudText>& in, std::vector<HudText>& out) const;
+    void drawHud(const std::vector<HudText>& hud, const std::vector<HudRect>& panels);
     void buildFont();
     float textWidth(const std::string& text, float scale) const;
     void setCamera(float time);

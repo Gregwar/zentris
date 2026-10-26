@@ -832,7 +832,7 @@ void DioramaUniverse::buildFont() {
     int asc, desc, gap;
     stbtt_GetFontVMetrics(&gFont, &asc, &desc, &gap);
     fontAscent_ = asc * fontScaleTT_;
-    const int AW = 1024, AH = 512, PAD = 9;
+    const int AW = 1024, AH = 1024, PAD = 16; // a wide field: room for the feathered halo
     std::vector<unsigned char> atlas(AW * AH, 0);
     int x = 1, y = 1, rowH = 0;
     for (int ch = 32; ch < 128; ch++) {
@@ -1886,20 +1886,18 @@ void DioramaUniverse::render(const Frame& f, GLuint fbo) {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     std::vector<HudText> hud;
-    std::vector<Card> cards;
-    layoutHud(f.hud, hud, cards);
-    drawHud(hud, cards, f.panels);
+    layoutHud(f.hud, hud);
+    drawHud(hud, f.panels);
     glDisable(GL_BLEND);
 }
 
 // ---------------------------------------------------------------------------------------------------------
-// HUD: warm off-white painted cards with a soft shadow; text in Comfortaa. Text on a card is a deep warm
-// brown; text over the scene is off-white with a soft shadow.
+// HUD: no cards, no plaques: cream lettering in Comfortaa set straight over the scene, each glyph on a feathered
+// dark halo drawn from its own distance field, so it reads on the pale clay by day and on the night sea alike.
 
-void DioramaUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<Card>& cardsIn,
-                              const std::vector<HudRect>& panels) {
+void DioramaUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<HudRect>& panels) {
     const float hs = std::max(1.f, height_ / 900.f);
-    // Dark stained wood plaques (no white panels), cream lettering, a warm gold accent.
+    // Cream lettering set straight over the scene on a feathered dark halo, a warm gold accent.
     const vec3 CARD = hexS(0x4A3329), ACCENT_INK = hexS(0xC4603F), LIGHT = hexS(0xFFF5E4), ACCENT_LIGHT = hexS(0xFFCF8A),
                SHADOW = hexS(0x2A1C1E);
     auto quad = [&](float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, std::vector<float>& out) {
@@ -1909,28 +1907,22 @@ void DioramaUniverse::drawHud(const std::vector<HudText>& hud, const std::vector
     glBindVertexArray(hudVao_);
     glBindBuffer(GL_ARRAY_BUFFER, hudVbo_);
 
-    // Cards.
+    // The host's panels (zenscene's menu) are plain rectangles.
     glUseProgram(progPanel_);
     set2f(progPanel_, "uRes", (float)width_, (float)height_);
-    // The host's panels (zenscene's menu) are plain rectangles; the diorama's cards are rounded, with a shadow.
-    struct R { float x, y, w, h, alpha, round; bool accent, custom; vec3 color; };
+    struct R { float x, y, w, h, alpha, feather; vec3 color; };
     std::vector<R> rects;
-    for (const HudRect& p : panels) rects.push_back({p.x, p.y, p.w, p.h, p.alpha, 0.f, p.accent, p.custom, p.color});
-    for (const Card& c : cardsIn) rects.push_back({c.x, c.y, c.w, c.h, c.alpha, 1.f, c.accent, false, vec3(0.f)});
+    for (const HudRect& p : panels) rects.push_back({p.x, p.y, p.w, p.h, p.alpha, 0.f, p.custom ? p.color : p.accent ? ACCENT_INK : CARD});
     for (const R& r : rects) {
-        const float sh = r.round > 0.f ? 7.f * hs : 0.f;
-        const float hw = r.w * 0.5f, hh = r.h * 0.5f;
+        const float hw = r.w * 0.5f, hh = r.h * 0.5f, m = r.feather + 2.f;
         std::vector<float> v;
-        const float m = sh * 2.f + 2.f;
         quad(r.x - m, r.y - m, r.x + r.w + m, r.y + r.h + m, -hw - m, -hh - m, hw + m, hh + m, v);
         glBufferData(GL_ARRAY_BUFFER, v.size() * sizeof(float), v.data(), GL_STREAM_DRAW);
         set2f(progPanel_, "uHalf", hw, hh);
-        set1f(progPanel_, "uRadius", r.round > 0.f ? std::min(std::min(hw, hh), 6.f * hs * r.round) : 0.f);
-        set1f(progPanel_, "uShadow", sh);
-        set1f(progPanel_, "uAlpha", r.round > 0.f ? std::min(1.f, r.alpha * 1.04f) : r.alpha);
-        set1f(progPanel_, "uWood", r.round > 0.f && !r.accent ? hs : 0.f);
-        set3f(progPanel_, "uColor", r.custom ? r.color : r.accent ? ACCENT_INK : CARD);
-        set3f(progPanel_, "uShadowCol", SHADOW);
+        set1f(progPanel_, "uRadius", r.feather > 0.f ? std::min(hw, hh) : 0.f);
+        set1f(progPanel_, "uFeather", r.feather);
+        set1f(progPanel_, "uAlpha", r.alpha);
+        set3f(progPanel_, "uColor", r.color);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(v.size() / 4));
     }
 
@@ -1973,22 +1965,18 @@ void DioramaUniverse::drawHud(const std::vector<HudText>& hud, const std::vector
             if (i + 1 < h.text.size()) pen += stbtt_GetCodepointKernAdvance(&gFont, ch, glyphOf(h.text[i + 1])) * fontScaleTT_ * k;
         }
         if (v.empty()) continue;
-        // On a card?
-        const float cxm = x + width * 0.5f, cym = h.y + size * 0.4f;
-        bool onCard = false;
-        for (const R& r : rects)
-            if (r.alpha > 0.3f && !r.accent && !r.custom && cxm > r.x && cxm < r.x + r.w && cym > r.y && cym < r.y + r.h) onCard = true;
         const vec3 col = h.accent ? ACCENT_LIGHT : LIGHT;
         const float bias = size < 16.f ? 0.03f : 0.f; // small text a touch bolder
-        if (!onCard) {
-            // Soft shadow: the same glyphs, offset down, widened and blurred through the distance field.
+        {
+            // A feathered dark halo, straight out of the distance field: dense at the glyph, gone a third of an em
+            // away, a touch lower than the letters, so the words read on the pale clay and the bright sky alike.
             std::vector<float> s = v;
-            for (size_t i = 0; i < s.size(); i += 4) { s[i] += 0.6f * hs; s[i + 1] += 1.6f * hs + size * 0.03f; }
+            for (size_t i = 0; i < s.size(); i += 4) s[i + 1] += 0.5f * hs + size * 0.04f;
             glBufferData(GL_ARRAY_BUFFER, s.size() * sizeof(float), s.data(), GL_STREAM_DRAW);
             set3f(progText_, "uColor", SHADOW);
-            set1f(progText_, "uAlpha", 0.42f * h.alpha);
-            set1f(progText_, "uSoft", 0.14f);
-            set1f(progText_, "uBias", 0.1f);
+            set1f(progText_, "uAlpha", (size < 16.f ? 0.9f : 0.7f) * h.alpha); // small lines need it most
+            set1f(progText_, "uSoft", 0.24f);
+            set1f(progText_, "uBias", 0.26f);
             glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(s.size() / 4));
         }
         glBufferData(GL_ARRAY_BUFFER, v.size() * sizeof(float), v.data(), GL_STREAM_DRAW);
@@ -2019,40 +2007,17 @@ float DioramaUniverse::textWidth(const std::string& text, float scale) const {
 
 
 // ---------------------------------------------------------------------------------------------------------
-// HUD layout: the host's lines (text, anchor, size) in the diorama's typography, on small dark wooden plaques: the song
-// and the place in corner cards, the stats on a plaque on the left stele, the slot labels as pills, the
-// celebrations, the controls and the dialogs on cards of their own.
+// HUD layout: the host's lines (text, anchor, size) in the diorama's typography, set straight over the scene: the
+// song and the place in the corners, the stats on the left stele, the slot labels above their slots.
 
-void DioramaUniverse::layoutHud(const std::vector<HudText>& in, std::vector<HudText>& out, std::vector<Card>& cards) const {
+void DioramaUniverse::layoutHud(const std::vector<HudText>& in, std::vector<HudText>& out) const {
     const float hs = std::max(1.f, height_ / 900.f);
     out.clear();
-    cards.clear();
-    struct Box { float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f; float alpha = 0; bool any = false; };
-    auto extend = [&](Box& b, const HudText& t) {
-        const float w = textWidth(t.text, t.scale), x = ugl::hudLeft(t, w, width_);
-        b.x0 = std::min(b.x0, x);
-        b.x1 = std::max(b.x1, x + w);
-        b.y0 = std::min(b.y0, t.y);
-        b.y1 = std::max(b.y1, t.y + t.scale * 9.6f);
-        b.alpha = std::max(b.alpha, t.alpha);
-        b.any = true;
-    };
-    auto card = [&](const Box& b, float padX, float padY, float alpha, float minW = 0.f, bool accent = false) {
-        if (!b.any) return;
-        float x0 = b.x0 - padX, x1 = b.x1 + padX;
-        if (x1 - x0 < minW) { const float c = (x0 + x1) * 0.5f; x0 = c - minW * 0.5f; x1 = c + minW * 0.5f; }
-        cards.push_back({x0, b.y0 - padY, x1 - x0, b.y1 - b.y0 + 2.f * padY, alpha, accent});
-    };
-    auto pill = [&](const HudText& t, float alpha) {
-        const float th = t.scale * 9.6f, w = textWidth(t.text, t.scale), x = ugl::hudLeft(t, w, width_);
-        cards.push_back({x - th * 0.8f, t.y - th * 0.48f, w + th * 1.6f, th * 1.9f, 0.94f * std::min(1.f, alpha * 1.6f)});
-    };
     const float tod = tod_;
     const int mi = tod < 0.5f ? 0 : tod < 1.5f ? 1 : tod < 2.3f ? 2 : 3;
     const bool nightPlace = VARIANTS[worldTo_].night != 0;
     const char* moment = night_ > 0.5f ? (nightPlace ? "STILL NIGHT" : "NIGHT") : nightPlace ? NIGHT_NAMES[mi] : TOD_NAMES[mi];
 
-    Box song, place, stats, help, dialog, toast;
     for (size_t i = 0; i < in.size(); i++) {
         HudText t = in[i];
         if (t.alpha <= 0.01f || t.text.empty()) continue;
@@ -2061,70 +2026,47 @@ void DioramaUniverse::layoutHud(const std::vector<HudText>& in, std::vector<HudT
         case HUD_TITLE:
             if (t.text.size() > 60) t.text = t.text.substr(0, 57) + "...";
             t.scale *= 0.82f; t.x += 10 * hs; t.y += 4 * hs; t.alpha = std::min(1.f, t.alpha * 2.3f);
-            extend(song, t);
             break;
         case HUD_INFO:
             t.scale *= 0.87f; t.x += 10 * hs; t.y += 4 * hs; t.alpha = std::min(1.f, t.alpha * 2.3f);
-            extend(song, t);
             break;
         case HUD_SECTION:
             t.scale *= 0.92f; t.x += 10 * hs; t.alpha = 0.9f;
-            extend(place, t);
             break;
         case HUD_UNIVERSE:
             t.text += std::string("  ") + moment;
             t.x += 10 * hs; t.alpha = std::min(1.f, 0.4f + t.alpha);
-            extend(place, t);
             break;
         case HUD_LABEL: {
             const bool stat = i + 1 < in.size() && in[i + 1].role == HUD_VALUE;
             if (stat) {
                 t.scale *= 0.68f; t.accent = true; t.alpha = 0.85f;
-                extend(stats, t);
             } else {
                 t.scale *= 0.875f;
                 t.alpha = std::min(1.f, t.alpha * 1.35f);
-                pill(t, t.alpha);
             }
             break;
         }
         case HUD_VALUE:
             t.scale *= 0.82f; t.alpha = std::min(1.f, t.alpha * 1.1f);
-            extend(stats, t);
             break;
         case HUD_NOTICE:
             t.scale *= 0.85f;
-            pill(t, t.alpha);
             break;
-        case HUD_KEY: {
-            const float th = t.scale * 9.6f, w = textWidth(t.text, t.scale);
-            const float cw = std::max(th * 1.9f, w + th), cx = t.x, cy = t.y + th * 0.42f;
-            cards.push_back({cx - cw * 0.5f, cy - th * 0.95f, cw, th * 1.9f, 0.95f});
-            break;
-        }
         case HUD_TOAST:
         case HUD_TOAST_SUB:
             t.alpha = std::min(1.f, t.alpha * 1.15f);
-            extend(toast, t);
             break;
         case HUD_HELP:
             t.scale *= 0.92f; t.alpha = std::min(1.f, t.alpha * 1.4f);
-            extend(help, t);
             break;
         case HUD_DIALOG:
             t.scale *= 0.85f;
-            extend(dialog, t);
             break;
         default: break;
         }
         out.push_back(t);
     }
-    card(song, 18 * hs, 10 * hs, 0.92f * song.alpha);
-    card(place, 18 * hs, 10 * hs, 0.85f);
-    card(stats, 14 * hs, 12 * hs, 0.94f, std::min(150 * hs, std::fabs(project(vec3(-6.85f, 0, -0.6f)).x - project(vec3(-10.35f, 0, -0.6f)).x)));
-    card(toast, 24 * hs, 12 * hs, 0.95f * toast.alpha);
-    card(help, 12 * hs, 10 * hs, 0.85f * std::min(1.f, help.alpha * 1.5f));
-    card(dialog, 36 * hs, 22 * hs, 0.95f * dialog.alpha);
 }
 
 // ---------------------------------------------------------------------------------------------------------

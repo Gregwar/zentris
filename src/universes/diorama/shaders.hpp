@@ -498,34 +498,17 @@ void main() {
 }
 )";
 inline const char* PANEL_FS = R"(#version 330 core
-in vec2 vUV; // pixels relative to the card's center
+in vec2 vUV; // pixels relative to the rectangle's center
 out vec4 frag;
 uniform vec2 uHalf;
-uniform float uRadius, uShadow, uAlpha, uWood;
-uniform vec3 uColor, uShadowCol;
+uniform float uRadius, uAlpha, uFeather;
+uniform vec3 uColor;
 float box(vec2 p, vec2 b, float r) { vec2 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
 void main() {
     float d = box(vUV, uHalf, uRadius);
-    float a = clamp(0.5 - d, 0.0, 1.0);
-    float ds = box(vUV - vec2(0.0, uShadow * 0.45), uHalf, uRadius);
-    float sa = uShadow > 0.0 ? (1.0 - smoothstep(-uShadow * 0.6, uShadow, ds)) * 0.35 : 0.0;
-    // A whisper of paint: the top of the card is a touch lighter.
-    vec3 c = uColor * (1.0 + 0.04 * clamp(-vUV.y / max(uHalf.y, 1.0), -1.0, 1.0));
-    if (uWood > 0.0) {
-        // A small plaque of dark stained wood: lengthwise grain, a lighter bevel on top, a darker lip below.
-        float g = sin(vUV.y * 0.9 + sin(vUV.x * 0.021 + vUV.y * 0.05) * 3.0) * 0.5 + 0.5;
-        float g2 = sin(vUV.y * 2.3 + vUV.x * 0.013) * 0.5 + 0.5;
-        c *= 0.9 + 0.12 * g + 0.06 * g2;
-        float edge = smoothstep(-uWood * 2.2, -0.5, d);
-        // the rim's outward direction: lit along the top, shaded along the bottom, neutral on the sides
-        vec2 q = abs(vUV) - uHalf + uRadius, s = sign(vUV);
-        vec2 nn = (q.x > 0.0 && q.y > 0.0) ? normalize(q) * s : (q.x > q.y ? vec2(s.x, 0.0) : vec2(0.0, s.y));
-        float k = nn.y < 0.0 ? mix(1.0, 1.55, -nn.y) : mix(1.0, 0.7, nn.y);
-        c = mix(c, c * k, edge * 0.8);
-    }
-    float outA = a + sa * (1.0 - a);
-    vec3 outC = (c * a + uShadowCol * sa * (1.0 - a)) / max(outA, 1e-4);
-    frag = vec4(outC, outA * uAlpha);
+    // A plain rectangle (the host's panels), or a shade with no edge at all: it fades out over uFeather pixels.
+    float a = uFeather > 0.0 ? pow(1.0 - smoothstep(-uFeather, uFeather, d), 1.6) : clamp(0.5 - d, 0.0, 1.0);
+    frag = vec4(uColor, a * uAlpha);
 }
 )";
 inline const char* TEXT_FS = R"(#version 330 core
