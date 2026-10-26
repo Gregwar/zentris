@@ -38,7 +38,7 @@ song, and songs change universe with a transition on the beat.
 </tr>
 <tr>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/laser.jpg"><br><b>LASER SHOW</b>: a few laser beams in a dark haze</td>
-<td></td>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/garden.jpg"><br><b>GARDEN</b>: clods of earth that grow grass and flowers</td>
 </tr>
 </table>
 
