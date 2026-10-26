@@ -100,7 +100,7 @@ private:
     // ---- The smoke and the light.
     float worldTime_ = 0.f, lastEased_ = -1.f, lastBeatPhase_ = 0.f, beats_ = 0.f;
     vec3 flow_{0.f, 0.f, 0.f};   // the smoke's offset in the noise (it rises and drifts)
-    float swirl_ = 0.f, bass_ = 0.f, surge_ = 0.f, beatGlow_ = 0.f;
+    float swirl_ = 0.f, bass_ = 0.f, surge_ = 0.f, surgeIn_ = 0.f, beatGlow_ = 0.f; // surge_ eases to surgeIn_
     float prevKick_ = 0.f, kickIn_ = 0.f, sinceKick_ = 9.f;
     float swell_ = 0.f;            // the light pushed up (phase changes, level up, Tetris)
     float blastT_ = 9.f;           // a Tetris blows the smoke outward from the well

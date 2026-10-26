@@ -658,10 +658,12 @@ void SmokeUniverse::simulate(const Game& game, const MusicState& music, float dt
     kickIn_ = approach(kickIn_, 0.f, 6.f, dt);
     if (kick > 0.55f && prevKick_ <= 0.55f && sinceKick_ > 0.18f) {
         sinceKick_ = 0.f;
-        surge_ = std::max(surge_, 0.15f * wm + 0.5f * wp);
+        surgeIn_ = std::max(surgeIn_, 0.15f * wm + 0.5f * wp);
     }
     prevKick_ = kick;
-    surge_ = approach(surge_, 0.f, 1.3f, dt);
+    // a kick's stir eases in (a step in the warp would jump the whole smoke in one frame)
+    surgeIn_ = approach(surgeIn_, 0.f, 1.3f, dt);
+    surge_ = approach(surge_, surgeIn_, 6.f, dt);
     swell_ = approach(swell_, 0.f, 0.55f, dt);
     spill_ = approach(spill_, inDrop_ ? 1.f : 0.f, inDrop_ ? 0.7f : 0.4f, dt);
     blastT_ += dt;
