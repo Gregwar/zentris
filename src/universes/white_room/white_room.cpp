@@ -1,10 +1,10 @@
 // WHITE ROOM: a seamless white studio, matte blocks and soft shadows.
 //
 // One world: an endless white cyclorama (the floor curving up into the back wall, no corner, no horizon). The well
-// is a pane of frosted glass standing on a low white plinth; the blocks are matte, soft-cornered tiles (soft
+// is an opaque matte pane standing on a low white plinth; the blocks are matte, soft-cornered tiles (soft
 // plastic, unglazed ceramic) standing just in front of it. A lamp in front of the well throws the stack's shadow
 // onto the wall behind, enlarged and soft, a shadow play: the tetrominoes themselves, in shade, beside the well (the
-// pane casts nothing; it veils what lies behind it, so the real stack always reads on a calm ground). Nothing else
+// pane casts nothing and no shadow falls on it: it hides what lies behind it, so the real stack always reads on a calm, even ground). Nothing else
 // but a few small matte balls on the floor and the lettering set on the wall like a gallery's. Each room is one
 // color story (a family of related hues in spaced values, one accent, two gels that belong to it).
 //
@@ -1018,7 +1018,6 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
         set3f(progRoom_, "uBridgeCol", bridge_.color);
         set1f(progRoom_, "uShadowK", shadowK);
         set1f(progRoom_, "uShadowAmt", shadowAmt_);
-        set1f(progRoom_, "uFrost", 0.72f);
         set1f(progRoom_, "uPx", px_);
         ugl::drawFullscreen();
     }
