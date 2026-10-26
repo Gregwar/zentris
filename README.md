@@ -31,6 +31,10 @@ song, and songs change universe with a transition on the beat.
 <tr>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/polar.jpg"><br><b>POLAR NIGHT</b>: a snowfield under the aurora</td>
 </tr>
+<tr>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/risograph.jpg"><br><b>RISOGRAPH</b>: a two-ink risograph print</td>
+<td></td>
+</tr>
 </table>
 
 Disabled for now (not built; their code stays in the repository):
