@@ -29,8 +29,20 @@ private:
     // One instanced quad (paint stamps and the play share the layout: see shaders.hpp).
     struct Inst { float a0[4], a1[4], a2[4], a3[4]; };
 
-    // ---- Paint: splashes growing for a fraction of a second (re-stamped each frame of their growth), drips
-    // running down. Once done, they live only in the paint buffer.
+    // ---- Paint: gobs of paint in flight from a cleared row to the wall; splashes growing from where they land
+    // for a fraction of a second and drips running down (both redrawn each frame into the wet buffers); once
+    // done, they are stamped once into the persistent buffers and live only there.
+    struct Fly {
+        vec2 a, ctrl, b;            // a quadratic arc from the row to the wall
+        float t = 0.f, delay = 0.f, dur = 0.4f;
+        float r0, r1;               // the gob's radius leaving the row, landing
+        float scale, stretch;       // the splash it makes
+        vec3 color;
+        bool recent = false;        // a splash beside the well (the drop's kicks start drips there)
+    };
+    std::vector<Fly> flies_;
+    void fling(vec2 from, vec2 to, vec3 color, float scale, float delay, float arc);
+    vec2 landing(vec2 from, float side);
     struct SPrim { Inst q; float d0, d1; bool capsule; }; // revealed when the burst's front passes d0 (to d1)
     struct Splash {
         vec2 c;
@@ -43,14 +55,18 @@ private:
     struct Drip { vec2 p; float w, len = 0.f, maxLen, v; vec3 color; float seed; bool done = false; };
     std::vector<Splash> splashes_;
     std::vector<Drip> drips_;
-    std::vector<Inst> stamps_;
+    std::vector<Inst> stamps_, wet_;
     struct Recent { vec2 p; float r; vec3 color; };
     std::vector<Recent> recent_; // splashes beside the well (where the drop's kicks start drips)
     size_t recentNext_ = 0;
+    void addRecent(const Recent& rc);
     void splash(vec2 c, vec3 color, float scale, vec2 dir, float delay, float stretch = 1.f);
-    void cellSplash(int x, int y, int type, float scale, float delay, float side);
+    void rowBurst(const std::vector<GameEvent::CellInfo>& cells, int fromX, float scale, float delay0, float rowDelay);
     void stampPrim(const Inst& q) { stamps_.push_back(q); }
     void updatePaint(float dt, float wdt);
+    void buildWet();
+    void dripInst(const Drip& d, Inst q[2]) const;
+    void drawPaint(const std::vector<Inst>& q, const ugl::Target& color, const ugl::Target& height);
     void flushStamps();
     void clearPaint();
 
@@ -78,11 +94,10 @@ private:
     void drawHud(const std::vector<HudText>& hud, const std::vector<HudRect>& panels, float mul);
 
     // ---- GL.
-    GLuint progWall_ = 0, progPaint_ = 0, progFlat_ = 0, progBlur_ = 0, progComp_ = 0, progPlay_ = 0, progText_ = 0,
-           progPanel_ = 0;
+    GLuint progWall_ = 0, progPaint_ = 0, progFlat_ = 0, progComp_ = 0, progPlay_ = 0, progText_ = 0, progPanel_ = 0;
     GLuint quadVbo_ = 0, instVao_ = 0, instVbo_ = 0, textVao_ = 0, textVbo_ = 0, panelVao_ = 0, panelVbo_ = 0;
-    ugl::Target wallT_, paintT_, bloomA_, bloomB_;
-    bool wallDirty_ = true, bloomDirty_ = true;
+    ugl::Target wallT_, paintT_, heightT_, wetT_, wetHT_;
+    bool wallDirty_ = true;
     mat4 vp_;
     vec2 viewC_{0, 0.4f}, viewH_{22, 12.4f};
     float px_ = 0.05f;
@@ -104,6 +119,7 @@ private:
     float uv_ = 0.f;          // the blacklight: 0 room light .. 1 lights off (eased)
     float ignite_ = 0.f;      // the stains lighting up after the lights went off
     float dropT_ = 99.f, dropAmp_ = 0.f; // time since drop(), its strength
+    float lampT_ = 0.f;       // the moving light's clock
     float light_ = 1.f;       // the room's light (eased)
     float kickIn_ = 0.f, prevKick_ = 0.f, dripCool_ = 0.f;
     float slow_ = 0.f;

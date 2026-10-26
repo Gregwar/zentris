@@ -98,7 +98,6 @@ bool FluoUniverse::init(int width, int height) {
     progWall_ = compile(ugl::FULLSCREEN_VS, shaders::WALL_FS, "fluo wall");
     progPaint_ = compile(shaders::PAINT_VS, shaders::PAINT_FS, "fluo paint");
     progFlat_ = compile(ugl::FULLSCREEN_VS, shaders::FLAT_FS, "fluo flat");
-    progBlur_ = compile(ugl::FULLSCREEN_VS, shaders::BLUR_FS, "fluo blur");
     progComp_ = compile(ugl::FULLSCREEN_VS, shaders::COMPOSITE_FS, "fluo composite");
     progPlay_ = compile(shaders::PLAY_VS, shaders::PLAY_FS, "fluo play");
     progText_ = compile(shaders::TEXT_VS, shaders::TEXT_FS, "fluo text");
@@ -198,31 +197,35 @@ void FluoUniverse::resize(int width, int height) {
     px_ = 2.f * hh / height_;
     wallT_.create(width_, height_, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
     wallDirty_ = true;
-    // the paint is kept across a resize (scaled into the new buffer)
-    ugl::Target old = paintT_;
-    paintT_ = ugl::Target{};
-    paintT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
-    glBindFramebuffer(GL_FRAMEBUFFER, paintT_.fbo);
-    glClearColor(0.f, 0.f, 0.f, 0.f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    if (old.fbo) {
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, old.fbo);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, paintT_.fbo);
-        glBlitFramebuffer(0, 0, old.w, old.h, 0, 0, paintT_.w, paintT_.h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    // the paint is kept across a resize (scaled into the new buffers)
+    auto remake = [&](ugl::Target& t, GLenum internal, GLenum format) {
+        ugl::Target old = t;
+        t = ugl::Target{};
+        t.create(width_, height_, internal, format, GL_HALF_FLOAT);
+        glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+        glClearColor(0.f, 0.f, 0.f, 0.f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        if (old.fbo) {
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, old.fbo);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, t.fbo);
+            glBlitFramebuffer(0, 0, old.w, old.h, 0, 0, t.w, t.h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            old.destroy();
+        }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        old.destroy();
-    }
-    bloomA_.create(std::max(1, width_ / 4), std::max(1, height_ / 4), GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
-    bloomB_.create(std::max(1, width_ / 4), std::max(1, height_ / 4), GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
-    bloomDirty_ = true;
+    };
+    remake(paintT_, GL_RGBA16F, GL_RGBA);
+    remake(heightT_, GL_R16F, GL_RED);
+    wetT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
+    wetHT_.create(width_, height_, GL_R16F, GL_RED, GL_HALF_FLOAT);
 }
 
 FluoUniverse::~FluoUniverse() {
     wallT_.destroy();
     paintT_.destroy();
-    bloomA_.destroy();
-    bloomB_.destroy();
-    for (GLuint p : {progWall_, progPaint_, progFlat_, progBlur_, progComp_, progPlay_, progText_, progPanel_}) glDeleteProgram(p);
+    heightT_.destroy();
+    wetT_.destroy();
+    wetHT_.destroy();
+    for (GLuint p : {progWall_, progPaint_, progFlat_, progComp_, progPlay_, progText_, progPanel_}) glDeleteProgram(p);
     for (GLuint v : {instVao_, textVao_, panelVao_}) glDeleteVertexArrays(1, &v);
     for (GLuint b : {quadVbo_, instVbo_, textVbo_, panelVbo_}) glDeleteBuffers(1, &b);
     if (font_.tex) glDeleteTextures(1, &font_.tex);
@@ -251,6 +254,7 @@ void FluoUniverse::setSong(const SongLook& t, float seconds) {
         clearPaint();
     } else {
         // a new song in the same room: the wall fades back to clean
+        flies_.clear();
         splashes_.clear();
         drips_.clear();
         recent_.clear();
@@ -259,6 +263,7 @@ void FluoUniverse::setSong(const SongLook& t, float seconds) {
 }
 
 void FluoUniverse::clearPaint() {
+    flies_.clear();
     splashes_.clear();
     drips_.clear();
     recent_.clear();
@@ -374,7 +379,7 @@ void FluoUniverse::splash(vec2 c, vec3 color, float scale, vec2 dir, float delay
         }
     }
     // the spray
-    const int sats = r.irange(10, 20);
+    const int sats = r.irange(6, 12);
     for (int i = 0; i < sats; i++) {
         const float a = angle(0.6f);
         const float dist = R0 * 1.15f + scale * 2.4f * std::pow(r.uniform(), 1.8f);
@@ -383,8 +388,8 @@ void FluoUniverse::splash(vec2 c, vec3 color, float scale, vec2 dir, float delay
         add(p, p, rr, rr, 0.f, 0.3f, 0.f, 1.f, dist, 0.f, false);
     }
     // drips, from the blob's lower edge, once it has landed
-    if (r.chance(0.55f)) {
-        const int n = r.irange(1, 2);
+    if (r.chance(0.25f)) {
+        const int n = 1;
         for (int i = 0; i < n; i++)
             s.drips.push_back({v2(c.x + r.range(-0.6f, 0.6f) * R0, c.y - R0 * r.range(0.4f, 0.7f)), R0 * r.range(0.1f, 0.17f),
                                scale * r.range(0.6f, 2.6f)});
@@ -392,39 +397,137 @@ void FluoUniverse::splash(vec2 c, vec3 color, float scale, vec2 dir, float delay
     splashes_.push_back(std::move(s));
 }
 
-// A cleared (or dying) cell bursting: a splash where it was, and often a second one flung beside the well,
-// landing stretched along its flight. side: the direction it is flung (+1 right, -1 left, 0: away from the center).
-void FluoUniverse::cellSplash(int x, int y, int type, float scale, float delay, float side) {
-    const vec3 p = layout::cellPos((float)x, (float)y);
+void FluoUniverse::addRecent(const Recent& rc) {
+    if (recent_.size() < 64) recent_.push_back(rc);
+    else recent_[recentNext_++ % recent_.size()] = rc;
+}
+
+// Where a gob flung from `from` toward `side` (+1 right, -1 left) lands: mostly on the free wall beyond the HUD's
+// columns, sometimes nearer, by the well or over a column (held back there); a little higher or lower than the row.
+vec2 FluoUniverse::landing(vec2 from, float side) {
     Rng& r = rng_;
-    const vec2 c = v2(p.x + r.range(-0.25f, 0.25f), p.y + r.range(-0.25f, 0.25f));
-    const vec3 col = pieceColor(type) * r.range(0.9f, 1.04f);
-    const float sx = side != 0.f ? side : (p.x + r.range(-0.6f, 0.6f) >= 0.f ? 1.f : -1.f);
-    const float a = (sx > 0 ? 0.f : PI) + r.range(-0.75f, 0.75f) * sx;
-    const vec2 dir = v2(std::cos(a), std::sin(a));
-    splash(c, col, scale * r.range(0.6f, 0.85f), dir, delay);
-    if (r.chance(0.3f)) {
-        // flung beside the well: mostly onto the free wall beyond the HUD's columns, sometimes just by the well
-        const float edge = std::min(viewH_.x - 1.5f, 21.f);
-        const float tx = r.range(12.f, std::max(12.5f, edge));
-        const float D = std::max(1.f, std::fabs(sx * tx - c.x));
-        vec2 land = v2(sx * tx, c.y + D * r.range(-0.3f, 1.1f) + r.range(-1.f, 1.f));
-        land.x = std::clamp(land.x, viewC_.x - viewH_.x + 1.f, viewC_.x + viewH_.x - 1.f);
-        land.y = std::clamp(land.y, viewC_.y - viewH_.y + 1.f, viewC_.y + viewH_.y - 1.f);
-        const float s2 = scale * r.range(0.45f, 0.95f);
-        splash(land, col * r.range(0.95f, 1.03f), s2, dir, delay + D * 0.008f, 1.3f + 0.5f * r.uniform());
-        if (std::fabs(land.x) > 5.6f) {
-            const Recent rc{land, 0.5f * s2, col};
-            if (recent_.size() < 64) recent_.push_back(rc);
-            else recent_[recentNext_++ % recent_.size()] = rc;
-        }
+    const float edge = std::min(viewC_.x * side + viewH_.x - 1.2f, 21.f);
+    const float tx = r.chance(0.68f) ? r.range(11.8f, std::max(12.f, edge)) : r.range(5.8f, 11.4f);
+    const float D = std::max(1.f, std::fabs(side * tx - from.x));
+    vec2 to = v2(side * tx, from.y + D * r.range(-0.2f, 0.7f) + r.range(-1.f, 1.f));
+    to.x = std::clamp(to.x, viewC_.x - viewH_.x + 0.8f, viewC_.x + viewH_.x - 0.8f);
+    to.y = std::clamp(to.y, viewC_.y - viewH_.y + 0.8f, viewC_.y + viewH_.y - 0.8f);
+    return to;
+}
+
+// A gob of paint thrown from `from` to `to` along an arc (arc: how high it rises, relative to the distance); it
+// splashes where it lands, the splash stretched along its flight.
+void FluoUniverse::fling(vec2 from, vec2 to, vec3 color, float scale, float delay, float arc) {
+    Rng& r = rng_;
+    Fly f;
+    f.a = from;
+    f.b = to;
+    const vec2 d = v2(to.x - from.x, to.y - from.y);
+    const float dist = std::sqrt(d.x * d.x + d.y * d.y);
+    f.ctrl = v2(from.x + d.x * 0.5f, from.y + d.y * 0.5f + dist * arc);
+    f.delay = delay;
+    f.dur = 0.2f + 0.015f * dist;
+    f.r0 = 0.3f * std::min(scale, 2.f) * r.range(0.9f, 1.1f);
+    f.r1 = f.r0 * 0.6f;
+    f.scale = scale;
+    f.stretch = 1.2f + 0.5f * r.uniform();
+    f.color = color;
+    f.recent = std::fabs(to.x) > 5.6f;
+    flies_.push_back(f);
+}
+
+// Cleared (or dying) cells bursting: each run of up to three cells of one color along a row becomes one gob of its
+// paint, thrown out of the well to the side it is on (the middle ones either way) and splashing onto the wall where
+// it lands. The cells themselves are gone at once (the board has dropped them); the gobs leave from the row, the
+// nearest ones to the completing piece first, the rows from the top down (rowDelay: game over).
+void FluoUniverse::rowBurst(const std::vector<GameEvent::CellInfo>& cells, int fromX, float scale, float delay0, float rowDelay) {
+    Rng& r = rng_;
+    int top = Game::H;
+    for (auto& c : cells) top = std::min(top, c.y);
+    std::vector<GameEvent::CellInfo> cs;
+    for (auto& c : cells)
+        if (c.y >= 0 && c.y < Game::H && c.x >= 0 && c.x < Game::W) cs.push_back(c);
+    std::sort(cs.begin(), cs.end(), [](const auto& a, const auto& b) { return a.y != b.y ? a.y < b.y : a.x < b.x; });
+    for (size_t i = 0; i < cs.size();) {
+        size_t j = i + 1;
+        while (j < cs.size() && j - i < 3 && cs[j].y == cs[i].y && cs[j].x == cs[j - 1].x + 1 && cs[j].type == cs[i].type) j++;
+        const int n = (int)(j - i);
+        const float mx = (cs[i].x + cs[j - 1].x) * 0.5f;
+        const vec3 p = layout::cellPos(mx, (float)cs[i].y);
+        const vec2 from = v2(p.x, p.y + r.range(-0.15f, 0.15f));
+        const float side = p.x + r.range(-1.2f, 1.2f) >= 0.f ? 1.f : -1.f;
+        const float delay = delay0 + (cs[i].y - top) * rowDelay + std::fabs(mx - fromX) * 0.01f + r.range(0.f, 0.03f);
+        const vec3 col = pieceColor(cs[i].type) * r.range(0.92f, 1.04f);
+        fling(from, landing(from, side), col, scale * (0.45f + 0.13f * n) * r.range(0.85f, 1.1f), delay, r.range(0.08f, 0.3f));
+        i = j;
     }
 }
 
+// Splashes spread and drips run (in the wet buffers, see buildWet); the gobs in flight land. Whatever is done is
+// stamped once into the persistent buffers.
 void FluoUniverse::updatePaint(float dt, float wdt) {
-    // splashes grow at the real speed (a clear never lingers, even in slow motion)
+    // the gobs fly and splashes grow at the real speed (a clear never lingers, even in slow motion)
+    for (Fly& f : flies_) {
+        f.t += dt;
+        if (f.t < f.delay + f.dur) continue;
+        vec2 dir = v2(f.b.x - f.ctrl.x, f.b.y - f.ctrl.y);
+        const float l = std::max(1e-4f, std::sqrt(dir.x * dir.x + dir.y * dir.y));
+        dir = v2(dir.x / l, dir.y / l);
+        splash(f.b, f.color, f.scale, dir, 0.f, f.stretch);
+        if (f.recent) addRecent({f.b, 0.5f * f.scale, f.color});
+        f.dur = -1.f; // landed
+    }
+    flies_.erase(std::remove_if(flies_.begin(), flies_.end(), [](const Fly& f) { return f.dur < 0.f; }), flies_.end());
     for (Splash& s : splashes_) {
         s.t += dt;
+        if (s.t < s.delay + s.dur) continue;
+        for (const SPrim& p : s.prims) stampPrim(p.q); // spread out: stamped once, whole
+        for (const Splash::DripSeed& d : s.drips) {
+            Drip dr;
+            dr.p = d.p;
+            dr.w = d.w;
+            dr.maxLen = d.len;
+            dr.v = rng_.range(1.0f, 2.2f);
+            dr.color = s.color;
+            dr.seed = rng_.uniform();
+            drips_.push_back(dr);
+        }
+        s.prims.clear();
+    }
+    splashes_.erase(std::remove_if(splashes_.begin(), splashes_.end(), [](const Splash& s) { return s.prims.empty(); }),
+                    splashes_.end());
+    // drips run down the wall, slowing as the paint thins (the world's speed: slow motion slows them)
+    for (Drip& d : drips_) {
+        if (wdt <= 0.f) break;
+        d.v *= std::exp(-wdt / 0.9f);
+        d.len = std::min(d.maxLen, d.len + d.v * wdt);
+        if (d.len >= d.maxLen - 1e-3f || d.v < 0.06f) d.done = true;
+    }
+    for (Drip& d : drips_) {
+        if (!d.done) continue;
+        Inst q[2];
+        dripInst(d, q);
+        stampPrim(q[0]);
+        stampPrim(q[1]);
+    }
+    drips_.erase(std::remove_if(drips_.begin(), drips_.end(), [](const Drip& d) { return d.done; }), drips_.end());
+}
+
+// A drip as paint primitives: the trail, and the bead at its end.
+void FluoUniverse::dripInst(const Drip& d, Inst q[2]) const {
+    const vec2 tip = v2(d.p.x + 0.04f * std::sin(d.seed * 40.f + d.len * 1.7f) * d.len * 0.2f, d.p.y - d.len);
+    q[0] = {{d.p.x, d.p.y, tip.x, tip.y}, {d.w, d.w * 0.8f, 0.f, d.seed}, {d.color.x, d.color.y, d.color.z, 1.f},
+            {0.25f, 0.f, 0.f, 1.f}};
+    const float bead = d.w * lerpf(0.9f, 1.3f, saturate(d.len / std::max(0.1f, d.maxLen)));
+    q[1] = {{tip.x, tip.y - d.w * 0.3f, tip.x, tip.y - d.w * 0.3f}, {bead, bead, 0.f, d.seed},
+            {d.color.x, d.color.y, d.color.z, 1.f}, {0.2f, 0.f, 0.f, 1.f}};
+}
+
+// The wet paint as it is now: the splashes spreading from where they landed (each primitive appears as the burst's
+// front passes it, the streaks growing outward), the drips running.
+void FluoUniverse::buildWet() {
+    wet_.clear();
+    for (const Splash& s : splashes_) {
         if (s.t < s.delay) continue;
         const float k = (s.t - s.delay) / s.dur;
         const float front = s.reach * easeOut(k) + 1e-3f;
@@ -436,61 +539,49 @@ void FluoUniverse::updatePaint(float dt, float wdt) {
                 q.a0[2] = q.a0[0] + (q.a0[2] - q.a0[0]) * f;
                 q.a0[3] = q.a0[1] + (q.a0[3] - q.a0[1]) * f;
                 q.a1[1] = lerpf(q.a1[0], q.a1[1], f);
+            } else if (!p.capsule) {
+                // a blob or a droplet swells from where the paint hits
+                const float g = saturate((front - p.d0) / (0.3f * s.reach + 0.2f));
+                q.a1[0] *= 0.5f + 0.5f * g;
+                q.a1[1] *= 0.5f + 0.5f * g;
             }
-            stampPrim(q);
-        }
-        if (k >= 1.f) {
-            for (const Splash::DripSeed& d : s.drips) {
-                Drip dr;
-                dr.p = d.p;
-                dr.w = d.w;
-                dr.maxLen = d.len;
-                dr.v = rng_.range(1.0f, 2.2f);
-                dr.color = s.color;
-                dr.seed = rng_.uniform();
-                drips_.push_back(dr);
-            }
-            s.prims.clear();
+            wet_.push_back(q);
         }
     }
-    splashes_.erase(std::remove_if(splashes_.begin(), splashes_.end(), [](const Splash& s) { return s.prims.empty(); }),
-                    splashes_.end());
-    // drips run down the wall, slowing as the paint thins (the world's speed: slow motion slows them)
-    for (Drip& d : drips_) {
-        if (wdt <= 0.f) break;
-        d.v *= std::exp(-wdt / 0.9f);
-        d.len = std::min(d.maxLen, d.len + d.v * wdt);
-        const bool end = d.len >= d.maxLen - 1e-3f || d.v < 0.06f;
-        const vec2 tip = v2(d.p.x + 0.04f * std::sin(d.seed * 40.f + d.len * 1.7f) * d.len * 0.2f, d.p.y - d.len);
-        Inst q{{d.p.x, d.p.y, tip.x, tip.y}, {d.w, d.w * 0.8f, 0.f, d.seed}, {d.color.x, d.color.y, d.color.z, 1.f},
-               {0.25f, 0.f, 0.f, 1.f}};
-        stampPrim(q);
-        if (end) { // the bead the drip ends in
-            Inst b{{tip.x, tip.y - d.w * 0.3f, tip.x, tip.y - d.w * 0.3f}, {d.w * 1.3f, d.w * 1.3f, 0.f, d.seed},
-                   {d.color.x, d.color.y, d.color.z, 1.f}, {0.2f, 0.f, 0.f, 1.f}};
-            stampPrim(b);
-            d.done = true;
-        }
+    for (const Drip& d : drips_) {
+        Inst q[2];
+        dripInst(d, q);
+        wet_.push_back(q[0]);
+        wet_.push_back(q[1]);
     }
-    drips_.erase(std::remove_if(drips_.begin(), drips_.end(), [](const Drip& d) { return d.done; }), drips_.end());
 }
 
-void FluoUniverse::flushStamps() {
-    if (stamps_.empty()) return;
-    paintT_.bind();
+// Paint primitives into a pair of buffers: the color ("over") and the coat's thickness (added: paint over paint is
+// thicker).
+void FluoUniverse::drawPaint(const std::vector<Inst>& q, const ugl::Target& color, const ugl::Target& height) {
+    if (q.empty()) return;
     glEnable(GL_BLEND);
     glBlendEquation(GL_FUNC_ADD);
-    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     glUseProgram(progPaint_);
     setMat(progPaint_, "uVP", vp_);
     set1f(progPaint_, "uPx", px_);
     glBindVertexArray(instVao_);
     glBindBuffer(GL_ARRAY_BUFFER, instVbo_);
-    glBufferData(GL_ARRAY_BUFFER, stamps_.size() * sizeof(Inst), stamps_.data(), GL_STREAM_DRAW);
-    glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)stamps_.size());
+    glBufferData(GL_ARRAY_BUFFER, q.size() * sizeof(Inst), q.data(), GL_STREAM_DRAW);
+    color.bind();
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    set1i(progPaint_, "uOut", 0);
+    glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)q.size());
+    height.bind();
+    glBlendFunc(GL_ONE, GL_ONE);
+    set1i(progPaint_, "uOut", 1);
+    glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)q.size());
     glDisable(GL_BLEND);
+}
+
+void FluoUniverse::flushStamps() {
+    drawPaint(stamps_, paintT_, heightT_);
     stamps_.clear();
-    bloomDirty_ = true;
 }
 
 // =====================================================================================================
@@ -590,14 +681,10 @@ void FluoUniverse::onEvent(const GameEvent& ev, const Game&) {
         for (auto& c : ev.cells)
             if (c.y >= 0 && c.y < Game::H) cleared[c.y] = true;
         const bool tetris = ev.count >= 4;
-        // the blocks vanish at once (the board has dropped them) and burst onto the wall, row by row from the
-        // completing piece outward in a few hundredths of a second
-        for (auto& c : ev.cells) {
-            if (c.y < 0 || c.y >= Game::H || c.x < 0 || c.x >= Game::W) continue;
-            const float delay = std::fabs(c.x - ev.x) * 0.006f + rng_.range(0.f, 0.02f);
-            cellSplash(c.x, c.y, c.type, tetris ? 1.35f : 1.f, delay, 0.f);
-        }
-        if (tetris) { // the Tetris: two big splashes thrown on the walls on either side
+        // the blocks vanish at once (the board has dropped them) and burst into gobs of paint thrown out of the
+        // well, the nearest to the completing piece first; each splashes onto the wall where it lands
+        rowBurst(ev.cells, (int)std::lround(ev.x), tetris ? 1.3f : 1.f, 0.f, 0.f);
+        if (tetris) { // the Tetris: two big gobs thrown far onto the walls on either side
             float my = 0.f;
             int n = 0;
             for (int y = 0; y < Game::H; y++)
@@ -606,10 +693,8 @@ void FluoUniverse::onEvent(const GameEvent& ev, const Game&) {
             for (int s = -1; s <= 1; s += 2) {
                 const int type = ev.cells.empty() ? 0 : ev.cells[rng_.irange(0, (int)ev.cells.size() - 1)].type;
                 const float x = s * std::min(viewH_.x - 4.f, rng_.range(13.f, 17.f));
-                const float a = s > 0 ? 0.f : PI;
-                splash(v2(x, std::clamp(my + rng_.range(-1.5f, 2.5f), -8.f, 8.f)), pieceColor(type), 2.6f,
-                       v2(std::cos(a), std::sin(a)), 0.12f, 1.35f);
-                if (recent_.size() < 64) recent_.push_back({v2(x, my), 1.3f, pieceColor(type)});
+                const vec2 to = v2(x, std::clamp(my + rng_.range(-1.5f, 2.5f), -8.f, 8.f));
+                fling(v2(s * 2.5f, my), to, pieceColor(type), 2.6f, 0.06f, 0.22f);
             }
         }
         // collapse the bookkeeping like the board
@@ -626,12 +711,7 @@ void FluoUniverse::onEvent(const GameEvent& ev, const Game&) {
     }
     case GameEvent::TopOut: {
         // game over: the whole stack bursts onto the wall, from the top down
-        int top = Game::H;
-        for (auto& c : ev.cells) top = std::min(top, c.y);
-        for (auto& c : ev.cells) {
-            if (c.y < 0 || c.y >= Game::H || c.x < 0 || c.x >= Game::W) continue;
-            cellSplash(c.x, c.y, c.type, 0.9f, 0.15f + (c.y - top) * 0.06f + rng_.range(0.f, 0.05f), 0.f);
-        }
+        rowBurst(ev.cells, Game::W / 2, 0.9f, 0.15f, 0.06f);
         for (auto& row : cells_)
             for (auto& c : row) c = PCell{};
         break;
@@ -736,6 +816,27 @@ void FluoUniverse::buildPlay(const Game& g, float) {
         const float a = 1.f - smoothstepf(0.5f, 1.f, s.t / s.life);
         play_.push_back({{s.p.x, s.p.y, s.r + 0.05f, s.r + 0.05f}, {s.color.x, s.color.y, s.color.z, a}, {3.f, 0.f, 0.f, 0.f},
                          {s.r * (1.f - 0.4f * s.t / s.life), 0.f, 0.f, 0.f}});
+    }
+    // the paint in flight: each gob shrinking a little as it goes to the wall, stretched along its flight, a couple
+    // of droplets trailing it
+    for (const Fly& fl : flies_) {
+        const float u0 = (fl.t - fl.delay) / fl.dur;
+        if (u0 < 0.f || u0 >= 1.f) continue;
+        for (int k = 0; k < 3; k++) {
+            const float u = u0 - k * 0.07f;
+            if (u < 0.f) break;
+            const float w = 1.f - u;
+            const vec2 p = v2(w * w * fl.a.x + 2.f * w * u * fl.ctrl.x + u * u * fl.b.x,
+                              w * w * fl.a.y + 2.f * w * u * fl.ctrl.y + u * u * fl.b.y);
+            const vec2 v = v2((2.f * w * (fl.ctrl.x - fl.a.x) + 2.f * u * (fl.b.x - fl.ctrl.x)) / fl.dur,
+                              (2.f * w * (fl.ctrl.y - fl.a.y) + 2.f * u * (fl.b.y - fl.ctrl.y)) / fl.dur);
+            const float sp = std::sqrt(v.x * v.x + v.y * v.y);
+            const float R = lerpf(fl.r0, fl.r1, u) * (k == 0 ? 1.f : k == 1 ? 0.45f : 0.3f);
+            const float tail = std::min(sp * 0.022f, 1.2f) * (k == 0 ? 1.f : 0.5f);
+            const float ext = tail + R + 0.05f;
+            play_.push_back({{p.x, p.y, ext, ext}, {fl.color.x, fl.color.y, fl.color.z, 1.f},
+                             {5.f, 0.f, std::atan2(v.y, v.x), 0.f}, {R, tail, R * 0.3f, 0.f}});
+        }
     }
 }
 
@@ -972,63 +1073,64 @@ void FluoUniverse::render(const Frame& f, GLuint fbo) {
         wallDirty_ = false;
     }
 
-    // ---- The paint: cleaned, faded for a new song, the new stamps.
+    // ---- The paint: cleaned, faded for a new song, the new stamps, the wet paint.
     if (wipe_ < 0.f) {
-        glBindFramebuffer(GL_FRAMEBUFFER, paintT_.fbo);
         glClearColor(0.f, 0.f, 0.f, 0.f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        for (const ugl::Target* t : {&paintT_, &heightT_}) {
+            glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
         wipe_ = 0.f;
-        bloomDirty_ = true;
     } else if (wipe_ > 0.f && !f.paused) {
         wipe_ -= dt;
-        paintT_.bind();
         glEnable(GL_BLEND);
         glBlendFunc(GL_ZERO, GL_CONSTANT_ALPHA);
         glBlendColor(0.f, 0.f, 0.f, wipe_ <= 0.f ? 0.f : std::exp(-dt * 3.2f));
         glUseProgram(progFlat_);
         set4f(progFlat_, "uColor", 0.f, 0.f, 0.f, 0.f);
-        ugl::drawFullscreen();
-        glDisable(GL_BLEND);
-        wipe_ = std::max(0.f, wipe_);
-        bloomDirty_ = true;
-    }
-    flushStamps();
-
-    // ---- The glow's halo: a blur of the paint, only while it glows and only when the paint changed.
-    const float dropSwell = dropT_ < 12.f ? smoothstepf(0.f, 0.6f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.6f) / 2.2f) * dropAmp_ : 0.f;
-    const float uvE = smoothstepf(0.f, 1.f, uv_) * (1.f - bridge);
-    const float glow = uvE * (1.f + 0.35f * dropSwell * (inDrop_ ? 1.f : 0.f));
-    if (glow > 0.003f && bloomDirty_) {
-        glUseProgram(progBlur_);
-        set1i(progBlur_, "uSrc", 0);
-        glActiveTexture(GL_TEXTURE0);
-        struct P { const ugl::Target* src; ugl::Target* dst; float sx, sy; };
-        const float qx = 1.f / bloomA_.w, qy = 1.f / bloomA_.h;
-        const P passes[4] = {{&paintT_, &bloomA_, qx, 0.f}, {&bloomA_, &bloomB_, 0.f, qy},
-                             {&bloomB_, &bloomA_, 2.f * qx, 0.f}, {&bloomA_, &bloomB_, 0.f, 2.f * qy}};
-        for (const P& p : passes) {
-            p.dst->bind();
-            glBindTexture(GL_TEXTURE_2D, p.src->tex);
-            set2f(progBlur_, "uStep", p.sx, p.sy);
+        for (const ugl::Target* t : {&paintT_, &heightT_}) {
+            t->bind();
             ugl::drawFullscreen();
         }
-        bloomDirty_ = false;
+        glDisable(GL_BLEND);
+        wipe_ = std::max(0.f, wipe_);
     }
+    flushStamps();
+    buildWet();
+    if (!wet_.empty()) {
+        glClearColor(0.f, 0.f, 0.f, 0.f);
+        for (const ugl::Target* t : {&wetT_, &wetHT_}) {
+            glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
+        drawPaint(wet_, wetT_, wetHT_);
+    }
+
+    // ---- The fluorescence: on with the blacklight, swelling a little on the drop and settling (no pulse).
+    const float dropSwell = dropT_ < 12.f ? smoothstepf(0.f, 0.6f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.6f) / 2.2f) * dropAmp_ : 0.f;
+    const float uvE = smoothstepf(0.f, 1.f, uv_) * (1.f - bridge);
+    const float glow = uvE * (1.f + 0.3f * dropSwell * (inDrop_ ? 1.f : 0.f));
+    // the light moving slowly over the wall (its reflections slide along the paint's relief)
+    if (!f.paused) lampT_ += dt;
+    const vec3 lamp(viewC_.x + viewH_.x * 0.8f * std::sin(lampT_ * 0.07f + 1.3f),
+                    viewC_.y + viewH_.y * (0.3f + 0.5f * std::sin(lampT_ * 0.047f + 0.4f)), 7.f);
 
     // ---- The wall and its paint.
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glViewport(0, 0, width_, height_);
     glUseProgram(progComp_);
+    const ugl::Target* texs[5] = {&wallT_, &paintT_, &heightT_, &wetT_, &wetHT_};
+    const char* names[5] = {"uWall", "uPaint", "uHeight", "uWet", "uWetH"};
+    for (int i = 0; i < 5; i++) {
+        glActiveTexture(GL_TEXTURE0 + i);
+        glBindTexture(GL_TEXTURE_2D, texs[i]->tex);
+        set1i(progComp_, names[i], i);
+    }
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, wallT_.tex);
-    set1i(progComp_, "uWall", 0);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, paintT_.tex);
-    set1i(progComp_, "uPaint", 1);
-    glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, bloomB_.tex);
-    set1i(progComp_, "uBloom", 2);
-    glActiveTexture(GL_TEXTURE0);
+    set1i(progComp_, "uWetOn", wet_.empty() ? 0 : 1);
+    set2f(progComp_, "uTexel", 1.f / width_, 1.f / height_);
+    set1f(progComp_, "uPx", px_);
+    set3f(progComp_, "uLamp", lamp);
     set4f(progComp_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
     set3f(progComp_, "uWallA", wallA_);
     set3f(progComp_, "uWallB", wallB_);
@@ -1038,7 +1140,6 @@ void FluoUniverse::render(const Frame& f, GLuint fbo) {
     set1f(progComp_, "uDark", uvE);
     set1f(progComp_, "uGlow", glow);
     set1f(progComp_, "uIgnite", ignite_);
-    set1f(progComp_, "uTime", time_);
     set1f(progComp_, "uSlow", slow_ * (1.f - uvE));
     set4f(progComp_, "uWell", 0.f, 0.f, 5.f, 10.f);
     set4f(progComp_, "uColL", layout::LEFT_COLUMN[0], layout::LEFT_COLUMN[1], layout::LEFT_COLUMN[2], layout::LEFT_COLUMN[3]);
