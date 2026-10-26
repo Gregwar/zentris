@@ -867,7 +867,7 @@ void GardenUniverse::shedCrumbs(const Game& g, float dt) {
     prevPieceType_ = p.type;
     prevVisY_ = visY;
     if (g.ghostY() <= p.y) { crumbAcc_ = 0.f; return; } // resting: nothing to fall through
-    crumbAcc_ += (2.6f + 6.f * smoothstepf(3.f, 14.f, pieceSpeed_)) * dt;
+    crumbAcc_ += (4.f + 6.f * smoothstepf(3.f, 14.f, pieceSpeed_)) * dt;
     int cells[4][2];
     g.pieceCells(p, cells);
     const float dx = g.pieceVisualX() - p.x, dy = visY - p.y;
@@ -888,27 +888,20 @@ void GardenUniverse::shedCrumbs(const Game& g, float dt) {
         Particle q{};
         q.p = v2(w.x + rng_.range(-0.36f, 0.36f), w.y - 0.46f);
         q.v = v2(rng_.range(-0.08f, 0.08f), -pieceSpeed_ - rng_.range(0.1f, 0.5f));
-        q.life = 6.f; q.size = rng_.range(0.03f, 0.052f); q.grav = 10.f; q.drag = 0.3f;
+        q.life = 6.f; q.size = rng_.range(0.055f, 0.1f); q.grav = 10.f; q.drag = 0.3f;
         q.rot = rng_.range(0.f, TAU); q.kind = P_CRUMB; q.real = true; q.front = true; q.seed = rng_.uniform();
         q.col = earthCol(w.y) * rng_.range(0.72f, 1.02f);
         parts_.push_back(q);
     }
 }
 
-// Does a crumb at p touch something: the stack, the well's floor or the ground, the ghost, the clod itself?
+// Does a crumb at p touch something: the stack, the well's floor or the ground, the clod itself? (it falls through the ghost)
 bool GardenUniverse::crumbHits(const Game& g, vec2 p) const {
     if (p.y < groundY(p.x, seedF_) || (std::fabs(p.x) < 5.f && p.y < -10.f)) return true;
     if (inStack(p)) return true;
     if (g.hasPiece() && !g.over()) {
         const Piece& pc = g.piece();
         int cells[4][2];
-        Piece gp = pc;
-        gp.y = g.ghostY();
-        g.pieceCells(gp, cells);
-        for (auto& c : cells) {
-            const vec3 w = layout::cellPos((float)c[0], (float)c[1]);
-            if (std::fabs(p.x - w.x) <= 0.5f && std::fabs(p.y - w.y) <= 0.5f) return true;
-        }
         g.pieceCells(pc, cells);
         for (auto& c : cells) {
             const vec3 w = layout::cellPos(c[0] + g.pieceVisualX() - pc.x, c[1] + g.pieceVisualY() - pc.y);
