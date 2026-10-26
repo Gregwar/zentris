@@ -731,7 +731,7 @@ void PolarUniverse::buildBoard(const Game& g) {
             if (t < 0 || ice_[y][x].type == t) continue;
             const int id = pieceCounter_++;
             int qx[4], qy[4], n = 0, head = 0;
-            ice_[y][x] = {id, t};
+            ice_[y][x] = {id, t, -99.f, (float)x, y + 0.5f};
             qx[n] = x; qy[n] = y; n++;
             while (head < n && n < 4) {
                 const int cx = qx[head], cy = qy[head];
@@ -741,7 +741,7 @@ void PolarUniverse::buildBoard(const Game& g) {
                     const int nx = cx + dx[k], ny = cy + dy[k];
                     if (nx < 0 || nx >= Game::W || ny < 0 || ny >= Game::H) continue;
                     if (g.cell(nx, ny).type != t || ice_[ny][nx].type == t) continue;
-                    ice_[ny][nx] = {id, t};
+                    ice_[ny][nx] = {id, t, -99.f, (float)x, y + 0.5f};
                     qx[n] = nx; qy[n] = ny; n++;
                 }
             }
@@ -762,10 +762,31 @@ void PolarUniverse::buildBoard(const Game& g) {
             const int id = idAt(x, y);
             // freezing: seconds since it locked (-1: ice long since), the contact relative to the cell (board units)
             float age = -1.f, cdx = 0.f, cdy = 0.f;
+            if (id >= 0) {
+                cdx = ice_[y][x].cx - x;
+                cdy = y - ice_[y][x].cy;
+            }
             if (id >= 0 && iceClock_ - ice_[y][x].t0 < FREEZE_SECONDS) {
                 age = iceClock_ - ice_[y][x].t0;
                 cdx = ice_[y][x].cx - x;
                 cdy = y - ice_[y][x].cy;
+            }
+            // demo (comparison shots): POLAR_DEMO_AGE=s freezes every prefilled piece at that age; POLAR_DEMO_AGES
+            // gives a few of them fresh ages
+            if (id >= 0 && ice_[y][x].t0 < -50.f) {
+                static const char* one = std::getenv("POLAR_DEMO_AGE");
+                static const bool some = std::getenv("POLAR_DEMO_AGES") != nullptr;
+                float da = -1.f;
+                if (one) da = (float)std::atof(one);
+                else if (some) {
+                    const float ages[6] = {0.4f, 1.8f, 3.2f, 4.8f, -1.f, -1.f};
+                    da = ages[(id * 7 + 3) % 6];
+                }
+                if (da >= 0.f) {
+                    age = da;
+                    cdx = ice_[y][x].cx - x;
+                    cdy = y - ice_[y][x].cy;
+                }
             }
             int mask = 0;
             if (id >= 0)
@@ -773,7 +794,11 @@ void PolarUniverse::buildBoard(const Game& g) {
                     if (idAt(x + dx, y + dy) != id) return false;
                     return dy == 0 || std::fabs(g.rowOffset(y + dy) - g.rowOffset(y)) < 0.01f;
                 });
-            tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask, 0.f, 1.f, cdx, cdy);
+            // cells of the same piece below this one (the light rises from its foot)
+            int below = 0;
+            if (id >= 0)
+                while (idAt(x, y + below + 1) == id && std::fabs(g.rowOffset(y + below + 1) - g.rowOffset(y)) < 0.01f) below++;
+            tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask, 0.f, 1.f, cdx, cdy, (float)below);
         }
     // Cleared cells turning to snow; a topped-out stack freezing white, then crumbling.
     for (const Dying& d : dying_) {
@@ -804,6 +829,15 @@ void PolarUniverse::buildBoard(const Game& g) {
                 return false;
             });
         };
+        auto belowIn = [&](int (*cs)[2], int i) {
+            int n = 0;
+            for (bool more = true; more;) {
+                more = false;
+                for (int j = 0; j < 4; j++)
+                    if (cs[j][0] == cs[i][0] && cs[j][1] == cs[i][1] + n + 1) { n++; more = true; break; }
+            }
+            return n;
+        };
         const vec3 col = cur_.piece[p.type];
         Piece gp = p;
         gp.y = g.ghostY();
@@ -820,7 +854,7 @@ void PolarUniverse::buildBoard(const Game& g) {
         for (int i = 0; i < 4; i++) {
             if (cells[i][1] < Game::HIDDEN - 1) continue;
             const vec3 w = layout::cellPos(cells[i][0] + dx, cells[i][1] + dy);
-            tile(w.x, w.y, 0.5f, 0.5f, col, 1.f, 3, -1.f, maskIn(cells, i));
+            tile(w.x, w.y, 0.5f, 0.5f, col, 1.f, 3, -1.f, maskIn(cells, i), 0.f, 1.f, (float)belowIn(cells, i));
         }
     }
     // Previews.
@@ -841,7 +875,13 @@ void PolarUniverse::buildBoard(const Game& g) {
                 return false;
             });
             const vec2 pos = v2(center.x + (cells[i][0] - (minx + maxx) * 0.5f) * sc, center.y - (cells[i][1] - (miny + maxy) * 0.5f) * sc);
-            tile(pos.x, pos.y, 0.5f * sc, 0.5f * sc, cur_.piece[type], alpha, 3, -1.f, m, 0.f, sc);
+            int below = 0;
+            for (bool more = true; more;) {
+                more = false;
+                for (int j = 0; j < 4; j++)
+                    if (cells[j][0] == cells[i][0] && cells[j][1] == cells[i][1] + below + 1) { below++; more = true; break; }
+            }
+            tile(pos.x, pos.y, 0.5f * sc, 0.5f * sc, cur_.piece[type], alpha, 3, -1.f, m, 0.f, sc, (float)below);
         }
     };
     preview(g.holdType(), v2(layout::HOLD_CENTER.x, layout::HOLD_CENTER.y), layout::previewScale(0), g.holdUsed() ? 0.4f : 1.f);
@@ -1292,6 +1332,11 @@ void PolarUniverse::render(const Frame& f, GLuint fbo) {
         set3f(progTile_, "uBridgeInk", bridge_.ink);
         set1f(progTile_, "uTime", timeGlint_);
         set1f(progTile_, "uBeat", beatGlow_ * wm);
+        {
+            // comparison of block concepts (POLAR_CONCEPT=0 old slabs, 1 frosted lantern, 2 hoarfrost, 3 aurora)
+            const char* e = std::getenv("POLAR_CONCEPT");
+            set1i(progTile_, "uConcept", e ? std::atoi(e) : 1);
+        }
         set1f(progTile_, "uGlint", beatGlow_ * smoothstepf(1.1f, 2.f, lv_) * (1.f - slow_));
         glBindVertexArray(tileVao_);
         glBindBuffer(GL_ARRAY_BUFFER, tileVbo_);
