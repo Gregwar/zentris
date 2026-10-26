@@ -109,10 +109,10 @@ float occAt(vec2 p, float blur) {
     return textureLod(uOcc, uv, lod).r;
 }
 
-// the blocks' shadow: where the ray toward the light crosses the slab of the blocks (z -0.5 .. 0.5)
+// the blocks' shadow: where the ray toward the light crosses the slab of the blocks (tiles 0.6 deep: z -0.5 .. 0.1)
 float blockShadow(vec3 p, vec3 l, float soft) {
     if (l.z <= 0.02) return 0.0;
-    float t0 = max(0.0, (-0.5 - p.z) / l.z), t1 = (0.5 - p.z) / l.z;
+    float t0 = max(0.0, (-0.5 - p.z) / l.z), t1 = (0.1 - p.z) / l.z;
     if (t1 <= t0) return 0.0;
     // a few samples through the depth of the blocks, each blurred by how far the shadow has traveled; a jitter per
     // pixel hides the steps between them
@@ -189,7 +189,7 @@ vec3 light(vec3 p, vec3 n, vec3 alb, float ao, int self, bool panelFace, bool be
         if (behind) sh = max(sh, panelShadow(p, l, soft));
         vis *= 1.0 - sh * uShadowK;
         vis *= mix(1.0, ballShadow(p + n * 0.01, l, soft, self), uShadowK);
-        float lampFall = i == 0 ? mix(1.0, 260.0 / (40.0 + dot(uLamp.xyz - p, uLamp.xyz - p)), uLamp.w) : 1.0;
+        float lampFall = i == 0 ? mix(1.0, 700.0 / (300.0 + dot(uLamp.xyz - p, uLamp.xyz - p)), uLamp.w) : 1.0;
         col += alb * c * ndl * vis * sideK(i == 0 ? uSide0 : uSide1, l, p.x) * lampFall;
     }
     return col;
@@ -332,7 +332,7 @@ vec3 matte(vec2 p, float s, vec3 alb, vec3 wpos) {
         vec3 l = i == 0 ? dirTo0(wpos) : uL1;
         vec3 c = i == 0 ? uC0 : uC1;
         float ndl = max(dot(n, l), 0.0);
-        float lampFall = i == 0 ? mix(1.0, 260.0 / (40.0 + dot(uLamp.xyz - wpos, uLamp.xyz - wpos)), uLamp.w) : 1.0;
+        float lampFall = i == 0 ? mix(1.0, 700.0 / (300.0 + dot(uLamp.xyz - wpos, uLamp.xyz - wpos)), uLamp.w) : 1.0;
         col += alb * c * ndl * sideK(i == 0 ? uSide0 : uSide1, l, wpos.x) * lampFall;
         vec3 h = normalize(l + vec3(0, 0, 1));
         col += c * pow(max(dot(n, h), 0.0), 18.0) * 0.05 * lampFall;

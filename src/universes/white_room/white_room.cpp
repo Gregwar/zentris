@@ -378,7 +378,7 @@ TransitionHints WhiteRoomUniverse::hints() const {
 int WhiteRoomUniverse::wantedBalls() const {
     const float wm = smoothstepf(0.4f, 1.f, lv_), wp = smoothstepf(1.3f, 2.f, lv_);
     if (overT_ >= 0.f) return (int)balls_.size();
-    int n = (int)std::lround(3.f * wm + 3.f * wp + 22.f * wp * drive_);
+    int n = (int)std::lround(3.f * wm + 3.f * wp + 10.f * wp * drive_);
     if (level_ < 1 && lv_ < 0.6f) n = 0;
     return n;
 }
@@ -506,9 +506,9 @@ void WhiteRoomUniverse::simulate(const Game& game, const MusicState& music, floa
     if (rainT_ < 3.f && level_ >= 2) {
         // the rain: fast at first, the balls bounce lower and lower and settle
         spawnAcc_ += dt * 14.f;
-        while (spawnAcc_ >= 1.f && present < std::max(want, 6 + (int)(18.f * driveTarget_))) {
+        while (spawnAcc_ >= 1.f && present < std::max(want, 6 + (int)(10.f * driveTarget_))) {
             spawnAcc_ -= 1.f;
-            spawnBall(true, 7, rng_.range(13.f, 24.f), -rng_.range(0.f, 6.f));
+            spawnBall(true, 7, rng_.range(3.f, 8.f), -rng_.range(2.f, 8.f));
             present++;
         }
         if (spawnAcc_ >= 1.f) spawnAcc_ = 0.f;
@@ -516,7 +516,7 @@ void WhiteRoomUniverse::simulate(const Game& game, const MusicState& music, floa
         spawnAcc_ += dt * 2.f;
         if (spawnAcc_ >= 1.f) {
             spawnAcc_ = 0.f;
-            spawnBall(true, 7, rng_.range(9.f, 14.f), 0.f);
+            spawnBall(true, 7, rng_.range(4.f, 7.f), 0.f);
         }
     } else if (present > want) {
         // the oldest ones roll out of the room
@@ -590,10 +590,10 @@ void WhiteRoomUniverse::computeLights(const MusicState& music) {
     s1x *= side_;
     // slow motion: evening, one warm lamp over the well
     const float s = smoothstepf(0.f, 1.f, slow_);
-    lamp_ = vec4(-2.5f * side_, 13.5f, 4.5f, s);
-    c0 = lerp(c0, lin(0xffb46a) * 1.5f, s);
+    lamp_ = vec4(-2.5f * side_, 17.f, 8.f, s);
+    c0 = lerp(c0, lin(0xffb46a) * 1.05f, s);
     c1 = c1 * (1.f - s);
-    ambC = lerp(ambC, lin(0x2a3550) * 0.55f, s);
+    ambC = lerp(ambC, lin(0x2a3550) * 0.9f, s);
     soft = lerpf(soft, 0.05f, s);
     // game over: the light sets (very long shadows) and fades
     const float o = over_;
@@ -794,9 +794,9 @@ void WhiteRoomUniverse::drawText(const Font& f, const std::vector<float>& q, con
 // light numbers; the section in a large light weight. Dark ink on the lit wall, pale ink when the room is dark.
 void WhiteRoomUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<HudRect>& panels) {
     const float s = height_ / 1080.f;
-    const float lit = smoothstepf(0.10f, 0.28f, wallLum_);
+    const float lit = smoothstepf(0.04f, 0.13f, wallLum_);
     const vec3 ink = lerp(pal_.inkLight, pal_.ink, lit);
-    const vec3 dim = lerp(ink, lerp(pal_.inkLight * 0.5f, pal_.wall * 0.9f, lit), 0.45f);
+    const vec3 dim = lerp(ink, lerp(pal_.inkLight * 0.6f, pal_.wall, lit), 0.28f);
     const vec3 accent = lerp(pal_.inkLight, pal_.accent, 0.5f + 0.5f * lit);
     if (!panels.empty()) {
         std::vector<Vert> v;
@@ -1020,7 +1020,7 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
         set1f(progTile_, "uTime", worldTime_);
         setLightUniforms(progTile_);
         set3f(progTile_, "uAmbB", ambB_);
-        const float lit = smoothstepf(0.10f, 0.28f, wallLum_);
+        const float lit = smoothstepf(0.04f, 0.13f, wallLum_);
         const vec3 ink = lerp(pal_.inkLight, pal_.ink, lit);
         set3f(progTile_, "uInk", ink);
         set3f(progTile_, "uGroove", lerp(ink, pal_.wall, 0.55f));
