@@ -37,7 +37,7 @@ song, and songs change universe with a transition on the beat.
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/kintsugi.jpg"><br><b>KINTSUGI</b>: dark polished stone, ceramic mended with gold</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/laser.jpg"><br><b>LASER SHOW</b>: a few laser beams in a dark haze</td>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/laser.jpg"><br><b>LASER SHOW</b>: every piece projected by its own laser</td>
 <td></td>
 </tr>
 </table>

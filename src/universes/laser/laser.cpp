@@ -1,27 +1,26 @@
-// LASER SHOW: a few laser beams in a dark, hazy room.
+// LASER SHOW: a dark, hazy room where every piece is projected by its own laser.
 //
-// One world: a black room filled with a light haze, three projectors out of sight (one low on each side below the
-// frame, one hidden behind the well). Their beams are thin, pure lines of colored light, made visible only by the haze
-// they cross: uneven along their length, a soft glow around them where the haze is thick. The well is a slab of black
-// glass standing in front of the beams (they pass behind it; its rim catches each beam where it crosses); the pieces
-// are dark acrylic, edge-lit: a smoked, tinted body whose silhouette glows in the piece's color (one shape per piece,
-// no seam inside it).
+// One world: a black room filled with a light haze. Every piece (the falling one and each piece of the stack) has its
+// own small laser projector standing at a random spot of the dark room, away from the well and the HUD: a point of
+// light from which a faint sheet of light opens to the piece, thin rays running to each corner of its outline, as if
+// the laser were drawing it. The rays are made visible only by the haze they cross (uneven along their length); they
+// are fainter over the well, a slab of black glass. The pieces are dark acrylic, edge-lit: a smoked, tinted body whose
+// silhouette glows in the piece's color (one shape per piece, no seam inside it).
 //
-// The song drives the projectors, slowly: calm is one or two thin beams through faint haze, pivoting slowly; mid
-// splits them into a few beams per side that pivot with the bands (the bass leans the left fan, the highs the right
-// one) and breathe every two beats; a build gathers them toward one point above the well; a peak without a drop (a
-// chorus) opens five beams per side, swaying on the bars. A drop opens full laser fans from all three projectors in
-// the drop's own colors (each laser set has its own), bursting open from a bundle then sweeping slowly for the
-// whole drop, the haze glowing in the new color (one swell on the downbeat, settling over seconds). The light of the
-// room never pulses with the beat.
+// The song decides how many projectors are on, newest pieces first: calm keeps the falling piece's and one or two
+// more, dim; mid a few; a build switches more on as the pace rises; a peak without a drop (a chorus) most of the stack,
+// each in its piece's color. A drop switches every projector on one after the other in the drop's own color (each
+// laser set has its own), the sources sweeping slowly around their spots for the whole drop, the haze taking the
+// color (one swell on the downbeat, settling over seconds). The light of the room never pulses with the beat.
 //
-// A lock leaves a small point of light where the piece touched down; a cleared row burns out (the blocks' edges
-// flare, then a burning front eats each one from its edges in, gone in under half a second, at the real speed even in
-// slow motion); a Tetris is a salute (every projector opens one white fan, which sweeps once and closes); slow motion
-// freezes the beams in a thick, cold haze (the lasers turn ice white, like rods of light); game over switches the
-// lasers off one by one while the stack goes dark row by row. A change of universe fills the room with haze.
+// A lock leaves a small point of light where the piece touched down and the falling piece's projector stays with it;
+// a cleared row burns out (gone in under half a second, at the real speed even in slow motion) while the projectors
+// of its cells get weak, blink and switch off (a piece cleared in part keeps its projector for its other cells); a
+// Tetris flares every projector white once; slow motion freezes them in a thick, cold haze (ice white, like rods of
+// light); game over switches them off one by one while the stack goes dark row by row. A change of universe fills the
+// room with haze.
 //
-// Cost: the haze glow is drawn at a reduced resolution (at most 360 lines); the beams' cores, the well, the blocks
+// Cost: the haze and the projectors' sheets are drawn at a reduced resolution (at most 360 lines); the rays, the well, the blocks
 // and the text at full resolution.
 //
 // Layout contract: a flat orthographic view at the reference camera's scale on the board plane, so the well, the
@@ -1486,7 +1485,7 @@ void LaserUniverse::render(const Frame& f, GLuint fbo) {
 
 const UniverseEntry& universe_laser() {
     static const UniverseEntry e{
-        "LASER SHOW", "a few laser beams in a dark haze, edge-lit acrylic pieces",
+        "LASER SHOW", "every piece projected by its own laser in a dark haze, edge-lit acrylic pieces",
         [] { return std::unique_ptr<Universe>(new LaserUniverse()); },
         // Electronic, driving songs suit it best (a steady tempo, bass, dynamics: drops to open the fans); quiet
         // acoustic songs still play, with a beam or two.

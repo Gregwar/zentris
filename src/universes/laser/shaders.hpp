@@ -2,10 +2,10 @@
 // LASER SHOW's shaders (see laser.cpp). Everything is drawn in linear HDR (the beams' cores and the pieces' lit edges
 // go above 1 and bloom), then tone-mapped in the post.
 //
-// The beams are rays in the board plane from projectors out of frame, seen through a haze: HAZE_FS draws the light
-// the haze scatters around them (a soft glow and a wide, faint halo, both following the haze's density) at a reduced
-// resolution; BEAM_VS / BEAM_FS draw each beam's thin core at full resolution, its brightness following the same haze.
-// WELL_FS lays the well over them, a slab of black glass whose rim catches the beams passing behind it.
+// Each piece is projected by its own laser, seen through a haze: HAZE_FS draws the haze itself at a reduced
+// resolution, CONE_VS / CONE_FS each projector's faint sheet of light into it (from the lens to the piece's outline);
+// BEAM_VS / BEAM_FS draw the thin rays to the outline's corners at full resolution, their brightness following the
+// same haze. WELL_FS is the well, a slab of black glass.
 
 namespace laser_shaders {
 
