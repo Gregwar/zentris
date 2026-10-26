@@ -18,6 +18,9 @@
 // stack's flowers at once, slow motion brings dusk and fireflies, game over crumbles the stack back into the earth,
 // and a change of universe lets the plants sink and the sky fade to the bridge.
 //
+// A falling clod sheds crumbs of soil that fall until they touch something; earthworms crawl inside the earth (the
+// ground line and the landed clods), a few when calm, many more and faster through a drop.
+//
 // Layout contract: a flat orthographic view at the reference camera's scale on the board plane (like WATERCOLOR).
 #include "universes/garden/garden.hpp"
 
@@ -58,6 +61,10 @@ GLuint compile(const char* vs, const char* fs, const char* name) {
 }
 
 vec2 v2(float x, float y) { return vec2{x, y}; }
+vec2 operator+(vec2 a, vec2 b) { return {a.x + b.x, a.y + b.y}; }
+vec2 operator-(vec2 a, vec2 b) { return {a.x - b.x, a.y - b.y}; }
+vec2 operator*(vec2 a, float k) { return {a.x * k, a.y * k}; }
+float length(vec2 a) { return std::sqrt(a.x * a.x + a.y * a.y); }
 vec3 hex(unsigned v) { return {((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255.f, (v & 255) / 255.f}; }
 float hashf(float a, float b) {
     const uint64_t h = splitmix64((uint64_t)(int64_t)std::lround(a * 1000.f) * 73856093ull ^ (uint64_t)(int64_t)std::lround(b * 1000.f) * 19349663ull);
@@ -175,6 +182,7 @@ bool GardenUniverse::init(int width, int height) {
     progText_ = compile(shaders::TEXT_VS, shaders::TEXT_FS, "garden text");
     progShape_ = compile(shaders::SHAPE_VS, shaders::SHAPE_FS, "garden shape");
     progPost_ = compile(ugl::FULLSCREEN_VS, shaders::POST_FS, "garden post");
+    progWorm_ = compile(shaders::WORM_VS, shaders::WORM_FS, "garden worm");
 
     const float quad[8] = {-1, -1, 1, -1, -1, 1, 1, 1};
     glGenBuffers(1, &quadVbo_);
@@ -205,6 +213,12 @@ bool GardenUniverse::init(int width, int height) {
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, nullptr);
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, (void*)(sizeof(float) * 2));
+
+    glGenVertexArrays(1, &wormVao_);
+    glBindVertexArray(wormVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVbo_);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
     glGenVertexArrays(1, &shapeVao_);
     glGenBuffers(1, &shapeVbo_);
@@ -284,8 +298,8 @@ void GardenUniverse::resize(int width, int height) {
 
 GardenUniverse::~GardenUniverse() {
     sceneT_.destroy();
-    for (GLuint p : {progSky_, progCell_, progSprite_, progText_, progShape_, progPost_}) glDeleteProgram(p);
-    for (GLuint v : {cellVao_, spriteVao_, textVao_, shapeVao_}) glDeleteVertexArrays(1, &v);
+    for (GLuint p : {progSky_, progCell_, progSprite_, progText_, progShape_, progPost_, progWorm_}) glDeleteProgram(p);
+    for (GLuint v : {cellVao_, spriteVao_, textVao_, shapeVao_, wormVao_}) glDeleteVertexArrays(1, &v);
     for (GLuint b : {quadVbo_, cellVbo_, spriteVbo_, textVbo_, shapeVbo_}) glDeleteBuffers(1, &b);
     for (Font* f : {&fontItalic_, &fontRoman_}) {
         if (f->tex) glDeleteTextures(1, &f->tex);
@@ -482,8 +496,15 @@ void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
     case GameEvent::Clear: {
         const bool tetris = ev.count >= 4;
         bool cleared[Game::H] = {};
+        int lowest = -1;
         for (auto& c : ev.cells)
-            if (c.y >= 0 && c.y < Game::H) cleared[c.y] = true;
+            if (c.y >= 0 && c.y < Game::H) { cleared[c.y] = true; lowest = std::max(lowest, c.y); }
+        // a worm in a cleared row, or in the earth slumping into it, fades where it is
+        for (Worm& w : worms_)
+            for (const vec2& q : w.pts) {
+                const int r = stackRowAt(q);
+                if (r >= 0 && r <= lowest) { w.state = 2; break; }
+            }
         // the row crumbles into soil dust that falls and settles; its flowers fall with it
         for (auto& c : ev.cells) {
             if (c.y < 0 || c.y >= Game::H || c.x < 0 || c.x >= Game::W) continue;
@@ -562,6 +583,9 @@ void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
         // game over: the stack crumbles back into the earth, row by row from the top
         int top = Game::H;
         for (auto& c : ev.cells) top = std::min(top, c.y);
+        for (Worm& w : worms_)
+            for (const vec2& q : w.pts)
+                if (inStack(q)) { w.state = 2; break; }
         for (auto& c : ev.cells) {
             if (c.y < Game::HIDDEN || c.y >= Game::H || c.x < 0 || c.x >= Game::W) continue;
             const Soil& s = soil_[c.y][c.x];
@@ -771,7 +795,12 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
         }
     }
 
+    if (!over && world > 0.5f) shedCrumbs(game, dt);
+    else crumbAcc_ = 0.f;
+    simulateWorms(music, dt, wdt);
+
     // The particles age (a line clear's dust at the real speed).
+    std::vector<vec2> puffs;
     const float windX = 0.12f * std::sin(worldTime_ * 0.23f);
     for (Particle& p : parts_) {
         const float pdt = p.real ? dt : wdt;
@@ -787,6 +816,12 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
         p.v.x *= k; p.v.y *= k;
         p.p.x += p.v.x * pdt; p.p.y += p.v.y * pdt;
         p.rot += p.spin * pdt;
+        // a crumb is gone where it touches something (a tiny puff)
+        if (p.kind == P_CRUMB && crumbHits(game, p.p)) {
+            puffs.push_back(p.p);
+            p.age = p.life + 1.f;
+            continue;
+        }
         // dust settles on the ground line
         if (p.kind == P_DUST) {
             const float gy = groundY(p.p.x, seedF_);
@@ -794,6 +829,12 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
         }
     }
     parts_.erase(std::remove_if(parts_.begin(), parts_.end(), [](const Particle& p) { return p.age > p.life; }), parts_.end());
+    for (const vec2& q : puffs) {
+        const vec3 col = earthCol(q.y) * 1.1f;
+        for (int i = 0; i < 2; i++)
+            emitDust(v2(q.x + rng_.range(-0.03f, 0.03f), q.y + 0.02f), v2(rng_.range(-0.5f, 0.5f), rng_.range(0.15f, 0.45f)), col,
+                     rng_.range(0.014f, 0.022f), rng_.range(0.18f, 0.28f), 5.f, true);
+    }
     for (Dying& d : dying_) d.t += dt;
     dying_.erase(std::remove_if(dying_.begin(), dying_.end(),
                                 [](const Dying& d) { return d.t > d.delay + (d.collapse ? COLLAPSE : 0.42f); }),
@@ -804,6 +845,254 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
     }
 
     gaugeShown_ = approach(gaugeShown_, game.bonusGauge(), 3.f, dt);
+}
+
+// =====================================================================================================
+// Crumbs and worms
+// =====================================================================================================
+
+vec3 GardenUniverse::earthCol(float y) const {
+    const vec3 floorC = lerp(pal_.ground, pal_.piece[0], 0.2f);
+    if (y < -10.f) return lerp(floorC, pal_.groundDeep, smoothstepf(0.f, 3.5f, -10.f - y));
+    return lerp(floorC, pal_.piece[0] * 1.12f, smoothstepf(-10.f, 8.f, y));
+}
+
+// The falling clod sheds a crumb of soil now and then from its underside (more when it is pushed down fast).
+void GardenUniverse::shedCrumbs(const Game& g, float dt) {
+    if (!g.hasPiece() || dt <= 0.f) { crumbAcc_ = 0.f; prevPieceType_ = -1; return; }
+    const Piece& p = g.piece();
+    const float visY = g.pieceVisualY();
+    if (p.type != prevPieceType_ || visY < prevVisY_ - 0.5f) pieceSpeed_ = 0.f;
+    else pieceSpeed_ = approach(pieceSpeed_, std::clamp((visY - prevVisY_) / dt, 0.f, 60.f), 12.f, dt);
+    prevPieceType_ = p.type;
+    prevVisY_ = visY;
+    if (g.ghostY() <= p.y) { crumbAcc_ = 0.f; return; } // resting: nothing to fall through
+    crumbAcc_ += (2.6f + 6.f * smoothstepf(3.f, 14.f, pieceSpeed_)) * dt;
+    int cells[4][2];
+    g.pieceCells(p, cells);
+    const float dx = g.pieceVisualX() - p.x, dy = visY - p.y;
+    int guard = 0;
+    while (crumbAcc_ >= 1.f && guard++ < 6) {
+        crumbAcc_ -= 1.f;
+        // a cell of its underside
+        int bottom[4], nb = 0;
+        for (int i = 0; i < 4; i++) {
+            bool under = false;
+            for (int j = 0; j < 4; j++) under |= cells[j][0] == cells[i][0] && cells[j][1] == cells[i][1] + 1;
+            if (!under) bottom[nb++] = i;
+        }
+        if (nb == 0) break;
+        const int i = bottom[rng_.irange(0, nb - 1)];
+        const vec3 w = layout::cellPos(cells[i][0] + dx, cells[i][1] + dy);
+        if (w.y > 9.4f) continue; // still above the well
+        Particle q{};
+        q.p = v2(w.x + rng_.range(-0.36f, 0.36f), w.y - 0.46f);
+        q.v = v2(rng_.range(-0.08f, 0.08f), -pieceSpeed_ - rng_.range(0.1f, 0.5f));
+        q.life = 6.f; q.size = rng_.range(0.03f, 0.052f); q.grav = 10.f; q.drag = 0.3f;
+        q.rot = rng_.range(0.f, TAU); q.kind = P_CRUMB; q.real = true; q.front = true; q.seed = rng_.uniform();
+        q.col = earthCol(w.y) * rng_.range(0.72f, 1.02f);
+        parts_.push_back(q);
+    }
+}
+
+// Does a crumb at p touch something: the stack, the well's floor or the ground, the ghost, the clod itself?
+bool GardenUniverse::crumbHits(const Game& g, vec2 p) const {
+    if (p.y < groundY(p.x, seedF_) || (std::fabs(p.x) < 5.f && p.y < -10.f)) return true;
+    if (inStack(p)) return true;
+    if (g.hasPiece() && !g.over()) {
+        const Piece& pc = g.piece();
+        int cells[4][2];
+        Piece gp = pc;
+        gp.y = g.ghostY();
+        g.pieceCells(gp, cells);
+        for (auto& c : cells) {
+            const vec3 w = layout::cellPos((float)c[0], (float)c[1]);
+            if (std::fabs(p.x - w.x) <= 0.5f && std::fabs(p.y - w.y) <= 0.5f) return true;
+        }
+        g.pieceCells(pc, cells);
+        for (auto& c : cells) {
+            const vec3 w = layout::cellPos(c[0] + g.pieceVisualX() - pc.x, c[1] + g.pieceVisualY() - pc.y);
+            if (std::fabs(p.x - w.x) <= 0.5f && std::fabs(p.y - w.y) <= 0.5f) return true;
+        }
+    }
+    return false;
+}
+
+int GardenUniverse::stackRowAt(vec2 p) const {
+    const int cx = (int)std::floor(p.x + 5.f);
+    if (cx < 0 || cx >= Game::W) return -1;
+    for (int y = Game::HIDDEN; y < Game::H; y++) {
+        if (soil_[y][cx].id < 0) continue;
+        const float cy = layout::cellPos(0.f, y - slumpOff(y)).y;
+        if (cy < 9.5f && std::fabs(p.y - cy) <= 0.5f) return y;
+    }
+    return -1;
+}
+
+bool GardenUniverse::inStack(vec2 p) const { return stackRowAt(p) >= 0; }
+
+// The ground line's earth in the picture (below its lip); under the well it joins the stack's root.
+bool GardenUniverse::inGround(vec2 p) const {
+    const float bottom = viewC_.y - viewH_.y + 0.06f;
+    if (p.y < bottom || std::fabs(p.x - viewC_.x) > viewH_.x - 0.1f) return false;
+    if (p.y < groundY(p.x, seedF_) - 0.14f) return true;
+    if (std::fabs(p.x) < 4.95f && p.y < -9.85f) {
+        const int cx = std::clamp((int)std::floor(p.x + 5.f), 0, Game::W - 1);
+        return soil_[Game::H - 1][cx].id >= 0 && std::fabs(slumpOff(Game::H - 1)) < 0.02f;
+    }
+    return false;
+}
+
+bool GardenUniverse::inEarth(vec2 p, float m) const {
+    auto in = [&](vec2 q) { return inGround(q) || inStack(q); };
+    if (!in(p)) return false;
+    if (m <= 0.f) return true;
+    return in(v2(p.x + m, p.y)) && in(v2(p.x - m, p.y)) && in(v2(p.x, p.y + m)) && in(v2(p.x, p.y - m));
+}
+
+bool GardenUniverse::spawnWorm() {
+    std::vector<vec2> stack;
+    for (int y = Game::HIDDEN; y < Game::H; y++)
+        for (int x = 0; x < Game::W; x++)
+            if (soil_[y][x].id >= 0 && std::fabs(slumpOff(y)) < 0.01f) {
+                const vec3 c = layout::cellPos((float)x, (float)y);
+                stack.push_back(v2(c.x, c.y));
+            }
+    for (int tries = 0; tries < 16; tries++) {
+        vec2 p;
+        bool inS = false;
+        if (stack.size() >= 3 && rng_.chance(0.4f)) {
+            p = stack[rng_.irange(0, (int)stack.size() - 1)] + v2(rng_.range(-0.25f, 0.25f), rng_.range(-0.25f, 0.25f));
+            inS = true;
+        } else {
+            const float x = rng_.chance(0.5f) ? rng_.range(-8.f, 8.f) : viewC_.x + rng_.range(-viewH_.x + 0.6f, viewH_.x - 0.6f);
+            p = v2(x, rng_.range(viewC_.y - viewH_.y + 0.2f, groundY(x, seedF_) - 0.25f));
+        }
+        if (!inEarth(p, 0.14f)) continue;
+        // keep apart from the others
+        bool near = false;
+        for (const Worm& o : worms_) near |= length(o.pts[0] - p) < 0.6f;
+        if (near) continue;
+        Worm w;
+        for (vec2& q : w.pts) q = p;
+        w.heading = inS ? rng_.range(0.f, TAU) : (rng_.chance(0.5f) ? 0.f : PI) + rng_.range(-0.5f, 0.5f);
+        w.len = rng_.range(0.5f, 0.8f);
+        w.rad = rng_.range(0.045f, 0.058f);
+        w.speed = rng_.range(0.2f, 0.3f);
+        w.seed = rng_.range(0.f, 100.f);
+        w.t = 0.f;
+        w.wig = rng_.range(0.f, TAU);
+        worms_.push_back(w);
+        return true;
+    }
+    return false;
+}
+
+// A few worms crawl slowly through the earth; a drop brings many more, and they hurry (eased in and out).
+void GardenUniverse::simulateWorms(const MusicState& music, float dt, float wdt) {
+    (void)music;
+    const float wm = smoothstepf(0.2f, 1.f, lv_);
+    const float drop = drive_;
+    const bool over = overT_ >= 0.f;
+    const float target = over ? 0.f : 3.f + 2.f * wm + 9.f * drop;
+    int alive = 0;
+    for (const Worm& w : worms_) alive += w.state == 0;
+    wormSpawnT_ -= dt;
+    if (alive + 0.5f < target && wormSpawnT_ <= 0.f && spawnWorm()) wormSpawnT_ = drop > 0.3f ? 0.2f : 0.7f;
+    wormRetireT_ -= dt;
+    if (alive > target + 0.6f && wormRetireT_ <= 0.f) {
+        Worm* oldest = nullptr;
+        for (Worm& w : worms_)
+            if (w.state == 0 && (!oldest || w.t > oldest->t)) oldest = &w;
+        if (oldest) oldest->state = 1;
+        wormRetireT_ = 0.5f;
+    }
+    const float mult = 1.f + 1.6f * drop;
+    auto dirOf = [](float h) { return v2(std::cos(h), std::sin(h)); };
+    for (Worm& w : worms_) {
+        if (w.state == 2) { w.vis -= dt / 0.35f; continue; }
+        w.vis = w.state == 1 ? w.vis - dt / 1.6f : std::min(1.f, w.vis + dt / 1.2f);
+        // its earth is gone (a board changed under it): it fades where it is
+        if (!inEarth(w.pts[0], 0.f) && !inEarth(w.pts[WORM_N / 2], 0.f)) {
+            w.stuck += dt;
+            if (w.stuck > 0.15f) w.state = 2;
+            continue;
+        }
+        w.stuck = 0.f;
+        w.t += wdt;
+        w.wig += wdt * (2.2f + 1.4f * drop);
+        const float step = w.speed * mult * wdt;
+        w.heading += (0.9f * std::sin(w.t * 0.55f + w.seed) + 0.6f * std::sin(w.t * 1.37f + w.seed * 2.3f)) * wdt * mult;
+        const float probe = 0.3f, m = 0.11f;
+        if (!inEarth(w.pts[0] + dirOf(w.heading) * probe, m)) {
+            const float pref = std::sin(w.seed * 7.f + w.t * 0.1f) > 0.f ? 1.f : -1.f;
+            bool found = false;
+            float to = w.heading;
+            for (int k = 1; k <= 6 && !found; k++)
+                for (float sg : {pref, -pref}) {
+                    const float h = w.heading + sg * k * 0.42f;
+                    if (inEarth(w.pts[0] + dirOf(h) * probe, m)) { to = h; found = true; break; }
+                }
+            if (found) {
+                const float lim = 4.f * mult * wdt;
+                w.heading += std::clamp(to - w.heading, -lim, lim);
+            } else {
+                // a dead end: it turns back, its tail leading
+                std::reverse(w.pts, w.pts + WORM_N);
+                const vec2 d = w.pts[0] - w.pts[1];
+                w.heading = length(d) > 1e-4f ? std::atan2(d.y, d.x) : w.heading + PI;
+            }
+        }
+        const vec2 nh = w.pts[0] + dirOf(w.heading) * step;
+        if (inEarth(nh, 0.08f)) w.pts[0] = nh;
+        const float seg = w.len / (WORM_N - 1);
+        for (int i = 1; i < WORM_N; i++) {
+            const vec2 d = w.pts[i] - w.pts[i - 1];
+            const float l = length(d);
+            if (l > seg) w.pts[i] = w.pts[i - 1] + d * (seg / l);
+        }
+    }
+    worms_.erase(std::remove_if(worms_.begin(), worms_.end(), [](const Worm& w) { return w.state != 0 && w.vis <= 0.f; }), worms_.end());
+}
+
+void GardenUniverse::drawWorms(float world) {
+    if (worms_.empty() || world <= 0.01f) return;
+    glUseProgram(progWorm_);
+    setMat(progWorm_, "uVP", vp_);
+    set1f(progWorm_, "uPx", px_ * 0.8f);
+    const GLint locPts = glGetUniformLocation(progWorm_, "uPts");
+    const float dusk = 1.f - 0.4f * slow_;
+    const vec3 col = ugl::toLinear(hex(0xb47a6c)) * dusk;
+    glBindVertexArray(wormVao_);
+    for (const Worm& w : worms_) {
+        const float vis = smoothstepf(0.f, 1.f, saturate(w.vis)) * world;
+        if (vis <= 0.003f) continue;
+        // a slight wiggle travelling down the body
+        float pts[WORM_N * 2];
+        vec2 lo = w.pts[0], hi = w.pts[0];
+        for (int i = 0; i < WORM_N; i++) {
+            const vec2 a = w.pts[std::max(i - 1, 0)], b = w.pts[std::min(i + 1, WORM_N - 1)];
+            vec2 t = b - a;
+            const float l = length(t);
+            t = l > 1e-5f ? t * (1.f / l) : v2(1.f, 0.f);
+            const float taper = std::sin(PI * (i + 0.5f) / WORM_N);
+            const float off = 0.022f * taper * std::sin(w.wig - i * 0.85f);
+            const vec2 q = w.pts[i] + v2(-t.y, t.x) * off;
+            pts[i * 2] = q.x; pts[i * 2 + 1] = q.y;
+            lo = v2(std::min(lo.x, q.x), std::min(lo.y, q.y));
+            hi = v2(std::max(hi.x, q.x), std::max(hi.y, q.y));
+        }
+        const float pad = w.rad * 3.f + px_ * 2.f;
+        set4f(progWorm_, "uBox", lo.x - pad, lo.y - pad, hi.x + pad, hi.y + pad);
+        glUniform2fv(locPts, WORM_N, pts);
+        set1f(progWorm_, "uRad", w.rad);
+        set1f(progWorm_, "uLen", w.len);
+        set1f(progWorm_, "uVis", vis);
+        set1f(progWorm_, "uSunk", 1.f);
+        set3f(progWorm_, "uCol", col);
+        set3f(progWorm_, "uDark", earthCol(w.pts[0].y) * 0.42f * dusk);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
 }
 
 // =====================================================================================================
@@ -1114,7 +1403,7 @@ void GardenUniverse::drawParticles(bool front, float world) {
     for (const Particle& p : parts_) {
         if (p.front != front || p.age < 0.f) continue;
         const float t = p.age / p.life;
-        float a = (p.kind == P_DUST || p.kind == P_FLOWER) ? 1.f - smoothstepf(0.55f, 1.f, t)
+        float a = (p.kind == P_DUST || p.kind == P_FLOWER || p.kind == P_CRUMB) ? 1.f - smoothstepf(0.55f, 1.f, t)
                                                            : smoothstepf(0.f, 0.12f, t) * (1.f - smoothstepf(0.7f, 1.f, t));
         if (!front) {
             a *= world;
@@ -1123,6 +1412,7 @@ void GardenUniverse::drawParticles(bool front, float world) {
         }
         switch (p.kind) {
         case P_DUST: sprite(p.p.x, p.p.y, p.size, p.size, 0.f, 1, p.col, a * 0.9f, 0.35f); break;
+        case P_CRUMB: sprite(p.p.x, p.p.y, std::max(p.size, px_ * 0.7f), std::max(p.size, px_ * 0.7f) * 1.1f, p.rot, 1, p.col, a, 0.55f); break;
         case P_POLLEN: sprite(p.p.x, p.p.y, p.size, p.size, 0.f, 1, p.col * dusk, a * 0.85f, 0.1f); break;
         case P_PETAL: {
             const float flip = 0.45f + 0.55f * std::fabs(std::cos(p.age * 2.3f + p.seed));
@@ -1428,6 +1718,7 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
     // ---- The stack, its growth, the falling piece.
     drawBoard(game, world);
     flushCells();
+    drawWorms(world);
     drawStackGrowth(game, world);
     flushSprites();
     if (game.hasPiece() && !game.over()) {
