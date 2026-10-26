@@ -103,6 +103,7 @@ private:
     int pieceCounter_ = 1;
     float lastHard_ = 0.f;
     int maskAt(const Game& g, int x, int y) const;
+    void adoptUnknown(const Game& g);
 
     // ---- Effects.
     struct Strip { int x, row, type, mask; float y, t, delay, dir; };   // a cleared row torn off

@@ -579,7 +579,35 @@ void RisographUniverse::cell(vec2 pos, float scale, float rot, int type, int mas
                      {tear, starve, ghost ? 1.f : 0.f, seed}, {offA.x, offA.y, offB.x, offB.y}});
 }
 
+// Cells this universe did not see lock (a stack inherited from another universe, a test board): grouped into
+// pieces of up to four connected cells of the same type, so they print as piece shapes without fusing into blobs.
+void RisographUniverse::adoptUnknown(const Game& g) {
+    for (int y = Game::H - 1; y >= Game::HIDDEN; y--)
+        for (int x = 0; x < Game::W; x++) {
+            const int t = g.cell(x, y).type;
+            if (t < 0 || (ink_[y][x].type == t && ink_[y][x].id >= 0)) continue;
+            const int id = pieceCounter_++;
+            int qx[4], qy[4], n = 0, head = 0;
+            qx[n] = x; qy[n] = y; n++;
+            ink_[y][x] = {id, t, 0.f};
+            while (head < n && n < 4) {
+                const int cx = qx[head], cy = qy[head];
+                head++;
+                const int dx[4] = {1, 0, -1, 0}, dy[4] = {0, -1, 0, 1};
+                for (int k = 0; k < 4 && n < 4; k++) {
+                    const int nx = cx + dx[k], ny = cy + dy[k];
+                    if (nx < 0 || nx >= Game::W || ny < Game::HIDDEN || ny >= Game::H) continue;
+                    if (g.cell(nx, ny).type != t || (ink_[ny][nx].type == t && ink_[ny][nx].id >= 0)) continue;
+                    if (std::fabs(g.rowOffset(ny) - g.rowOffset(cy)) > 0.01f) continue;
+                    ink_[ny][nx] = {id, t, 0.f};
+                    qx[n] = nx; qy[n] = ny; n++;
+                }
+            }
+        }
+}
+
 void RisographUniverse::buildBoard(const Game& g) {
+    adoptUnknown(g);
     const float wp = smoothstepf(1.1f, 1.9f, lv_);
     // Locked cells; a fresh lock knocks the piece's inks a hair down at the impact (the second drum more).
     for (int y = Game::HIDDEN; y < Game::H; y++)
