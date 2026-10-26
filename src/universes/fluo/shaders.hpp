@@ -238,7 +238,7 @@ void main() {
 
         float lum = dot(base, vec3(0.2126, 0.7152, 0.0722));
         // under the room's light: a duller, matte-ish paint (a little greyed, lower), shaded by the moving light
-        vec3 dull = mix(vec3(lum), base, 0.72) * 0.6 * relief;
+        vec3 dull = mix(vec3(lum), base, 0.75) * 0.72 * relief;
         dull = mix(dull, vec3(lum) * 0.6, 0.82 * uSlow);
         vec3 room = dull * uLight * wash * vign * (0.55 + 0.6 * ndl) + vec3(spec) * 0.55 * uLight * vign;
         // under the blacklight: the stains light up one region after another and glow, saturated
@@ -362,7 +362,7 @@ void main() {
             outc = col;
         } else {
             // each cell draws only its own square toward its neighbors (they draw theirs: no doubled seams)
-            float hs = 0.5 * s;
+            float hs = 0.5 * s + aa; // (overlapping by a pixel: no seam)
             if (((m & 1) != 0 && p.x < -hs) || ((m & 2) != 0 && p.x > hs) || ((m & 4) != 0 && p.y < -hs) ||
                 ((m & 8) != 0 && p.y > hs)) discard;
             float inside = 1.0 - smoothstep(-aa, aa, d);

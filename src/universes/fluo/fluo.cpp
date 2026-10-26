@@ -2,24 +2,27 @@
 //
 // One world: a dark, matte, textured wall (painted black, raw concrete, slate, a night-blue coat), a well marked
 // only by a calmer patch of it, and pieces of flashy fluorescent paint. When a line clears, its blocks vanish at
-// once and each bursts onto the wall as a splash of its paint: a ragged main blob, streaks and droplets flung
-// outward, a few drips running down; and a part of it is flung further, beside the well, where it lands stretched
-// along its flight. The paint never goes away: every splash of the song stays on the wall, the newest over the
-// oldest, so the wall becomes the song's own painting. Behind the well the paint is held back (the stack stays
-// readable) and somewhat under the HUD's columns.
+// once and burst into gobs of their paint thrown out of the well, which fly to the wall on either side and splash
+// where they land: a ragged blob spreading from the impact, stretched along the flight, streaks and droplets
+// flung onward, sometimes a drip running down. The paint never goes away: every splash of the song stays on the
+// wall, the newest over the oldest, so the wall becomes the song's own painting. Behind the well and the stack the
+// paint sinks into the wall (the blocks read clearly), and it is held back under the HUD's columns and text.
 //
-// Staging: the room's light is low at calm, fuller at mid, brightest at a chorus. A drop (a real one, not a
-// chorus) turns the lights off and a blacklight on: the wall sinks into a deep violet and the stains light up one
-// region after another and glow, with a soft halo around them, shimmering slowly; the drop's kicks set the wet
-// paint dripping here and there. After the drop the lights come back and the glow fades out. Slow motion drains
-// the paint of its color (only the pieces keep theirs). A lock flicks a few specks of paint from the impact; a
-// Tetris bursts all four rows and throws two big splashes on the walls on either side; game over bursts the whole
-// stack from the top down. A new song in FLUO fades the wall back to clean; a change of universe arrives on a
-// clean wall.
+// The paint is wet, with a relief (its thickness: thicker rims, domed droplets and drips, paint piled over paint)
+// lit by a light drifting slowly across the wall, so its highlights slide over the stains. No halo around them.
 //
-// Rendering: the splashes are stamped into a persistent paint buffer (premultiplied "over" blending, one quad per
-// primitive), so the cost stays constant however many there are; the glow is a quarter-resolution blur of that
-// buffer, recomputed only when the paint changed. See shaders.hpp.
+// Staging: the room's light is low at calm, fuller at mid, brightest at a chorus; under it the paint is dull and
+// matte-ish. A drop (a real one, not a chorus) turns the lights off and a blacklight on: the wall sinks into a deep
+// violet and the stains light up one region after another, saturated and fluorescent (swelling a little on the
+// drop, then settling: no pulse); the drop's kicks set the wet paint dripping here and there. After the drop the
+// lights come back and the stains go dull again. Slow motion drains the paint of its color (only the pieces keep
+// theirs). A lock flicks a few specks of paint from the impact; a Tetris throws two big gobs far onto the walls;
+// game over bursts the whole stack from the top down. A new song in FLUO fades the wall back to clean; a change of
+// universe arrives on a clean wall.
+//
+// Rendering: finished splashes are stamped once into a persistent pair of buffers (color, premultiplied "over";
+// thickness, added), so the cost stays constant however many there are; splashes still spreading and drips still
+// running are redrawn each frame into a "wet" pair over them. See shaders.hpp.
 //
 // Layout contract: a flat orthographic view at the reference camera's scale on the board plane (like RISOGRAPH).
 #include "universes/fluo/fluo.hpp"
@@ -407,9 +410,14 @@ void FluoUniverse::addRecent(const Recent& rc) {
 vec2 FluoUniverse::landing(vec2 from, float side) {
     Rng& r = rng_;
     const float edge = std::min(viewC_.x * side + viewH_.x - 1.2f, 21.f);
-    const float tx = r.chance(0.68f) ? r.range(11.8f, std::max(12.f, edge)) : r.range(5.8f, 11.4f);
+    const bool far = r.chance(0.85f);
+    const float tx = far ? r.range(11.8f, std::max(12.f, edge)) : r.range(6.6f, 11.f);
     const float D = std::max(1.f, std::fabs(side * tx - from.x));
     vec2 to = v2(side * tx, from.y + D * r.range(-0.2f, 0.7f) + r.range(-1.f, 1.f));
+    if (!far) { // under a HUD column, never over its text
+        const float bottom = side > 0.f ? layout::RIGHT_COLUMN[1] : layout::LEFT_COLUMN[1];
+        to.y = std::min(to.y, bottom - 1.f);
+    }
     to.x = std::clamp(to.x, viewC_.x - viewH_.x + 0.8f, viewC_.x + viewH_.x - 0.8f);
     to.y = std::clamp(to.y, viewC_.y - viewH_.y + 0.8f, viewC_.y + viewH_.y - 0.8f);
     return to;
@@ -427,7 +435,7 @@ void FluoUniverse::fling(vec2 from, vec2 to, vec3 color, float scale, float dela
     f.ctrl = v2(from.x + d.x * 0.5f, from.y + d.y * 0.5f + dist * arc);
     f.delay = delay;
     f.dur = 0.2f + 0.015f * dist;
-    f.r0 = 0.3f * std::min(scale, 2.f) * r.range(0.9f, 1.1f);
+    f.r0 = 0.4f * std::min(scale, 2.f) * r.range(0.9f, 1.1f);
     f.r1 = f.r0 * 0.6f;
     f.scale = scale;
     f.stretch = 1.2f + 0.5f * r.uniform();
