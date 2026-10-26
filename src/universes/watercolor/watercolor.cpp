@@ -108,8 +108,8 @@ const VariantDef VARIANTS[] = {
      {0x5a8090, 0xd8a030, 0x7a3a4a, 0x6a7a2a, 0xb83a20, 0x3a3a50, 0xd06a20},
      -4.5f, 15.5f, -15.5f, -1.2f, 1.5f, 0.35f, 0.75f, 2.8f, 0.3f, 2.0f, 0.4f, 0.f, 2.f, 0.45f, 0.6f, 0.f},
     // Indigo night on toned paper: indigo washes, the moon in white gouache, gouache pieces.
-    {"INDIGO NIGHT", 0xcfc6b4, 0x1c2038, 0x2c3a72, 0x6a6c8c, 0xf2eee2, 0x3a4468, 0x232a46, 0x2c3860, 0x1c2238, 0x9ab0e0,
-     {0x7cc6e4, 0xf2d070, 0xb48ee0, 0x86d4a0, 0xf28484, 0x86a0f2, 0xf4a866},
+    {"INDIGO NIGHT", 0x767c90, 0x1c2038, 0x2c3a72, 0x6a6c8c, 0xf2eee2, 0x3a4468, 0x232a46, 0x2c3860, 0x1c2238, 0x9ab0e0,
+     {0x38b4e8, 0xffc828, 0xa060f0, 0x3cd08a, 0xff5050, 0x5878ff, 0xff8a28},
      -4.4f, 16.5f, 14.5f, 5.0f, 1.0f, 1.0f, 0.f, 3.0f, 0.5f, 1.8f, 0.4f, 1.f, 1.f, 0.4f, 0.6f, 0.5f},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
