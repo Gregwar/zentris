@@ -1226,13 +1226,15 @@ void SumiUniverse::render(const Frame& f, GLuint fbo) {
 }
 
 // The variant of a scene: its key hue picks the family (warm reds -> shu, oranges -> persimmon, greens -> matcha,
-// cyans -> celadon, blues -> aizome, violets -> murasaki); some dark (night mood) scenes take a lacquer negative.
+// cyans -> celadon, blues -> aizome, violets -> murasaki); half of the dark (night mood) scenes and about one song
+// in five take a lacquer negative.
 int SumiUniverse::pickVariant(const SongLook& t) const {
     float h = std::fmod(t.hue / TAU, 1.f);
     if (h < 0) h += 1.f;
     const bool warm = h < 0.15f || h > 0.80f;
     const bool night = t.hasSong && t.minor && t.brightness < 0.45f;
-    if (night && (t.seed & 3) == 0) return warm ? 6 : 7;
+    // black lacquer: half of the night scenes, and now and then any song (about one in five)
+    if (night ? ((t.seed >> 3) & 1) == 0 : ((t.seed >> 3) % 5) == 0) return warm ? 6 : 7;
     if (h < 0.06f || h >= 0.88f) return 0;
     if (h < 0.15f) return 5;
     if (h < 0.22f) return (t.seed & 1) ? 3 : 0;
