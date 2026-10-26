@@ -125,7 +125,7 @@ float stackShadow(vec3 p, int i, float radius) {
     float s = (ZB - p.z) / (l.z - p.z);
     vec3 q = p + (l - p) * s;
     float d = length(l - p);
-    float blur = s * d * radius / max((1.0 - s) * d, 1.0) + 0.06;
+    float blur = s * d * radius / max((1.0 - s) * d, 1.0) * 0.65 + 0.04; // a fairly crisp penumbra
     return occAt(q.xy, blur);
 }
 
