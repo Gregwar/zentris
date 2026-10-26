@@ -1,11 +1,11 @@
 // RISOGRAPH: a two-ink risograph print.
 //
-// One world: the whole frame is a print of two spot inks on plain paper (a third ink joins at the peaks). Every
+// One world: the whole frame is a print of two spot inks on a paper stock (a third ink joins at the peaks). Every
 // mark is ink laid by one drum: flat shapes, halftone tints (dots at a fixed angle per drum, or a line screen),
 // overprints darkening where two inks cross, a riso grain in the ink. The drums are never quite in register, and
 // that registration is the music's signature: calm is an almost still print, slightly off; mid lets the second
-// drum breathe with the tempo while the screens drift; the peak brings the third ink overprinting a big flat
-// shape, the kicks knock the drums out of register and the shapes are re-printed elsewhere on the beats of a bar.
+// drum breathe with the tempo while the screens drift; the peak floods the sheet with the third ink from the
+// shapes' side (slammed in solid on the drop, settling) and overprints its big flat shape, the kicks knock the drums out of register and the shapes are re-printed elsewhere on the beats of a bar.
 // Lots of paper, little else: the world is one big halftone disc, a screened band and, at the peaks, the third
 // ink's shape; no scenery.
 //
@@ -484,8 +484,8 @@ void RisographUniverse::simulate(const Game& game, const MusicState& music, floa
 
     // The peak's flood: in with the peak (at once on the drop), out with it.
     floodT_ += dt;
-    flood_ = approach(flood_, level_ >= 2 || floodT_ < 1.f ? wp : 0.f, floodT_ < 1.f ? 8.f : 0.7f, dt);
-    if (floodT_ < 0.1f) flood_ = std::max(flood_, 1.f);
+    if (floodT_ < 2.f) flood_ = 1.f;
+    else flood_ = approach(flood_, level_ >= 2 ? wp : 0.f, 0.7f, dt);
 
     // Beats and bars.
     pulse_ = approach(pulse_, 0.f, 4.f, dt);
@@ -979,9 +979,9 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         set1f(progWorld_, "uPx", px_);
         // the sheet's tints: B's faint wash away from the shapes; the peak's flood of C, slammed in solid on the
         // drop and settling, its dots swelling on the kicks
-        const float slam = smoothstepf(0.f, 0.05f, floodT_) * std::exp(-floodT_ * 1.5f);
-        const float flood = (0.26f + 0.7f * slam) * (1.f - 0.3f * dark_) * flood_ * world * (1.f - 0.7f * slow_);
-        const float wash = (0.13f + 0.04f * wm) * world;
+        const float slam = smoothstepf(0.f, 0.05f, floodT_) * std::exp(-floodT_ * 1.1f);
+        const float flood = (0.26f + 0.6f * slam) * (1.f - 0.3f * dark_) * flood_ * world * (1.f - 0.7f * slow_);
+        const float wash = (0.1f + 0.03f * wm) * world;
         set1f(progWorld_, "uFloodSide", (float)side_);
         set4f(progWorld_, "uWell", 0.f, 0.f, 5.f, 10.f);
         set4f(progWorld_, "uFlood", flood, wash, std::atan2(-0.55f, -0.85f * side_), 1.f + 0.55f * hitB_ * wp);
