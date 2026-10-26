@@ -1,19 +1,21 @@
 // WHITE ROOM: a seamless white studio, matte blocks and soft shadows.
 //
 // One world: an endless white cyclorama (the floor curving up into the back wall, no corner, no horizon). The well
-// is a white panel standing on a low white plinth; the blocks are matte, soft-cornered cubes (soft plastic,
-// unglazed ceramic) standing just in front of it, each casting its own soft shadow on the panel. A large soft
-// light lights the room; the panel throws its long soft shadow across the floor and up the wall. Nothing else
-// but a few small matte balls on the floor and the lettering set on the wall like a gallery's.
+// is a pane of frosted glass standing on a low white plinth; the blocks are matte, soft-cornered tiles (soft
+// plastic, unglazed ceramic) standing just in front of it. A lamp in front of the well throws the stack's shadow
+// onto the wall behind, enlarged and soft, a shadow play: the tetrominoes themselves, in shade, beside the well (the
+// pane casts nothing; it veils what lies behind it, so the real stack always reads on a calm ground). Nothing else
+// but a few small matte balls on the floor and the lettering set on the wall like a gallery's. Each room is one
+// color story (a family of related hues in spaced values, one accent, two gels that belong to it).
 //
-// The song moves the light: calm is a soft light from the front, the room almost shadowless; mid swings it to the
-// side and the shadows grow; a chorus is a bright warm sun from low on the side, the shadows long and crisp, a
-// few white balls hopping on the kicks. A drop changes the room for its whole length: the key swings low and turns
-// into a colored gel, a second gel of another color comes in from the other side, so every block casts two long
-// shadows, each lit by the other light, and the white room splits into two colors; a rain of colored balls falls
-// on the floor on the drop's downbeat, bounces and settles, then hops with the kicks while the two lights slowly
-// circle. A new section swings the light across to the other side. Beats only press the balls (never the stack, never
-// the light). Slow motion is evening: the room goes blue-grey and a single warm lamp hangs over the well. A lock
+// The song moves the lamp: calm is a soft light high in front, the shadows hidden behind the pane; mid brings the
+// lamp lower and to the side and the stack's shadow starts to climb the wall beside the well; a chorus is a warm lamp
+// low on the side, the shadow large and crisp, a few white balls hopping on the kicks. A drop changes the room for
+// its whole length: the key turns into a colored gel low on one side and a second gel comes in low from the other,
+// so the stack throws two enlarged colored copies of itself up the wall, one on each side, each lit by the other
+// gel; a rain of white balls falls on the floor on the drop's downbeat, bounces and settles, then hops with the
+// kicks while the two gels slowly circle, the shadow copies sweeping. A new section swings the lamp across to the
+// other side. Beats only press the balls (never the stack, never the light). Slow motion is evening: the room goes blue-grey and a single warm lamp hangs over the well. A lock
 // presses the piece into the panel; a cleared block sinks into the white (it shrinks and turns to plaster in a
 // third of a second); a Tetris rolls balls of the cleared colors out onto the floor; game over turns the stack to
 // white plaster row by row as the light sets.
@@ -294,7 +296,7 @@ WhiteRoomUniverse::~WhiteRoomUniverse() {
 // =====================================================================================================
 
 // The room from the song: bright major songs get the clean whites (GALLERY, NORDIC), warm ones the linen and the
-// ceramics, dark minor ones the grey room or the black and red; the key's hue picks among them.
+// ceramics, dark minor ones the grey room or the cold sea; the key's hue picks among them.
 int WhiteRoomUniverse::pickVariant(const SongLook& t) const {
     float h = std::fmod(t.hue / TAU, 1.f);
     if (h < 0) h += 1.f;
