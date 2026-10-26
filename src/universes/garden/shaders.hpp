@@ -39,23 +39,29 @@ vec3 earthTexture(vec3 col, vec3 base, vec2 p, float seed, float px, float tb) {
     vec2 gq = fract(p * 22.0) - 0.5;
     float dot_ = smoothstep(0.42, 0.18, length(gq));
     col *= mix(1.0, h > 0.92 ? 1.0 + 0.3 * dot_ : (h < 0.08 ? 1.0 - 0.35 * dot_ : 1.0), tb);
-    // pebbles here and there: small, pale, greyish stones lit from above, a little shade under each
-    for (int k = 0; k < 2; k++) {
-        float sc = k == 0 ? 3.2 : 6.5;
+    // pebbles, few and far between: pale stones of all sizes (a rare big one, some medium, small grit), lit from the
+    // upper left, a little shade under each
+    for (int k = 0; k < 3; k++) {
+        float sc = k == 0 ? 1.5 : (k == 1 ? 3.0 : 6.0);
         vec2 pc = floor(p * sc);
-        if (hash12(pc + 41.3 + float(k) * 17.0) < (k == 0 ? 0.9 : 0.86)) continue;
+        if (hash12(pc + 41.3 + float(k) * 17.0) < (k == 0 ? 0.955 : (k == 1 ? 0.965 : 0.97))) continue;
         vec2 jit = vec2(hash12(pc + 5.7), hash12(pc + 9.1)) - 0.5;
-        vec2 pq = (fract(p * sc) - 0.5 - jit * 0.45) / sc;
+        vec2 pq = (fract(p * sc) - 0.5 - jit * 0.4) / sc;
         float ang = hash12(pc + 2.9) * 6.283;
         pq = mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * pq;
-        float r = (k == 0 ? 0.075 : 0.045) * (0.7 + 0.6 * hash12(pc + 13.3));
-        float d = length(pq * vec2(1.0, 1.45)) + (vnoise(p * 40.0) - 0.5) * 0.012;
+        float r = (k == 0 ? 0.17 : (k == 1 ? 0.08 : 0.035)) * (0.6 + 0.8 * hash12(pc + 13.3));
+        float el = 1.2 + 0.5 * hash12(pc + 3.3);
+        float d = length(pq * vec2(1.0, el)) + (vnoise(p * 30.0 + float(k)) - 0.5) * r * 0.25;
         float peb = smoothstep(r + px, r - px, d);
-        float shade = smoothstep(r * 1.6, r, length((pq + vec2(0.0, r * 0.35)) * vec2(1.0, 1.45))) * (1.0 - peb);
-        vec3 stone = mix(vec3(dot(base, vec3(0.3, 0.55, 0.15))), base, 0.35) * (1.1 + 0.35 * hash12(pc + 7.7));
-        stone *= 0.75 + 0.45 * smoothstep(-r, r, pq.y + pq.x * 0.4); // lit from the upper left
-        col = mix(col, col * 0.7, shade * 0.6 * tb);
-        col = mix(col, stone, peb * 0.85 * tb);
+        float shade = smoothstep(r * 1.5, r, length((pq + vec2(-r * 0.15, r * 0.3)) * vec2(1.0, el))) * (1.0 - peb);
+        // a pale stone, warm or cool grey, a little of the soil's tint
+        vec3 grey = mix(vec3(0.46, 0.42, 0.36), vec3(0.36, 0.38, 0.4), hash12(pc + 21.1));
+        vec3 stone = mix(grey, base, 0.2) * (0.8 + 0.45 * hash12(pc + 7.7));
+        vec2 lq = pq / r;
+        stone *= 0.7 + 0.5 * smoothstep(-0.9, 0.9, lq.y * 0.8 - lq.x * 0.5);   // lit from the upper left
+        stone *= 0.92 + 0.16 * vnoise(p * 60.0 + float(k) * 3.0);              // its grain
+        col = mix(col, col * 0.62, shade * 0.7 * tb);
+        col = mix(col, stone, peb * tb);
     }
     return col;
 }
