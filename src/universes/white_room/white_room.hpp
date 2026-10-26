@@ -36,10 +36,13 @@ private:
     struct Tile { float a0[4], a1[4], a2[4], a3[4]; };
     struct Occ { float a[4]; };
     struct Vert { float x, y, r, g, b, a; };
+    // A cube instance: center, half size; x axis, alpha; y axis, plaster; albedo, kind (0 the well's, 1 thrown, 2 a
+    // preview).
+    struct CubeInst { float a0[4], a1[4], a2[4], a3[4]; };
     std::vector<Tile> tiles_;
-    std::vector<Tile> sides_;
-    void cube(float x, float y, float s, const vec3& c, float alpha, float plaster); // the blocks' side faces (cubes), drawn before every front face
     std::vector<Occ> occ_;
+    std::vector<CubeInst> board_, boardFade_; // this frame's blocks, piece, previews (opaque, translucent)
+    void block(float x, float y, float s, const vec3& c, float alpha, float plaster, int kind);
     void tile(float x, float y, float hw, float hh, const vec3& c, float alpha, int kind, float e0 = 1.f, float e1 = 0.f,
               float e2 = 0.f, float e3 = 0.f);
 
@@ -66,10 +69,26 @@ private:
     void drawText(const Font& f, const std::vector<float>& quads, const vec3& color, float alpha, float bias);
 
     // ---- GL.
-    GLuint progRoom_ = 0, progOcc_ = 0, progTile_ = 0, progShape_ = 0, progText_ = 0, progPost_ = 0;
+    GLuint progRoom_ = 0, progOcc_ = 0, progTile_ = 0, progShape_ = 0, progText_ = 0, progPost_ = 0, progCube_ = 0,
+           progShadow_ = 0;
     GLuint quadVbo_ = 0, tileVao_ = 0, tileVbo_ = 0, occVao_ = 0, occVbo_ = 0, shapeVao_ = 0, shapeVbo_ = 0, textVao_ = 0,
-           textVbo_ = 0;
+           textVbo_ = 0, cubeVao_ = 0, cubeMeshVbo_ = 0, cubeVbo_ = 0;
     GLuint occFbo_ = 0, occTex_ = 0;
+    // the thrown cubes seen from each lamp: depth maps, their view-projections, (on, tan of the half fov, near, far)
+    static constexpr int SH_N = 1024;
+    GLuint shFbo_[2] = {0, 0}, shTex_[2] = {0, 0}, shCovTex_[2] = {0, 0}, shCmpSampler_ = 0, shRawSampler_ = 0;
+    mat4 shVP_[2];
+    vec4 shP_[2];
+    void renderShadowMaps(int count, const vec3& lo, const vec3& hi);
+    void setRoomUniforms(GLuint prog);
+    void drawCubes(int first, int count);
+    vec4 occRect_{0, 0, 1, 1};
+    float shadowK_ = 1.f;
+    // the multisampled scene (color, depth), resolved into sceneT_
+    GLuint msFbo_ = 0, msColor_ = 0, msDepth_ = 0;
+    // the room, shaded once per pixel: its color and its depth (copied into the multisampled scene)
+    GLuint roomFbo_ = 0, roomTex_ = 0, roomZTex_ = 0, progCopy_ = 0;
+    int samples_ = 0;
     static constexpr int OCC_N = 384;      // the occupancy map's texels (square)
     static constexpr float OCC_SIZE = 25.6f; // board units it covers (centered on the board)
     ugl::Target sceneT_;
@@ -104,17 +123,36 @@ private:
 
     // ---- Cleared blocks thrown out of the well: cubes flying out left, right or back, landing on the floor, lying
     // there a while and fading (their physics at the real speed, like the clear).
+    // They fly and tumble, then settle on a heightmap of the floor that grows as they pile up (a random yaw, a tilt
+    // from the pile under them, tipping off an edge they do not sit on), sleep there 60 to 120 s and fade; a cube
+    // fading out lowers the heightmap and the cubes resting on it drop.
     struct Ejected {
-        vec3 p, v;          // center, velocity (board space)
-        float yaw, th, w;   // heading about y, tumble about the cube's own x axis, its spin
-        float h;            // half size
-        int color;
-        float age, life;    // seconds; fades over its last second
+        vec3 p, v, w;              // center, velocity, angular velocity (board space)
+        vec3 ax[3];                // its axes (orientation)
+        vec3 fromP, fromAx[3];     // settling: from the landing pose ...
+        vec3 toP, toAx[3];         // ... to the resting pose
+        float settle = 0.f;        // 0..1
+        float h = 0.42f;           // half size
+        int color = 0;
+        float age = 0.f, life = 1.f; // seconds; fades over its last FADE seconds
+        int state = 0;             // AIR, SETTLE, REST
+        int tips = 0;              // times it tipped off an edge since it was thrown (or woken)
     };
     std::vector<Ejected> ejected_;
-    static constexpr int EJECT_MAX = 24;
+    static constexpr int EJECT_MAX = 300;
     void eject(float x, float y, int color, float power);
     void stepEjected(float dt);
+    void land(Ejected& e);
+    // the heightmap over the floor (x, z): the ground (floor, plinth) and the resting cubes' tops
+    static constexpr int HM_NX = 128, HM_NZ = 20;
+    static constexpr float HM_X0 = -25.6f, HM_Z0 = -4.4f, HM_CELL = 0.4f;
+    std::vector<float> hm_, hmBase_, hmUp_;
+    bool hmDirty_ = true;
+    GLuint hmTex_ = 0;
+    float hmAt(float x, float z) const;
+    void hmStamp(const vec3& p, const vec3 (&ax)[3], float h);
+    void hmRebuild(); // after a cube is gone: the piles again, waking the cubes left hanging
+    std::vector<CubeInst> thrown_, thrownFade_;
     float dropSwing_ = 0.f;  // the drop's gels swinging in from far out (1 on the downbeat .. 0)
 
     // ---- Effects.

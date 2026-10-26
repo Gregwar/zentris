@@ -15,10 +15,12 @@
 // in across the wall and settle, one on each side, each lit by the other gel; then the gels slowly circle, the
 // shadow copies sweeping. A new section swings the lamp across to the other side. The light never pulses. Slow
 // motion is evening: the room goes blue-grey and a single warm lamp hangs over the well. A lock presses the piece
-// into the panel; a cleared row vacates at once and its blocks are thrown out from behind the pane as real cubes, to
-// the left, the right or back toward the wall: they fly, tumble, bounce and settle on the floor (or the plinth),
-// casting their shadows, lie there several seconds and fade away; game over turns the stack to white plaster row by
-// row as the light sets.
+// into the panel; a cleared row vacates at once and its blocks are thrown out from behind the pane as cubes, to the
+// left, the right or back toward the wall: they fly, tumble, bounce and land on the floor, the plinth or the cubes
+// already there, piling up into messy mounds (tilted, turned, leaning, tipping off an edge), lie there a minute or
+// two and fade away (the ones above then drop); game over turns the stack to white plaster row by row as the light
+// sets. Every cube (the stack, the piece, the previews, the thrown ones) is the same real cube, rasterized in the
+// layout's camera and lit by the room.
 //
 // Layout contract: the layout's own camera (the well's plane z = 0 is exactly where the layout puts it).
 #include "universes/white_room/white_room.hpp"
@@ -51,13 +53,15 @@ using ugl::set3f;
 using ugl::set4f;
 using ugl::setMat;
 
-GLuint compile(const char* vs, const char* fs, const char* name) {
+GLuint compile(const char* vs, const char* fs, const char* name, bool lit = false) {
     std::string f(fs);
-    f.insert(f.find('\n') + 1, shaders::COMMON_GLSL);
+    f.insert(f.find('\n') + 1, std::string(shaders::COMMON_GLSL) + (lit ? shaders::LIGHT_GLSL : ""));
     return ugl::program(vs, f.c_str(), name);
 }
 
 constexpr float FLOOR = -10.6f, WALL_Z = -9.f, COVE = 5.f;
+constexpr float PLINTH_TOP = -10.05f, PLINTH_HX = 5.5f, PLINTH_HZ = 1.3f;
+constexpr float PANE_Z = -0.62f;
 
 vec3 hex(unsigned v) { return {((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255.f, (v & 255) / 255.f}; }
 vec3 lin(unsigned c) { return ugl::toLinear(hex(c)); }
@@ -151,7 +155,10 @@ const vec3 GEL_A(-19.f, -10.f, 13.f), GEL_B(19.f, -10.2f, 13.f);
 // =====================================================================================================
 
 bool WhiteRoomUniverse::init(int width, int height) {
-    progRoom_ = compile(ugl::FULLSCREEN_VS, shaders::ROOM_FS, "white room");
+    progRoom_ = compile(ugl::FULLSCREEN_VS, shaders::ROOM_FS, "white room", true);
+    progCube_ = compile(shaders::CUBE_VS, shaders::CUBE_FS, "white room cube", true);
+    progShadow_ = compile(shaders::SHADOW_VS, shaders::SHADOW_FS, "white room shadow");
+    progCopy_ = compile(ugl::FULLSCREEN_VS, shaders::COPY_FS, "white room copy");
     progOcc_ = compile(shaders::OCC_VS, shaders::OCC_FS, "white room occupancy");
     progTile_ = compile(shaders::TILE_VS, shaders::TILE_FS, "white room tile");
     progShape_ = compile(shaders::SHAPE_VS, shaders::SHAPE_FS, "white room shape");
@@ -178,6 +185,38 @@ bool WhiteRoomUniverse::init(int width, int height) {
     };
     instanced(tileVao_, tileVbo_, 4, sizeof(Tile));
     instanced(occVao_, occVbo_, 1, sizeof(Occ));
+
+    // The cube: 36 corners at +-1 with their faces' normals (counter-clockwise seen from outside), then the
+    // instances.
+    {
+        std::vector<float> mesh;
+        const vec3 N[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        const vec3 U[6] = {{0, 1, 0}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+        const vec3 V[6] = {{0, 0, 1}, {0, 1, 0}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0}, {1, 0, 0}};
+        const float ab[6][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, -1}, {1, 1}, {-1, 1}};
+        for (int f = 0; f < 6; f++)
+            for (auto& c : ab) {
+                const vec3 q = N[f] + U[f] * c[0] + V[f] * c[1];
+                const float v[6] = {q.x, q.y, q.z, N[f].x, N[f].y, N[f].z};
+                mesh.insert(mesh.end(), v, v + 6);
+            }
+        glGenVertexArrays(1, &cubeVao_);
+        glGenBuffers(1, &cubeMeshVbo_);
+        glGenBuffers(1, &cubeVbo_);
+        glBindVertexArray(cubeVao_);
+        glBindBuffer(GL_ARRAY_BUFFER, cubeMeshVbo_);
+        glBufferData(GL_ARRAY_BUFFER, mesh.size() * sizeof(float), mesh.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 6, nullptr);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 6, (void*)(sizeof(float) * 3));
+        glBindBuffer(GL_ARRAY_BUFFER, cubeVbo_);
+        for (int i = 0; i < 4; i++) {
+            glEnableVertexAttribArray(2 + i);
+            glVertexAttribPointer(2 + i, 4, GL_FLOAT, GL_FALSE, sizeof(CubeInst), (void*)(sizeof(float) * 4 * i));
+            glVertexAttribDivisor(2 + i, 1);
+        }
+    }
 
     glGenVertexArrays(1, &shapeVao_);
     glGenBuffers(1, &shapeVbo_);
@@ -211,6 +250,66 @@ bool WhiteRoomUniverse::init(int width, int height) {
     glBindFramebuffer(GL_FRAMEBUFFER, occFbo_);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, occTex_, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // The shadow maps (the thrown cubes seen from each lamp): read compared (soft taps) and raw (the casters' depth).
+    for (int i = 0; i < 2; i++) {
+        glGenTextures(1, &shTex_[i]);
+        glBindTexture(GL_TEXTURE_2D, shTex_[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, SH_N, SH_N, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glGenFramebuffers(1, &shFbo_[i]);
+        glBindFramebuffer(GL_FRAMEBUFFER, shFbo_[i]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shTex_[i], 0);
+        // where the casters are (mipmapped: the shaders skip the points far from any)
+        glGenTextures(1, &shCovTex_[i]);
+        glBindTexture(GL_TEXTURE_2D, shCovTex_[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, SH_N, SH_N, 0, GL_RED, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, shCovTex_[i], 0);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            std::fprintf(stderr, "[gl] white room shadow FBO incomplete\n");
+        glClearColor(0.f, 0.f, 0.f, 0.f);
+        glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+        shP_[i] = vec4(0, 0, 0, 0);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glGenSamplers(1, &shCmpSampler_);
+    glSamplerParameteri(shCmpSampler_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glSamplerParameteri(shCmpSampler_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glSamplerParameteri(shCmpSampler_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glSamplerParameteri(shCmpSampler_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glSamplerParameteri(shCmpSampler_, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    glSamplerParameteri(shCmpSampler_, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glGenSamplers(1, &shRawSampler_);
+    glSamplerParameteri(shRawSampler_, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glSamplerParameteri(shRawSampler_, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glSamplerParameteri(shRawSampler_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glSamplerParameteri(shRawSampler_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glSamplerParameteri(shRawSampler_, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+
+    // The piles' heightmap: the ground (the floor, the plinth's top) and the resting cubes' tops, cell by cell.
+    hmBase_.assign(HM_NX * HM_NZ, 0.f);
+    for (int iz = 0; iz < HM_NZ; iz++)
+        for (int ix = 0; ix < HM_NX; ix++) {
+            const float x = HM_X0 + (ix + 0.5f) * HM_CELL, z = HM_Z0 + (iz + 0.5f) * HM_CELL;
+            hmBase_[iz * HM_NX + ix] = std::fabs(x) < PLINTH_HX && std::fabs(z) < PLINTH_HZ ? PLINTH_TOP : FLOOR;
+        }
+    hm_ = hmBase_;
+    hmUp_.assign(HM_NX * HM_NZ, 0.f);
+    glGenTextures(1, &hmTex_);
+    glBindTexture(GL_TEXTURE_2D, hmTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, HM_NX, HM_NZ, 0, GL_RED, GL_FLOAT, hmUp_.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    hmDirty_ = true;
 
     buildFont(fontLight_, FONT_LIGHT);
     buildFont(fontMedium_, FONT_MEDIUM);
@@ -276,16 +375,65 @@ void WhiteRoomUniverse::resize(int width, int height) {
 
 void WhiteRoomUniverse::createTargets() {
     sceneT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
+    // the scene is drawn multisampled (the cubes' edges), with a depth (the room's, then the cubes'), then resolved
+    if (msFbo_) glDeleteFramebuffers(1, &msFbo_);
+    for (GLuint* r : {&msColor_, &msDepth_})
+        if (*r) glDeleteRenderbuffers(1, r);
+    GLint maxS = 0;
+    glGetIntegerv(GL_MAX_SAMPLES, &maxS);
+    samples_ = std::min(4, (int)maxS);
+    glGenFramebuffers(1, &msFbo_);
+    glBindFramebuffer(GL_FRAMEBUFFER, msFbo_);
+    glGenRenderbuffers(1, &msColor_);
+    glBindRenderbuffer(GL_RENDERBUFFER, msColor_);
+    glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples_, GL_RGBA16F, width_, height_);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, msColor_);
+    glGenRenderbuffers(1, &msDepth_);
+    glBindRenderbuffer(GL_RENDERBUFFER, msDepth_);
+    glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples_, GL_DEPTH_COMPONENT24, width_, height_);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, msDepth_);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "[gl] white room MSAA FBO incomplete\n");
+    // the room's own target (its color, its depth)
+    if (roomFbo_) glDeleteFramebuffers(1, &roomFbo_);
+    for (GLuint* t : {&roomTex_, &roomZTex_})
+        if (*t) glDeleteTextures(1, t);
+    auto tex = [&](GLuint& t, GLenum internal, GLenum format, GLenum type) {
+        glGenTextures(1, &t);
+        glBindTexture(GL_TEXTURE_2D, t);
+        glTexImage2D(GL_TEXTURE_2D, 0, internal, width_, height_, 0, format, type, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    };
+    tex(roomTex_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
+    tex(roomZTex_, GL_R32F, GL_RED, GL_FLOAT);
+    glGenFramebuffers(1, &roomFbo_);
+    glBindFramebuffer(GL_FRAMEBUFFER, roomFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, roomTex_, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, roomZTex_, 0);
+    const GLenum bufs[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+    glDrawBuffers(2, bufs);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "[gl] white room room FBO incomplete\n");
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 WhiteRoomUniverse::~WhiteRoomUniverse() {
     sceneT_.destroy();
-    for (GLuint p : {progRoom_, progOcc_, progTile_, progShape_, progText_, progPost_}) glDeleteProgram(p);
-    for (GLuint v : {tileVao_, occVao_, shapeVao_, textVao_}) glDeleteVertexArrays(1, &v);
-    for (GLuint b : {quadVbo_, tileVbo_, occVbo_, shapeVbo_, textVbo_}) glDeleteBuffers(1, &b);
-    if (occFbo_) glDeleteFramebuffers(1, &occFbo_);
-    if (occTex_) glDeleteTextures(1, &occTex_);
+    for (GLuint p : {progRoom_, progOcc_, progTile_, progShape_, progText_, progPost_, progCube_, progShadow_, progCopy_})
+        glDeleteProgram(p);
+    for (GLuint v : {tileVao_, occVao_, shapeVao_, textVao_, cubeVao_}) glDeleteVertexArrays(1, &v);
+    for (GLuint b : {quadVbo_, tileVbo_, occVbo_, shapeVbo_, textVbo_, cubeMeshVbo_, cubeVbo_}) glDeleteBuffers(1, &b);
+    for (GLuint f : {occFbo_, shFbo_[0], shFbo_[1], msFbo_, roomFbo_})
+        if (f) glDeleteFramebuffers(1, &f);
+    for (GLuint t : {occTex_, shTex_[0], shTex_[1], shCovTex_[0], shCovTex_[1], hmTex_, roomTex_, roomZTex_})
+        if (t) glDeleteTextures(1, &t);
+    for (GLuint r : {msColor_, msDepth_})
+        if (r) glDeleteRenderbuffers(1, &r);
+    for (GLuint sm : {shCmpSampler_, shRawSampler_})
+        if (sm) glDeleteSamplers(1, &sm);
     for (Font* f : {&fontLight_, &fontMedium_}) {
         if (f->tex) glDeleteTextures(1, &f->tex);
         delete (stbtt_fontinfo*)f->info;
@@ -384,109 +532,260 @@ TransitionHints WhiteRoomUniverse::hints() const {
 // =====================================================================================================
 
 namespace {
-constexpr float PLINTH_TOP = -10.05f, PLINTH_HX = 5.5f, PLINTH_HZ = 1.3f;
 constexpr float EJECT_Z = -1.25f; // thrown out from behind the pane (z = -0.62): nothing is drawn over the well
-constexpr float FADE = 1.2f;
+constexpr float FADE = 1.5f;
+constexpr float ZMIN = WALL_Z + COVE + 0.55f, ZMAX = 2.2f, XMAX = 17.f; // the floor they keep to
+enum { AIR, SETTLE, REST };
+
+float extentY(const vec3 (&ax)[3], float h) { return h * (std::fabs(ax[0].y) + std::fabs(ax[1].y) + std::fabs(ax[2].y)); }
+void orthonormalize(vec3 (&ax)[3]) {
+    ax[0] = normalize(ax[0]);
+    ax[1] = normalize(ax[1] - ax[0] * dot(ax[0], ax[1]));
+    ax[2] = cross(ax[0], ax[1]);
+}
+vec3 rotateAbout(const vec3& v, const vec3& k, float a) {
+    const float c = std::cos(a), s = std::sin(a);
+    return v * c + cross(k, v) * s + k * (dot(k, v) * (1.f - c));
+}
+int upAxis(const vec3 (&ax)[3]) {
+    int u = 0;
+    for (int k = 1; k < 3; k++)
+        if (std::fabs(ax[k].y) > std::fabs(ax[u].y)) u = k;
+    return u;
+}
 } // namespace
 
+float WhiteRoomUniverse::hmAt(float x, float z) const {
+    const int ix = (int)std::floor((x - HM_X0) / HM_CELL), iz = (int)std::floor((z - HM_Z0) / HM_CELL);
+    if (ix < 0 || iz < 0 || ix >= HM_NX || iz >= HM_NZ) return FLOOR;
+    return hm_[iz * HM_NX + ix];
+}
+
+// A resting cube raises the cells under it to its top (a little under it: the next one nests in).
+void WhiteRoomUniverse::hmStamp(const vec3& p, const vec3 (&ax)[3], float h) {
+    const int u = upAxis(ax);
+    const vec3 a = ax[(u + 1) % 3], b = ax[(u + 2) % 3];
+    const vec3 n = ax[u] * (ax[u].y < 0.f ? -1.f : 1.f); // its top face's normal
+    const float ext = extentY(ax, h);
+    // the top face over a cell (a tilted cube is lower on one side)
+    auto top = [&](float dx, float dz) {
+        return p.y + std::min(ext, (h - n.x * dx - n.z * dz) / std::max(n.y, 0.3f)) * 0.92f;
+    };
+    const float R = 1.42f * h;
+    const int x0 = std::max(0, (int)std::floor((p.x - R - HM_X0) / HM_CELL)),
+              x1 = std::min(HM_NX - 1, (int)std::floor((p.x + R - HM_X0) / HM_CELL));
+    const int z0 = std::max(0, (int)std::floor((p.z - R - HM_Z0) / HM_CELL)),
+              z1 = std::min(HM_NZ - 1, (int)std::floor((p.z + R - HM_Z0) / HM_CELL));
+    for (int iz = z0; iz <= z1; iz++)
+        for (int ix = x0; ix <= x1; ix++) {
+            const float dx = HM_X0 + (ix + 0.5f) * HM_CELL - p.x, dz = HM_Z0 + (iz + 0.5f) * HM_CELL - p.z;
+            if (std::fabs(dx * a.x + dz * a.z) > h * 0.95f || std::fabs(dx * b.x + dz * b.z) > h * 0.95f) continue;
+            float& c = hm_[iz * HM_NX + ix];
+            c = std::max(c, top(dx, dz));
+        }
+    const int ix = (int)std::floor((p.x - HM_X0) / HM_CELL), iz = (int)std::floor((p.z - HM_Z0) / HM_CELL);
+    if (ix >= 0 && iz >= 0 && ix < HM_NX && iz < HM_NZ) hm_[iz * HM_NX + ix] = std::max(hm_[iz * HM_NX + ix], top(0.f, 0.f));
+    hmDirty_ = true;
+}
+
+// A cube is gone: the piles again from the ground up (the resting cubes from the lowest); a cube left hanging over
+// the gap wakes and drops.
+void WhiteRoomUniverse::hmRebuild() {
+    hm_ = hmBase_;
+    std::vector<std::pair<float, int>> order;
+    for (int i = 0; i < (int)ejected_.size(); i++) {
+        const Ejected& e = ejected_[i];
+        if (e.state != AIR) order.push_back({e.toP.y - extentY(e.toAx, e.h), i});
+    }
+    std::sort(order.begin(), order.end());
+    for (auto& o : order) {
+        Ejected& e = ejected_[o.second];
+        const float r = 0.7f * e.h, x = e.toP.x, z = e.toP.z;
+        const float S = std::max({hmAt(x, z), hmAt(x + r, z), hmAt(x - r, z), hmAt(x, z + r), hmAt(x, z - r)});
+        if (o.first > S + 0.3f * e.h) {
+            if (e.state == REST) {
+                e.p = e.toP;
+                for (int k = 0; k < 3; k++) e.ax[k] = e.toAx[k];
+            }
+            e.state = AIR;
+            e.v = vec3(0.f, 0.f, 0.f);
+            e.w = vec3(rng_.range(-1.5f, 1.5f), rng_.range(-1.5f, 1.5f), rng_.range(-1.5f, 1.5f));
+            e.tips = 0;
+        } else hmStamp(e.toP, e.toAx, e.h);
+    }
+    hmDirty_ = true;
+}
+
 // A cleared block thrown out: left, right (mostly toward its own side of the well) or back toward the wall, with an
-// upward kick and a spin; power grows with the lines cleared.
+// upward kick and a tumble; power grows with the lines cleared.
 void WhiteRoomUniverse::eject(float x, float y, int color, float power) {
-    Ejected e{};
+    Ejected e;
     e.h = 0.42f;
     e.p = vec3(x, y, EJECT_Z);
     const float side = x + rng_.range(-3.5f, 3.5f) < 0.f ? -1.f : 1.f;
     if (rng_.chance(0.3f)) {
-        // back toward the wall, spreading sideways
-        e.v = vec3(side * rng_.range(0.5f, 5.f), rng_.range(3.f, 7.f), -rng_.range(2.f, 4.5f));
+        // back toward the wall, spreading sideways (piles behind and beside the well)
+        e.v = vec3(side * rng_.range(3.f, 10.f), rng_.range(3.f, 7.f), -rng_.range(1.f, 3.5f));
     } else {
-        e.v = vec3(side * rng_.range(7.f, 13.f), rng_.range(3.f, 8.f), rng_.range(-2.f, 1.2f));
+        e.v = vec3(side * rng_.range(5.f, 17.f), rng_.range(3.f, 8.5f), rng_.range(-2.5f, 0.6f));
     }
     e.v = e.v * power;
-    e.yaw = std::atan2(e.v.x, e.v.z) + rng_.range(-0.35f, 0.35f);
-    e.th = rng_.range(-0.4f, 0.4f);
-    e.w = rng_.range(4.f, 11.f) * (rng_.chance(0.8f) ? 1.f : -1.f);
+    const float yaw = rng_.range(0.f, TAU);
+    e.ax[0] = vec3(std::cos(yaw), 0.f, -std::sin(yaw));
+    e.ax[1] = vec3(0.f, 1.f, 0.f);
+    e.ax[2] = cross(e.ax[0], e.ax[1]);
+    // tumbling about an axis across its flight
+    const vec3 dir = normalize(vec3(e.v.x, 0.f, e.v.z));
+    const vec3 axis = normalize(cross(vec3(0.f, 1.f, 0.f), dir) +
+                                vec3(rng_.range(-0.4f, 0.4f), rng_.range(-0.4f, 0.4f), rng_.range(-0.4f, 0.4f)));
+    e.w = axis * (rng_.range(4.f, 11.f) * (rng_.chance(0.8f) ? 1.f : -1.f));
     e.color = color;
-    e.life = rng_.range(6.f, 10.f);
+    e.life = rng_.range(60.f, 120.f);
+    e.state = AIR;
     ejected_.push_back(e);
     // over the cap: the oldest start fading now
     int alive = 0;
     for (const Ejected& o : ejected_) alive += o.life - o.age > FADE ? 1 : 0;
     for (Ejected& o : ejected_) {
-        if (alive <= EJECT_MAX - 4) break;
+        if (alive <= EJECT_MAX) break;
         if (o.life - o.age > FADE) { o.life = o.age + FADE; alive--; }
     }
 }
 
-// Gravity, the floor (or the plinth's top), the back of the room, a little bounce with damping and friction; the
-// tumble settles flat on a face. Cubes push each other apart sideways (no stacking).
+// Landing: on the floor, the plinth or a pile (the heightmap under it). A cube whose middle is not held (it came
+// down on an edge) tips off toward the lower side; otherwise it settles, its lowest face down, turned a little,
+// tilted along the pile under it (leaning when it tipped already).
+void WhiteRoomUniverse::land(Ejected& e) {
+    const float h = e.h, r = 0.7f * h, x = e.p.x, z = e.p.z;
+    const float Hc = hmAt(x, z), Hxp = hmAt(x + r, z), Hxm = hmAt(x - r, z), Hzp = hmAt(x, z + r), Hzm = hmAt(x, z - r);
+    const float S = std::max({Hc, Hxp, Hxm, Hzp, Hzm}), lo = std::min({Hc, Hxp, Hxm, Hzp, Hzm});
+    // the pile's slope around (a cube on a peak rolls down its steepest side: the piles spread into mounds)
+    // (never toward where it cannot go: in front of the well, out of the room)
+    const float R2 = 2.2f * h;
+    auto around = [&](float xx, float zz) {
+        const bool shut = (std::fabs(xx) < PLINTH_HX + h && zz > PANE_Z - h) || zz < ZMIN || zz > ZMAX || std::fabs(xx) > XMAX;
+        return shut ? 1e3f : hmAt(xx, zz);
+    };
+    float low = 1e9f;
+    vec3 downhill(1.f, 0.f, 0.f);
+    const float a0 = rng_.range(0.f, TAU);
+    for (int q = 0; q < 8; q++) {
+        const vec3 dd(std::cos(a0 + q * TAU / 8.f), 0.f, std::sin(a0 + q * TAU / 8.f));
+        const float v = around(x + dd.x * R2, z + dd.z * R2);
+        if (v < low) { low = v; downhill = dd; }
+    }
+    const bool edge = Hc < S - 0.45f * h, steep = S - low > 1.25f * h;
+    if ((edge && e.tips < 2) || (steep && e.tips < 10)) {
+        vec3 d(Hxm - Hxp, 0.f, Hzm - Hzp);
+        if (!edge) d = downhill + vec3(rng_.range(-0.3f, 0.3f), 0.f, rng_.range(-0.3f, 0.3f));
+        if (length(d) < 1e-3f) d = vec3(rng_.range(-1.f, 1.f), 0.f, rng_.range(-1.f, 1.f));
+        d = normalize(d);
+        const float sp = rng_.range(2.2f, 3.6f);
+        e.v = vec3(d.x * sp, 1.2f, d.z * sp);
+        e.w = cross(vec3(0.f, 1.f, 0.f), d) * rng_.range(4.f, 7.f);
+        e.p.y = S + extentY(e.ax, h) + 0.02f;
+        e.tips++;
+        return;
+    }
+    const int ui = upAxis(e.ax), j = (ui + 1) % 3, k = (ui + 2) % 3;
+    const float sgn = e.ax[ui].y < 0.f ? -1.f : 1.f;
+    float gx = (Hxp - Hxm) / (2.f * r), gz = (Hzp - Hzm) / (2.f * r);
+    const float maxT = (e.tips > 0 || Hc < S - 0.2f * h) ? 0.8f : 0.2f;
+    const float gl = std::sqrt(gx * gx + gz * gz);
+    if (gl > maxT) { gx *= maxT / gl; gz *= maxT / gl; }
+    gx += rng_.range(-0.04f, 0.04f);
+    gz += rng_.range(-0.04f, 0.04f);
+    const vec3 n = normalize(vec3(-gx, 1.f, -gz));
+    vec3 T[3];
+    T[ui] = n * sgn;
+    vec3 A = e.ax[j] - n * dot(e.ax[j], n);
+    if (length(A) < 1e-3f) A = e.ax[k] - n * dot(e.ax[k], n);
+    T[j] = rotateAbout(normalize(A), n, rng_.range(-0.3f, 0.3f));
+    T[k] = cross(T[ui], T[j]);
+    const float P = std::max(Hc, 0.5f * (S + lo));
+    e.fromP = e.p;
+    e.toP = vec3(x, P + h / n.y, z);
+    for (int i = 0; i < 3; i++) {
+        e.fromAx[i] = e.ax[i];
+        e.toAx[i] = T[i];
+    }
+    e.settle = 0.f;
+    e.state = SETTLE;
+    e.v = vec3(0.f, 0.f, 0.f);
+    e.w = vec3(0.f, 0.f, 0.f);
+    hmStamp(e.toP, e.toAx, h);
+}
+
+// Flight: gravity and the tumble, the room's bounds, the pane (they stay behind it, or beside the well), the piles
+// in the way, the ground (a bounce, then landing). Settling cubes ease into their pose; resting ones cost nothing.
 void WhiteRoomUniverse::stepEjected(float dt) {
     const float G = 30.f;
-    const int steps = 3;
-    const float h = dt / steps;
-    for (int k = 0; k < steps; k++) {
-        for (Ejected& e : ejected_) {
-            e.v.y -= G * h;
-            e.p = e.p + e.v * h;
-            e.th += e.w * h;
-            const float hy = e.h * (std::fabs(std::cos(e.th)) + std::fabs(std::sin(e.th)));
-            const bool overPlinth = std::fabs(e.p.x) < PLINTH_HX && std::fabs(e.p.z) < PLINTH_HZ;
-            // the plinth's sides (a cube below its top, beside it, is pushed out)
-            if (!overPlinth && e.p.y - hy < PLINTH_TOP - 0.05f && std::fabs(e.p.x) < PLINTH_HX + e.h &&
-                std::fabs(e.p.z) < PLINTH_HZ + e.h) {
-                const float ox = PLINTH_HX + e.h - std::fabs(e.p.x), oz = PLINTH_HZ + e.h - std::fabs(e.p.z);
-                if (ox < oz) { e.p.x += (e.p.x < 0.f ? -ox : ox); e.v.x = -e.v.x * 0.3f; }
-                else { e.p.z += (e.p.z < 0.f ? -oz : oz); e.v.z = -e.v.z * 0.3f; }
+    const int steps = 2;
+    const float hdt = dt / steps;
+    for (Ejected& e : ejected_) {
+        if (e.state == REST) continue;
+        if (e.state == SETTLE) {
+            e.settle = std::min(1.f, e.settle + dt / 0.14f);
+            const float k = smoothstepf(0.f, 1.f, e.settle);
+            e.p = lerp(e.fromP, e.toP, k);
+            for (int i = 0; i < 3; i++) e.ax[i] = lerp(e.fromAx[i], e.toAx[i], k);
+            orthonormalize(e.ax);
+            if (e.settle >= 1.f) {
+                e.state = REST;
+                e.p = e.toP;
+                for (int i = 0; i < 3; i++) e.ax[i] = e.toAx[i];
             }
-            const float ground = overPlinth ? PLINTH_TOP : FLOOR;
-            bool contact = false;
-            if (e.p.y - hy <= ground) {
-                e.p.y = ground + hy;
-                contact = true;
-                if (e.v.y < -2.f) {
-                    e.v.y = -e.v.y * 0.3f;
-                    e.v.x *= 0.65f;
-                    e.v.z *= 0.65f;
-                    e.w = e.w * 0.55f + rng_.range(-2.f, 2.f);
-                } else e.v.y = std::max(e.v.y, 0.f);
+            continue;
+        }
+        for (int s = 0; s < steps && e.state == AIR; s++) {
+            e.v.y -= G * hdt;
+            const vec3 prev = e.p;
+            e.p += e.v * hdt;
+            const float wl = length(e.w);
+            if (wl > 1e-4f) {
+                const vec3 kax = e.w / wl;
+                for (int i = 0; i < 3; i++) e.ax[i] = rotateAbout(e.ax[i], kax, wl * hdt);
+                orthonormalize(e.ax);
             }
-            // the back of the room (the cove starts at z = -4) and its far sides
-            const float zMin = WALL_Z + COVE + e.h * 1.3f;
-            if (e.p.z < zMin) { e.p.z = zMin; e.v.z = std::fabs(e.v.z) * 0.3f; }
-            if (std::fabs(e.p.x) > 20.f) { e.p.x = std::copysign(20.f, e.p.x); e.v.x = -e.v.x * 0.3f; }
-            if (contact) {
-                const float f = std::exp(-3.5f * h);
-                e.v.x *= f;
-                e.v.z *= f;
-                // the tumble settles flat on a face (a cube on an edge falls onto the nearer face)
-                const float q = 0.5f * PI;
-                const float target = std::round(e.th / q) * q;
-                e.w += -(e.th - target) * 90.f * h;
-                e.w *= std::exp(-5.f * h);
+            if (e.p.z < ZMIN) { e.p.z = ZMIN; e.v.z = std::fabs(e.v.z) * 0.3f; }
+            if (e.p.z > ZMAX) { e.p.z = ZMAX; e.v.z = -std::fabs(e.v.z) * 0.3f; }
+            if (std::fabs(e.p.x) > XMAX) { e.p.x = std::copysign(XMAX, e.p.x); e.v.x = -e.v.x * 0.3f; }
+            // the pane (and the plinth's front): behind it, or beside the well
+            const float px = PLINTH_HX + e.h;
+            const float ez = e.h * (std::fabs(e.ax[0].z) + std::fabs(e.ax[1].z) + std::fabs(e.ax[2].z));
+            if (std::fabs(e.p.x) < px && e.p.z > PANE_Z - ez && e.p.y < 10.6f) {
+                if (std::fabs(prev.x) < px) { e.p.z = PANE_Z - ez; e.v.z = -std::fabs(e.v.z) * 0.3f; }
+                else { e.p.x = std::copysign(px, prev.x); e.v.x = -e.v.x * 0.3f; }
+            }
+            const float ext = extentY(e.ax, e.h);
+            // a pile in the way
+            const float hc = hmAt(e.p.x, e.p.z);
+            if (e.p.y - ext < hc - 0.35f * e.h && hmAt(prev.x, prev.z) < hc - 0.05f) {
+                e.p.x = prev.x;
+                e.p.z = prev.z;
+                e.v.x *= -0.3f;
+                e.v.z *= -0.3f;
+            }
+            const float r = 0.7f * e.h;
+            const float S = std::max({hmAt(e.p.x, e.p.z), hmAt(e.p.x + r, e.p.z), hmAt(e.p.x - r, e.p.z),
+                                      hmAt(e.p.x, e.p.z + r), hmAt(e.p.x, e.p.z - r)});
+            if (e.p.y - ext <= S) {
+                if (e.v.y > 0.f) e.p.y = S + ext;
+                else if (e.v.y < -4.f) {
+                    e.p.y = S + ext;
+                    e.v.y = -e.v.y * 0.28f;
+                    e.v.x *= 0.6f;
+                    e.v.z *= 0.6f;
+                    e.w = e.w * 0.5f + vec3(rng_.range(-3.f, 3.f), rng_.range(-3.f, 3.f), rng_.range(-3.f, 3.f));
+                } else land(e);
             }
         }
-        for (size_t i = 0; i < ejected_.size(); i++)
-            for (size_t j = i + 1; j < ejected_.size(); j++) {
-                Ejected &a = ejected_[i], &b = ejected_[j];
-                const float r = (a.h + b.h) * 1.1f;
-                if (std::fabs(a.p.y - b.p.y) > r) continue;
-                const float dx = b.p.x - a.p.x, dz = b.p.z - a.p.z;
-                const float d = std::sqrt(dx * dx + dz * dz);
-                if (d >= r) continue;
-                const float nx = d > 1e-4f ? dx / d : 1.f, nz = d > 1e-4f ? dz / d : 0.f;
-                const float push = (r - d) * 0.5f;
-                a.p.x -= nx * push; a.p.z -= nz * push;
-                b.p.x += nx * push; b.p.z += nz * push;
-                const float rel = (b.v.x - a.v.x) * nx + (b.v.z - a.v.z) * nz;
-                if (rel < 0.f) {
-                    a.v.x += nx * rel * 0.5f; a.v.z += nz * rel * 0.5f;
-                    b.v.x -= nx * rel * 0.5f; b.v.z -= nz * rel * 0.5f;
-                }
-            }
     }
+    const size_t before = ejected_.size();
     for (Ejected& e : ejected_) e.age += dt;
     ejected_.erase(std::remove_if(ejected_.begin(), ejected_.end(), [](const Ejected& e) { return e.age >= e.life; }),
                    ejected_.end());
+    if (ejected_.size() != before) hmRebuild();
 }
 
 // =====================================================================================================
@@ -628,20 +927,20 @@ void WhiteRoomUniverse::tile(float x, float y, float hw, float hh, const vec3& c
     tiles_.push_back({{x, y, hw, hh}, {c.x, c.y, c.z, alpha}, {(float)kind, 0.f, 0.f, 0.f}, {e0, e1, e2, e3}});
 }
 
-// A block is a cube: its front face on the board's plane, its four sides running back from it (the camera's
-// perspective shows the ones turned toward it; the others stay hidden behind the front).
-void WhiteRoomUniverse::cube(float x, float y, float s, const vec3& c, float alpha, float plaster) {
-    for (int side = 0; side < 4; side++)
-        sides_.push_back({{x, y, 0.5f * s, 0.5f * s}, {c.x, c.y, c.z, alpha}, {5.f, (float)side, 0.f, 0.f}, {s, plaster, 0.f, 0.f}});
-    tile(x, y, 0.5f * s, 0.5f * s, c, alpha, 0, s, plaster);
+// A block is a cube: its front face on the board's plane, the rest of it running back from it (the camera's
+// perspective shows the sides turned toward it, the pane veils its back). The well's blocks also throw the shadow
+// play (the occupancy map); the previews do not (far from the wall).
+void WhiteRoomUniverse::block(float x, float y, float s, const vec3& c, float alpha, float plaster, int kind) {
+    const float h = 0.45f * s;
+    const CubeInst ci{{x, y, -h, h}, {1.f, 0.f, 0.f, alpha}, {0.f, 1.f, 0.f, plaster}, {c.x, c.y, c.z, (float)kind}};
+    (alpha >= 0.999f ? board_ : boardFade_).push_back(ci);
+    if (kind == 0) occ_.push_back({{x, y, 0.46f * s, alpha}});
 }
 
 void WhiteRoomUniverse::buildBoard(const Game& g) {
     occ_.clear();
-    auto block = [&](float x, float y, float s, const vec3& c, float alpha, float plaster) {
-        cube(x, y, s, c, alpha, plaster);
-        occ_.push_back({{x, y, 0.46f * s, alpha}});
-    };
+    board_.clear();
+    boardFade_.clear();
     for (int y = Game::HIDDEN; y < Game::H; y++)
         for (int x = 0; x < Game::W; x++) {
             const Cell& c = g.cell(x, y);
@@ -650,11 +949,11 @@ void WhiteRoomUniverse::buildBoard(const Game& g) {
             // the locked piece presses into the panel for an instant
             const float age = c.flash > 0.f ? (1.f - c.flash) * Game::LOCK_FX_SECONDS : 9.f;
             const float pr = age < 0.4f ? press_ * 0.07f * std::exp(-age * 6.f) : 0.f;
-            block(p.x, p.y, 1.f - pr, pal_.piece[c.type], 1.f, 0.f);
+            block(p.x, p.y, 1.f - pr, pal_.piece[c.type], 1.f, 0.f, 0);
         }
     // A topped-out stack turning to plaster.
     for (const Dying& d : dying_)
-        block(d.x, d.y, 1.f, pal_.piece[d.type], 1.f, 0.85f * smoothstepf(0.f, 0.8f, d.t - d.delay));
+        block(d.x, d.y, 1.f, pal_.piece[d.type], 1.f, 0.85f * smoothstepf(0.f, 0.8f, d.t - d.delay), 0);
     // The falling piece and its ghost.
     if (g.hasPiece()) {
         const Piece& p = g.piece();
@@ -676,7 +975,7 @@ void WhiteRoomUniverse::buildBoard(const Game& g) {
         for (auto& c : cells) {
             if (c[1] < Game::HIDDEN - 1) continue;
             const vec3 w = layout::cellPos(c[0] + dx, c[1] + dy);
-            block(w.x, w.y, 1.f, col, 1.f, 0.f);
+            block(w.x, w.y, 1.f, col, 1.f, 0.f, 0);
         }
     }
     // Previews.
@@ -692,7 +991,7 @@ void WhiteRoomUniverse::buildBoard(const Game& g) {
         }
         for (auto& c : cells) {
             const float x = center.x + (c[0] - (minx + maxx) * 0.5f) * sc, y = center.y - (c[1] - (miny + maxy) * 0.5f) * sc;
-            cube(x, y, sc, pal_.piece[type], alpha, 0.f); // (no shadow: far from the wall)
+            block(x, y, sc, pal_.piece[type], alpha, 0.f, 2);
         }
     };
     preview(g.holdType(), vec2{layout::HOLD_CENTER.x, layout::HOLD_CENTER.y}, layout::previewScale(0), g.holdUsed() ? 0.4f : 1.f);
@@ -918,6 +1217,107 @@ void WhiteRoomUniverse::setLightUniforms(GLuint p) {
     set1f(p, "uSide1", l1_.side);
 }
 
+// The room's light and shadows (the room and the cubes share them): the lamps, the ambient, the occupancy map, the
+// piles' heightmap, the shadow maps.
+void WhiteRoomUniverse::setRoomUniforms(GLuint p) {
+    setLightUniforms(p);
+    set3f(p, "uAmb", amb_);
+    set1f(p, "uFloor", FLOOR);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, occTex_);
+    set1i(p, "uOcc", 0);
+    set4f(p, "uOccRect", occRect_.x, occRect_.y, occRect_.z, occRect_.w);
+    set1f(p, "uOccLod", std::log2((float)OCC_N));
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, hmTex_);
+    set1i(p, "uHm", 1);
+    set4f(p, "uHmRect", HM_X0, HM_Z0, HM_NX * HM_CELL, HM_NZ * HM_CELL);
+    for (int i = 0; i < 2; i++) {
+        glActiveTexture(GL_TEXTURE2 + i);
+        glBindTexture(GL_TEXTURE_2D, shTex_[i]);
+        glBindSampler(2 + i, shCmpSampler_);
+        glActiveTexture(GL_TEXTURE4 + i);
+        glBindTexture(GL_TEXTURE_2D, shTex_[i]);
+        glBindSampler(4 + i, shRawSampler_);
+        glActiveTexture(GL_TEXTURE6 + i);
+        glBindTexture(GL_TEXTURE_2D, shCovTex_[i]);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    set1i(p, "uSh0", 2);
+    set1i(p, "uSh1", 3);
+    set1i(p, "uShD0", 4);
+    set1i(p, "uShD1", 5);
+    set1i(p, "uShC0", 6);
+    set1i(p, "uShC1", 7);
+    setMat(p, "uShVP0", shVP_[0]);
+    setMat(p, "uShVP1", shVP_[1]);
+    set4f(p, "uShP0", shP_[0].x, shP_[0].y, shP_[0].z, shP_[0].w);
+    set4f(p, "uShP1", shP_[1].x, shP_[1].y, shP_[1].z, shP_[1].w);
+    set1f(p, "uShadowK", shadowK_);
+    set1f(p, "uShadowAmt", shadowAmt_);
+}
+
+// Instances [first, first + count) of the cube buffer.
+void WhiteRoomUniverse::drawCubes(int first, int count) {
+    if (count <= 0) return;
+    glBindVertexArray(cubeVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, cubeVbo_);
+    for (int i = 0; i < 4; i++)
+        glVertexAttribPointer(2 + i, 4, GL_FLOAT, GL_FALSE, sizeof(CubeInst),
+                              (void*)(sizeof(CubeInst) * (size_t)first + sizeof(float) * 4 * i));
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 36, count);
+}
+
+// The thrown cubes (the first `count` instances) seen from each lamp: a perspective from the lamp framing their
+// bounds (lo, hi). A lamp that is off (or no cube) has no map.
+void WhiteRoomUniverse::renderShadowMaps(int count, const vec3& lo, const vec3& hi) {
+    shP_[0] = shP_[1] = vec4(0.f, 0.f, 0.f, 0.f);
+    if (count <= 0) return;
+    const vec3 c = (lo + hi) * 0.5f;
+    for (int i = 0; i < 2; i++) {
+        const Light& L = i == 0 ? l0_ : l1_;
+        if (ugl::luma(L.col) < 1e-3f) continue;
+        vec3 f = c - L.pos;
+        if (length(f) < 1e-3f) f = vec3(0.f, -1.f, 0.f);
+        f = normalize(f);
+        const vec3 up = std::fabs(f.y) > 0.9f ? vec3(0.f, 0.f, 1.f) : vec3(0.f, 1.f, 0.f);
+        const mat4 view = mat4::lookAt(L.pos, L.pos + f, up);
+        float m = 0.f, dmin = 1e9f, dmax = 0.f;
+        bool wide = false;
+        for (int k = 0; k < 8; k++) {
+            const vec3 q((k & 1) ? hi.x : lo.x, (k & 2) ? hi.y : lo.y, (k & 4) ? hi.z : lo.z);
+            const vec4 v = view * vec4(q, 1.f);
+            const float d = -v.z;
+            if (d < 0.3f) { wide = true; continue; }
+            m = std::max(m, std::max(std::fabs(v.x), std::fabs(v.y)) / d);
+            dmin = std::min(dmin, d);
+            dmax = std::max(dmax, d);
+        }
+        const float tMax = std::tan(80.f * PI / 180.f);
+        const float tanHalf = wide ? tMax : std::min(m * 1.04f + 0.01f, tMax);
+        const float zn = wide ? 0.3f : std::max(0.3f, dmin - 1.f), zf = std::max(dmax, zn + 1.f) + 2.f;
+        shVP_[i] = mat4::perspective(2.f * std::atan(tanHalf), 1.f, zn, zf) * view;
+        shP_[i] = vec4(1.f, tanHalf, zn, zf);
+        glBindFramebuffer(GL_FRAMEBUFFER, shFbo_[i]);
+        glViewport(0, 0, SH_N, SH_N);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LESS);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glClearColor(0.f, 0.f, 0.f, 0.f);
+        glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.5f, 3.f);
+        glUseProgram(progShadow_);
+        setMat(progShadow_, "uVP", shVP_[i]);
+        drawCubes(0, count);
+        glBindTexture(GL_TEXTURE_2D, shCovTex_[i]);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+    }
+    glDisable(GL_DEPTH_TEST);
+}
+
 void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
     const Game& game = f.game;
     const MusicState& music = f.music;
@@ -945,6 +1345,50 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
     tiles_.clear();
     buildBoard(game);
 
+    // ---- The cubes this frame: [thrown | thrown, fading | the board's | the board's, translucent].
+    thrown_.clear();
+    thrownFade_.clear();
+    vec3 lo(1e9f, 1e9f, 1e9f), hi(-1e9f, -1e9f, -1e9f);
+    for (const Ejected& e : ejected_) {
+        const float a = saturate((e.life - e.age) / FADE);
+        if (a <= 0.f) continue;
+        const vec3 c = pal_.piece[e.color];
+        const CubeInst ci{{e.p.x, e.p.y, e.p.z, e.h}, {e.ax[0].x, e.ax[0].y, e.ax[0].z, a}, {e.ax[1].x, e.ax[1].y, e.ax[1].z, 0.f},
+                          {c.x, c.y, c.z, 1.f}};
+        (a >= 1.f ? thrown_ : thrownFade_).push_back(ci);
+        const float r = e.h * 1.74f;
+        lo = vec3(std::min(lo.x, e.p.x - r), std::min(lo.y, e.p.y - r), std::min(lo.z, e.p.z - r));
+        hi = vec3(std::max(hi.x, e.p.x + r), std::max(hi.y, e.p.y + r), std::max(hi.z, e.p.z + r));
+    }
+    // nearest first (the piles' hidden faces fail the depth test before they are shaded)
+    {
+        const vec3 eye = cam_.eye;
+        auto nearer = [&](const CubeInst& a, const CubeInst& b) {
+            const vec3 da(a.a0[0] - eye.x, a.a0[1] - eye.y, a.a0[2] - eye.z), db(b.a0[0] - eye.x, b.a0[1] - eye.y, b.a0[2] - eye.z);
+            return dot(da, da) < dot(db, db);
+        };
+        std::sort(thrown_.begin(), thrown_.end(), nearer);
+    }
+    const int n0 = (int)thrown_.size(), n1 = (int)thrownFade_.size(), n2 = (int)board_.size(), n3 = (int)boardFade_.size();
+    {
+        std::vector<CubeInst>& all = thrown_;
+        all.insert(all.end(), thrownFade_.begin(), thrownFade_.end());
+        all.insert(all.end(), board_.begin(), board_.end());
+        all.insert(all.end(), boardFade_.begin(), boardFade_.end());
+        glBindBuffer(GL_ARRAY_BUFFER, cubeVbo_);
+        glBufferData(GL_ARRAY_BUFFER, all.size() * sizeof(CubeInst), all.empty() ? nullptr : all.data(), GL_STREAM_DRAW);
+    }
+
+    // ---- The piles' heightmap (what lies on the floor darkens it).
+    if (hmDirty_) {
+        for (int i = 0; i < HM_NX * HM_NZ; i++) hmUp_[i] = hm_[i] - hmBase_[i];
+        glBindTexture(GL_TEXTURE_2D, hmTex_);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, HM_NX, HM_NZ, GL_RED, GL_FLOAT, hmUp_.data());
+        glGenerateMipmap(GL_TEXTURE_2D);
+        hmDirty_ = false;
+    }
+
+
     // ---- The occupancy map.
     glBindFramebuffer(GL_FRAMEBUFFER, occFbo_);
     glViewport(0, 0, OCC_N, OCC_N);
@@ -953,6 +1397,7 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     const float occX0 = -OCC_SIZE * 0.5f, occY0 = -OCC_SIZE * 0.5f, occTexel = OCC_N / OCC_SIZE;
+    occRect_ = vec4(occX0, occY0, OCC_SIZE, occTexel);
     if (!occ_.empty()) {
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE);
@@ -968,87 +1413,86 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
     glBindTexture(GL_TEXTURE_2D, occTex_);
     glGenerateMipmap(GL_TEXTURE_2D);
 
-    // ---- The room.
-    glBindFramebuffer(GL_FRAMEBUFFER, sceneT_.fbo);
+    // ---- The thrown cubes seen from the lamps.
+    renderShadowMaps(n0 + n1, lo, hi);
+
+    // ---- The room (its color and its depth), shaded once per pixel.
+    glBindFramebuffer(GL_FRAMEBUFFER, roomFbo_);
     glViewport(0, 0, width_, height_);
     glDisable(GL_BLEND);
+    shadowK_ = shadowK;
     {
         glUseProgram(progRoom_);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, occTex_);
-        set1i(progRoom_, "uOcc", 0);
-        set4f(progRoom_, "uOccRect", occX0, occY0, OCC_SIZE, occTexel);
-        set1f(progRoom_, "uOccLod", std::log2((float)OCC_N));
+        setRoomUniforms(progRoom_);
         const float th = std::tan(cam_.fovDeg * 0.5f * PI / 180.f);
         set3f(progRoom_, "uEye", cam_.eye);
         set2f(progRoom_, "uTan", th * width_ / (float)height_, th);
-        setLightUniforms(progRoom_);
-        set3f(progRoom_, "uAmb", amb_);
+        setMat(progRoom_, "uVP", vp_);
         set3f(progRoom_, "uWall", pal_.wall);
         set3f(progRoom_, "uPanel", pal_.panel);
-        set1f(progRoom_, "uFloor", FLOOR);
         set1f(progRoom_, "uWallZ", WALL_Z);
         set1f(progRoom_, "uCove", COVE);
         set4f(progRoom_, "uPool", pool_.x, pool_.y, pool_.z, pool_.w);
-        // the cubes thrown out: center and half size, their axes (x; alpha, y), albedo
-        float cp[EJECT_MAX * 4], cx[EJECT_MAX * 4], cy[EJECT_MAX * 4], cc[EJECT_MAX * 4];
-        int nc = 0;
-        for (const Ejected& e : ejected_) {
-            if (nc >= EJECT_MAX) break;
-            const float a = saturate((e.life - e.age) / FADE);
-            if (a <= 0.f) continue;
-            const float cyw = std::cos(e.yaw), syw = std::sin(e.yaw), ct = std::cos(e.th), st = std::sin(e.th);
-            const vec3 c = pal_.piece[e.color];
-            const float v[4][4] = {{e.p.x, e.p.y, e.p.z, e.h}, {cyw, 0.f, -syw, a}, {st * syw, ct, st * cyw, 0.f}, {c.x, c.y, c.z, 0.f}};
-            float* dst[4] = {cp, cx, cy, cc};
-            for (int r = 0; r < 4; r++) std::memcpy(dst[r] + nc * 4, v[r], sizeof(float) * 4);
-            nc++;
-        }
-        set1i(progRoom_, "uCubes", nc);
-        {
-            vec3 lo{1e3f, 1e3f, 1e3f}, hi{-1e3f, -1e3f, -1e3f};
-            for (int i = 0; i < nc; i++) {
-                const float r = cp[i * 4 + 3] * 1.74f;
-                lo = vec3{std::min(lo.x, cp[i * 4] - r), std::min(lo.y, cp[i * 4 + 1] - r), std::min(lo.z, cp[i * 4 + 2] - r)};
-                hi = vec3{std::max(hi.x, cp[i * 4] + r), std::max(hi.y, cp[i * 4 + 1] + r), std::max(hi.z, cp[i * 4 + 2] + r)};
-            }
-            set3f(progRoom_, "uCubeLo", lo);
-            set3f(progRoom_, "uCubeHi", hi);
-        }
-        if (nc > 0) {
-            glUniform4fv(ugl::U(progRoom_, "uCubeP"), nc, cp);
-            glUniform4fv(ugl::U(progRoom_, "uCubeX"), nc, cx);
-            glUniform4fv(ugl::U(progRoom_, "uCubeY"), nc, cy);
-            glUniform4fv(ugl::U(progRoom_, "uCubeC"), nc, cc);
-        }
         set1f(progRoom_, "uBridge", smoothstepf(0.05f, 0.9f, bridge));
         set3f(progRoom_, "uBridgeCol", bridge_.color);
-        set1f(progRoom_, "uShadowK", shadowK);
-        set1f(progRoom_, "uShadowAmt", shadowAmt_);
         set1f(progRoom_, "uPx", px_);
         ugl::drawFullscreen();
     }
+    // ... copied into the multisampled scene
+    glBindFramebuffer(GL_FRAMEBUFFER, msFbo_);
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_ALWAYS);
+    glUseProgram(progCopy_);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, roomTex_);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, roomZTex_);
+    glActiveTexture(GL_TEXTURE0);
+    set1i(progCopy_, "uRoom", 0);
+    set1i(progCopy_, "uRoomZ", 1);
+    ugl::drawFullscreen();
 
-    // ---- The blocks, the ghost, the previews, the gauge.
+    // ---- The cubes: the thrown ones, the blocks, the piece, the previews (opaque, then the fading ones).
+    glDepthFunc(GL_LESS);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    if (n0 + n1 + n2 + n3 > 0) {
+        glUseProgram(progCube_);
+        setRoomUniforms(progCube_);
+        setMat(progCube_, "uVP", vp_);
+        set3f(progCube_, "uEye", cam_.eye);
+        set3f(progCube_, "uPanel", pal_.panel);
+        set3f(progCube_, "uPlaster", pal_.plaster);
+        set3f(progCube_, "uBridgeInk", bridge_.ink);
+        set3f(progCube_, "uBridgeCol", bridge_.color);
+        set1f(progCube_, "uBridgeK", smoothstepf(0.2f, 0.85f, bridge));
+        set1f(progCube_, "uBridgeRoom", smoothstepf(0.05f, 0.9f, bridge));
+        drawCubes(0, n0);
+        drawCubes(n0 + n1, n2);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        drawCubes(n0, n1);
+        drawCubes(n0 + n1 + n2, n3);
+    }
+    glDisable(GL_CULL_FACE);
+
+    // ---- The ghost, the gauge.
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-    if (!sides_.empty()) {
-        tiles_.insert(tiles_.begin(), sides_.begin(), sides_.end());
-        sides_.clear();
-    }
+    glDepthMask(GL_FALSE);
+    glDepthFunc(GL_LEQUAL);
     if (!tiles_.empty()) {
         glUseProgram(progTile_);
         setMat(progTile_, "uVP", vp_);
         set1f(progTile_, "uPx", px_);
         set1f(progTile_, "uTime", worldTime_);
-        setLightUniforms(progTile_);
-        set3f(progTile_, "uAmbB", ambB_);
         const float lit = smoothstepf(0.04f, 0.13f, wallLum_);
         const vec3 ink = lerp(pal_.inkLight, pal_.ink, lit);
         set3f(progTile_, "uInk", ink);
         set3f(progTile_, "uGroove", lerp(ink, pal_.wall, 0.55f));
         set3f(progTile_, "uAccent", pal_.accent);
-        set3f(progTile_, "uPlaster", pal_.plaster);
         set1f(progTile_, "uBridge", bridge);
         set3f(progTile_, "uBridgeInk", bridge_.ink);
         glBindVertexArray(tileVao_);
@@ -1056,8 +1500,18 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
         glBufferData(GL_ARRAY_BUFFER, tiles_.size() * sizeof(Tile), tiles_.data(), GL_STREAM_DRAW);
         glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)tiles_.size());
     }
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
     drawHud(f.hud, f.panels);
     glDisable(GL_BLEND);
+
+    for (int i = 2; i < 6; i++) glBindSampler(i, 0); // (the samplers are global state)
+
+    // ---- Resolve.
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, msFbo_);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sceneT_.fbo);
+    glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
     // ---- Post.
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
