@@ -371,6 +371,55 @@ void main() {
 }
 )";
 
+// ---------------------------------------------------------------- a worm in the earth
+// One quad over the worm's bounds; the body is the union of capsules along its points (one pass, so a faded worm
+// has no darker joints): round, a little thicker behind the head, fine rings, a paler saddle, a damp sheen on top.
+// It lies in the soil: a soft dark burrow around it, and the earth's lumps cover it here and there.
+inline const char* WORM_VS = R"(#version 330 core
+layout(location = 0) in vec2 aQ;
+uniform mat4 uVP;
+uniform vec4 uBox;   // x0, y0, x1, y1 (board units)
+out vec2 vW;
+void main() {
+    vW = mix(uBox.xy, uBox.zw, aQ * 0.5 + 0.5);
+    gl_Position = uVP * vec4(vW, 0.0, 1.0);
+}
+)";
+inline const char* WORM_FS = R"(#version 330 core
+in vec2 vW;
+out vec4 frag;
+uniform vec2 uPts[9];
+uniform float uRad, uLen, uVis, uSeed, uPx, uSunk;
+uniform vec3 uCol, uDark;
+void main() {
+    float best = 1e9, bs = 0.0, side = 0.0;
+    for (int i = 0; i < 8; i++) {
+        vec2 a = uPts[i], b = uPts[i + 1], ab = b - a;
+        float t = clamp(dot(vW - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+        vec2 q = vW - (a + ab * t);
+        float d = length(q);
+        if (d < best) { best = d; bs = (float(i) + t) / 8.0; side = ab.x * q.y - ab.y * q.x; }
+    }
+    // tapered at both ends, thickest a third of the way back (the saddle)
+    float r = uRad * (0.45 + 0.55 * pow(sin(3.14159 * clamp(bs * 0.94 + 0.03, 0.0, 1.0)), 0.6)) * (1.0 + 0.12 * exp(-pow((bs - 0.3) / 0.07, 2.0)));
+    float body = smoothstep(r + uPx, r - uPx, best);
+    float across = clamp(best / max(r, 1e-4), 0.0, 1.0) * sign(side);
+    vec3 col = uCol * (0.62 + 0.5 * sqrt(max(1.0 - across * across, 0.0)));
+    float ring = 0.5 + 0.5 * cos(bs * uLen / 0.045 * 6.283);
+    col *= 1.0 - 0.16 * ring * ring;
+    col = mix(col, col * vec3(1.18, 1.0, 0.95), exp(-pow((bs - 0.3) / 0.06, 2.0)) * 0.6);
+    col += vec3(0.05, 0.04, 0.035) * exp(-pow((across - 0.35) / 0.18, 2.0)); // damp sheen
+    // the burrow: a soft dark rim in the soil around the body
+    float burrow = smoothstep(r * 2.4, r, best) * 0.4;
+    // the earth's lumps cover it here and there (fixed in the world: it crawls in and out under them)
+    float cover = smoothstep(0.52, 0.66, fbm(vW * 6.0 + 3.7)) * uSunk;
+    float bodyA = body * (1.0 - 0.85 * cover);
+    float a = bodyA + burrow * (1.0 - bodyA);
+    vec3 c = (mix(col, uDark, 0.18) * bodyA + uDark * burrow * (1.0 - bodyA)) / max(a, 1e-4);
+    frag = vec4(enc(c), a * uVis);
+}
+)";
+
 // ---------------------------------------------------------------- text
 inline const char* TEXT_VS = R"(#version 330 core
 layout(location = 0) in vec2 aPos;   // pixels, top-left origin

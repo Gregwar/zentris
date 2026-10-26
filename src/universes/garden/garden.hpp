@@ -77,7 +77,8 @@ private:
     float slumpOff(int y) const;
 
     // Particles: dust, petals, seeds, pollen, fireflies, falling flowers.
-    enum { P_DUST = 0, P_PETAL = 1, P_SEED = 2, P_POLLEN = 3, P_FIREFLY = 4, P_FLOWER = 5 };
+    // P_CRUMB: a crumb of soil falling from the falling clod, gone where it touches something.
+    enum { P_DUST = 0, P_PETAL = 1, P_SEED = 2, P_POLLEN = 3, P_FIREFLY = 4, P_FLOWER = 5, P_CRUMB = 6 };
     struct Particle {
         vec2 p, v;
         float age, life, size, rot, spin, grav, drag, seed;
@@ -88,6 +89,31 @@ private:
     };
     std::vector<Particle> parts_;
     void emitDust(vec2 p, vec2 v, const vec3& col, float size, float life, float grav, bool real);
+    // the falling clod sheds crumbs of soil (per second, real time)
+    float crumbAcc_ = 0.f, prevVisY_ = 0.f, pieceSpeed_ = 0.f;
+    int prevPieceType_ = -1;
+    void shedCrumbs(const Game& game, float dt);
+    bool crumbHits(const Game& game, vec2 p) const;
+    vec3 earthCol(float y) const;   // the earth's color at a height (EARTH_GLSL's earthAt)
+
+    // Worms crawling in the earth: in the ground line and inside the landed clods (more and faster at a drop).
+    static constexpr int WORM_N = 9;
+    struct Worm {
+        vec2 pts[WORM_N];     // head first, follow the leader
+        float heading, len, rad, speed, seed, t, wig = 0.f;
+        float vis = 0.f;      // 0..1 faded in
+        int state = 0;        // 0 alive, 1 leaving (fades as it crawls), 2 dying (still, fades fast)
+        float stuck = 0.f;
+    };
+    std::vector<Worm> worms_;
+    float wormSpawnT_ = 0.f, wormRetireT_ = 0.f;
+    bool inStack(vec2 p) const;
+    bool inGround(vec2 p) const;
+    bool inEarth(vec2 p, float margin) const;
+    int stackRowAt(vec2 p) const;  // the board row of a stack cell at p (-1: none)
+    void simulateWorms(const MusicState& music, float dt, float wdt);
+    bool spawnWorm();
+    void drawWorms(float world);
 
     // The ground line's plants, fixed per song (positions, sizes, colors), drawn from the song's state.
     struct Blade { float x, h1, h2, h3, h4; };
@@ -123,9 +149,9 @@ private:
     void drawText(const Font& f, const std::vector<float>& quads, const vec3& ink, float alpha, float bias);
 
     // ---- GL.
-    GLuint progSky_ = 0, progCell_ = 0, progSprite_ = 0, progText_ = 0, progShape_ = 0, progPost_ = 0;
+    GLuint progSky_ = 0, progCell_ = 0, progSprite_ = 0, progText_ = 0, progShape_ = 0, progPost_ = 0, progWorm_ = 0;
     GLuint quadVbo_ = 0, cellVao_ = 0, cellVbo_ = 0, spriteVao_ = 0, spriteVbo_ = 0, textVao_ = 0, textVbo_ = 0,
-           shapeVao_ = 0, shapeVbo_ = 0;
+           shapeVao_ = 0, shapeVbo_ = 0, wormVao_ = 0;
     ugl::Target sceneT_;
     mat4 vp_;
     vec2 viewC_{0, 0.4f}, viewH_{22, 12.4f};
