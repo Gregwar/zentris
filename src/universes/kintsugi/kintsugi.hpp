@@ -68,7 +68,8 @@ private:
     void setLight(GLuint prog);
 
     // ---- The pieces the stack is made of (which cells belong together), kept in step with the board.
-    struct Owner { int type = -1, id = -1; float sx = 0, sy = 0; int base = 0; }; // base: the piece's lowest row when it locked
+    // base: the piece's lowest row when it locked; at: when (its seams crack open from the contact)
+    struct Owner { int type = -1, id = -1; float sx = 0, sy = 0; int base = 0; float at = -1e9f; };
     Owner own_[22][10];
     int nextId_ = 1;
 

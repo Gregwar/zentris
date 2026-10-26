@@ -15,7 +15,7 @@
 // light runs out along the cracks every two beats. Never a pulse of the whole scene's light: the drop is one swell
 // that settles to a steady, brighter level.
 //
-// A lock leaves a hairline crack of molten gold at the contact, cooling in a breath; a cleared row cracks along its
+// A piece falls whole; landing cracks it, its seams opening molten from the contact upward, then cooling; a cleared row cracks along its
 // seams and its shards fall away into the dark (well under half a second, at the real speed even in slow motion);
 // a Tetris sends a burst of molten veins out of the rows into the stone. Slow motion is moonlight: the light swings
 // to the other side, cold and silver, the metal turns to platinum, the gold leaf hangs in the air. Game over opens
@@ -832,36 +832,7 @@ void KintsugiUniverse::onEvent(const GameEvent& ev, const Game&) {
         int bottom = -1;
         for (auto& c : ev.cells) bottom = std::max(bottom, c.y);
         for (auto& c : ev.cells)
-            if (c.y >= 0 && c.y < Game::H && c.x >= 0 && c.x < Game::W) own_[c.y][c.x] = {c.type, id, sx, sy, bottom};
-        // a hairline crack of molten gold at the contact, under the piece
-        float x0 = 1e9f, x1 = -1e9f;
-        for (auto& c : ev.cells)
-            if (c.y == bottom) { x0 = std::min(x0, (float)c.x); x1 = std::max(x1, (float)c.x); }
-        const vec3 a = layout::cellPos(x0, (float)bottom), b = layout::cellPos(x1, (float)bottom);
-        const float yb = a.y - 0.5f;
-        const float hard = lastDrop_ >= 2 ? 1.f : 0.f;
-        Net n;
-        n.kind = 3;
-        n.born = now_;
-        n.heat = n.heatTo = 1.f;
-        n.fadeAt = now_ + 0.25f + 0.2f * hard;
-        n.fadeDur = 0.5f;
-        Rng r(rng_.next());
-        const float cx = 0.5f * (a.x + b.x), half = 0.5f * (b.x - a.x) + 0.35f + 0.25f * hard;
-        for (int sgn = -1; sgn <= 1; sgn += 2) {
-            Vein v;
-            v.seed = r.uniform();
-            float x = cx, y = yb, d = 0.f;
-            v.pts.push_back({x, y, 0.f, 0.f, 0.03f});
-            while (std::fabs(x - cx) < half) {
-                x += sgn * 0.12f;
-                y = yb + r.range(-0.03f, 0.03f);
-                d += 0.12f;
-                v.pts.push_back({x, y, d / 7.f, d, 0.03f * (1.f - 0.6f * std::fabs(x - cx) / half)});
-            }
-            n.veins.push_back(std::move(v));
-        }
-        nets_.push_back(std::move(n));
+            if (c.y >= 0 && c.y < Game::H && c.x >= 0 && c.x < Game::W) own_[c.y][c.x] = {c.type, id, sx, sy, bottom, now_};
         lastDrop_ = 0;
         break;
     }
@@ -1113,7 +1084,8 @@ void KintsugiUniverse::buildBoard(const Game& g) {
             if (joined(x, y + 1)) mask |= 4;
             if (joined(x, y - 1)) mask |= 8;
             const vec3 p = layout::cellPos((float)x, y - g.rowOffset(y));
-            const float age = c.flash > 0.f ? (1.f - c.flash) * Game::LOCK_FX_SECONDS : -1.f;
+            // since it landed: its seams crack open from the contact (a piece of unknown origin is cracked already)
+            const float age = known ? std::min(now_ - o.at, 60.f) : 60.f;
             const float sx = known ? o.sx : 3.7f + x * 0.31f, sy = known ? o.sy : 1.3f + y * 0.17f;
             block(p.x, p.y, 1.f, cur_.piece[c.type], 1.f, 0, mask, x + sx, -(float)y + sy, age, known ? (float)(o.base - y) : 0.f,
                   seamHeat);
@@ -1161,7 +1133,8 @@ void KintsugiUniverse::buildBoard(const Game& g) {
         for (int i = 0; i < 4; i++) {
             if (cells[i][1] < Game::HIDDEN - 1) continue;
             const vec3 w = layout::cellPos(cells[i][0] + dx, cells[i][1] + dy);
-            block(w.x, w.y, 1.f, col, 1.f, 0, pieceMask(cells, i), cells[i][0] - p.x + sx, -(float)(cells[i][1] - p.y) + sy, -1.f,
+            // still whole: it cracks when it lands
+            block(w.x, w.y, 1.f, col, 1.f, 0, pieceMask(cells, i), cells[i][0] - p.x + sx, -(float)(cells[i][1] - p.y) + sy, -2.f,
                   0.f, seamHeat);
         }
     }
@@ -1179,7 +1152,7 @@ void KintsugiUniverse::buildBoard(const Game& g) {
         for (int i = 0; i < 4; i++) {
             const vec2 pos = v2(center.x + (cells[i][0] - (minx + maxx) * 0.5f) * sc, center.y - (cells[i][1] - (miny + maxy) * 0.5f) * sc);
             block(pos.x, pos.y, sc, cur_.piece[type], alpha, 0, pieceMask(cells, i), (float)cells[i][0] + salt * 5.3f,
-                  -(float)cells[i][1] + salt * 3.1f, -1.f, 0.f, seamHeat);
+                  -(float)cells[i][1] + salt * 3.1f, -2.f, 0.f, seamHeat);
         }
     };
     preview(g.holdType(), v2(layout::HOLD_CENTER.x, layout::HOLD_CENTER.y), layout::previewScale(0), g.holdUsed() ? 0.4f : 1.f, 1);

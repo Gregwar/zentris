@@ -274,10 +274,19 @@ void main() {
     }
     if (a <= 0.0) discard;
     float heat = vInfo.w;
-    // a fresh lock: the seams near the contact glow and cool
+    // age: since the piece landed (-2: still whole, falling or waiting; -1: cracked long ago). Landing cracks it: the
+    // seams open from the contact upward through the piece in a quick ragged front, molten, and cool
     float age = vCell.z;
-    if (age >= 0.0) heat = max(heat, 1.6 * exp(-age * 3.0) * smoothstep(0.6, -0.5, vQ.y + vCell.w));
     float seamW = 0.045;
+    if (age < -1.5) seamW = -2.0 * px; // whole: no seam at all
+    else if (age >= 0.0) {
+        float h = vQ.y + 0.5 + vCell.w;                       // cells above the contact
+        float front = age * 10.0 - 0.2;
+        float jag = 0.3 * sin(vCell.x * 5.3 + vQ.x * 7.1) + 0.15 * sin(vQ.x * 23.0 + vCell.y * 3.1);
+        float open = 1.0 - smoothstep(front - 0.35, front, h + jag);
+        seamW = mix(-2.0 * px, 0.045, open);
+        heat = max(heat, 1.6 * exp(-age * 2.5) * open);
+    }
     if (kind == 2) seamW = mix(0.045, 0.16, vCell.w); // game over: the cracks open wide with gold
     vec4 cer = ceramic(vCol.rgb, vCell.xy + vQ, vW, -sd, vScale, seamW, heat, px * 1.2);
     vec3 col = mix(cer.rgb, uBridgeInk * (0.85 + 0.15 * rake(vW)), smoothstep(0.3, 0.95, uBridge));
