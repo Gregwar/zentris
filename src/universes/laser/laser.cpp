@@ -605,7 +605,6 @@ void LaserUniverse::updateEmitters(const MusicState& music, float dt, float wdt)
         }
         stepShown_ = approach(stepShown_, stepPhase_, 4.f, dt);
     }
-    const float wActive = wMid_ + wChorus_ + wDrop_;
     // the bands: the bass leans the left fan, the highs the right one (slowly)
     {
         float lo = 0.f, hi = 0.f;
@@ -687,7 +686,6 @@ void LaserUniverse::updateEmitters(const MusicState& music, float dt, float wdt)
         const float k = 1.f - std::exp(-dt * 3.f * freeze);
         E.center += (center - E.center) * k;
         E.spread += (spread - E.spread) * (dropT_ < 1.5f || saluteT_ < 1.f ? 1.f - std::exp(-dt * 14.f * freeze) : k);
-        (void)wActive;
         (void)wdt;
     }
 }
