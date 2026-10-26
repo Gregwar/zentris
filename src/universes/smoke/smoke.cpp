@@ -10,7 +10,8 @@
 // dim; mid sets the smoke rolling with the tempo (a slow glide on each beat), the bass swirling it; peak fills the
 // stage with smoke, the iris opens and more light cuts through (the beam wider and brighter, sharp shafts inside it
 // where the smoke shades itself), the kicks surging the smoke. A lock breathes a little smoke out from under the
-// piece; a cleared row is crossed by a blade of light and burns off into wisps of smoke curling up through the beam;
+// piece; the blocks of a cleared row turn to smoke (each one eaten from its edges in, its body lifting off as smoke of its
+// own color, the row rising as one billowing sheet through the beam);
 // a Tetris blows a smoke ring up from the well, clears the smoke outward and opens the light; slow motion is a pin
 // spot (the lamp swings straight overhead, cold and narrow, the smoke hangs almost still); game over turns the lamp
 // off (its filament cooling to orange), the stack going dark row by row while the smoke rises over it. A change of
@@ -528,9 +529,11 @@ void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
         break;
     case GameEvent::Clear: {
         const bool tetris = ev.count >= 4;
-        // a blade of light runs along each row, then the blocks burn off into smoke curling up through the beam
+        // the blocks themselves turn to smoke: each one erodes from its edges in, its body lifting off as smoke of
+        // its own color; the smoke of a row shares one field, so the row rises as one sheet (a Tetris, a plume)
         float rows[4] = {0, 0, 0, 0};
         int nr = 0;
+        const float rowSeed = rng_.uniform();
         for (auto& c : ev.cells) {
             const vec3 p = layout::cellPos((float)c.x, (float)c.y);
             bool seen = false;
@@ -539,8 +542,10 @@ void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
             if (!seen && nr < 4) rows[nr++] = p.y;
             Dying d;
             d.x = p.x; d.y = p.y; d.t = 0.f; d.type = std::clamp(c.type, 0, 6); d.over = false;
-            d.delay = std::fabs(c.x - 4.5f) * 0.025f; // from the middle of the row outward
-            d.seed = rng_.uniform();
+            d.delay = std::fabs(c.x - 4.5f) * 0.02f; // from the middle of the row outward
+            d.seed = rowSeed;
+            d.big = tetris ? 1.6f : 1.f + 0.1f * (ev.count - 1);
+            d.cx = layout::cellPos(4.5f, (float)c.y).x;
             dying_.push_back(d);
         }
         if (tetris) {
@@ -645,7 +650,7 @@ void SmokeUniverse::simulate(const Game& game, const MusicState& music, float dt
     puffs_.erase(std::remove_if(puffs_.begin(), puffs_.end(), [](const Puff& p) { return p.t > p.delay + p.life; }), puffs_.end());
     // a line clear runs at the real speed, even in slow motion (the row must not hide the stack for long)
     for (auto& d : dying_) d.t += dt;
-    dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + (d.over ? 9.f : 0.45f); }), dying_.end());
+    dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + (d.over ? 9.f : 1.5f); }), dying_.end());
     for (auto& s : sweeps_) s.t += wdt;
     sweeps_.erase(std::remove_if(sweeps_.begin(), sweeps_.end(), [](const Sweep& s) { return s.t > 0.6f; }), sweeps_.end());
 
@@ -698,10 +703,12 @@ void SmokeUniverse::buildBoard(const Game& g) {
             block(d.x, d.y, 1.f, cur_.piece[d.type], 1.f, 1.f, -1.f, true);
             continue;
         }
-        // the light goes off on the cleared blocks: they dim and sink into the dark, from the middle outward
+        // the block turns to smoke: eaten from its edges inward by the noise, lifting a hair as it goes (its smoke is
+        // drawn in buildFx)
         const float k = saturate(t / 0.42f);
-        block(d.x, d.y - 0.25f * k * k, 1.f - 0.15f * k, cur_.piece[d.type], 1.f - smoothstepf(0.2f, 1.f, k),
-              lerpf(1.f, 0.05f, smoothstepf(0.f, 0.6f, k)), -1.f, false);
+        if (k >= 1.f) continue;
+        const vec3 c = cur_.piece[d.type];
+        blocks.push_back({{d.x, d.y + 0.08f * k, 0.5f, 0.5f}, {c.x, c.y, c.z, 1.f}, {2.f, -1.f, 0.f, 0.f}, {1.f, k, d.seed * 7.f + d.x * 0.37f, 0.f}});
     }
     // The falling piece and its ghost.
     if (g.hasPiece()) {
@@ -779,6 +786,26 @@ void SmokeUniverse::buildFx() {
         if (p.kind == 1) a = p.alpha * smoothstepf(0.f, 0.08f, k) * (1.f - smoothstepf(0.45f, 1.f, k));
         (p.kind == 1 ? blades_ : sprites_).push_back({{p.p.x, p.p.y, r, p.stretch}, {c.x, c.y, c.z, a},
                             {(float)p.kind, p.seed * 11.f, k, (p.seed - 0.5f) * 3.f}});
+    }
+    // cleared blocks turned to smoke: while a block erodes, its body streams up out of it as smoke of its own color, in
+    // thin curling tendrils that rise fast, spread and thin out; one column per block, in a smoke field shared by the
+    // row (the columns merge, the row rises as one sheet), lit by the beam
+    wisps_.clear();
+    for (const Dying& d : dying_) {
+        if (d.over) continue;
+        const float t = d.t - d.delay;
+        if (t <= 0.f) continue;
+        const float B = d.big;
+        const float V = 3.6f * B;                // how fast the smoke streams up (board units per second)
+        const float H = V * 1.5f;                // the column's height
+        const float bottom = d.y - 0.6f, top = d.y + H;
+        const float lit = spotAt(vec3(d.x, d.y + 1.5f, 0.6f));
+        const float glow = std::max(lit, 0.4f);
+        const vec3 pc = cur_.piece[d.type];
+        const vec3 c = pc * (0.35f + 0.95f * glow) * (0.4f + 0.6f * lightOn);
+        const float a = 0.65f / (0.6f + 0.4f * B) * (1.f - smoothstepf(0.6f, 1.45f, t)); // a Tetris: bigger, not denser
+        wisps_.push_back({{d.x, 0.5f * (bottom + top), 1.6f, 0.5f * (top - bottom) / 1.6f}, {c.x, c.y, c.z, a},
+                          {4.f, d.seed * 13.f, V, t}});
     }
     // a blade of light along each cleared row
     for (const Sweep& s : sweeps_) {
@@ -1121,6 +1148,7 @@ void SmokeUniverse::render(const Frame& f, GLuint fbo) {
     };
     drawSprites(motes_);
     drawSprites(sprites_); // the smoke behind the blocks
+    drawSprites(wisps_);   // cleared blocks turned to smoke: seen where they erode, never over the stack
     if (!tiles_.empty()) {
         glUseProgram(progTile_);
         glBindTexture(GL_TEXTURE_2D, noiseTex_);

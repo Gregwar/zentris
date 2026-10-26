@@ -351,19 +351,22 @@ void main() {
         return;
     }
     if (kind == 2) {
-        // a cleared block burning off into smoke: v3.y progress 0..1, v3.z seed
+        // a cleared block turning to smoke: v3.y progress 0..1, v3.z seed. The noise eats it from its edges inward
+        // (its top going last, as if it lifted away), and the eroding rim thins into smoke of its own color.
         float k = v3.y;
         float sd = sdRound(p, vec2(0.45), 0.07);
         float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, sd);
         if (cov <= 0.0) discard;
-        float n = texture(uNoise, vWorld * 0.11 + v3.z).r * 0.65 + texture(uNoise, vWorld * 0.31 + v3.z * 1.7).g * 0.35;
-        n = n * 0.85 + (0.5 - p.y) * 0.15; // it goes from the top down, like smoke lifting off
-        float th = k * 1.3 - 0.15;
-        float keep = smoothstep(th, th + 0.05, n);
-        float edge = exp(-pow((n - th) / 0.035, 2.0)) * (1.0 - k * 0.6);
-        vec3 col = satin(p, 1.0, pc, v0.xy, 1.0) * (1.0 - 0.6 * k);
-        col += mix(uKey, pc, 0.3) * edge * 1.6;
-        float a = cov * max(keep, edge * 0.9) * alpha * (1.0 - uBridge);
+        float n = texture(uNoise, vWorld * 0.13 + v3.z).r * 0.5 + texture(uNoise, vWorld * 0.09 + v3.z * 1.7).b * 0.5;
+        float inner = clamp(-sd / 0.45, 0.0, 1.0);            // 0 at the edge, 1 at the heart
+        float field = inner * 0.8 + (n - 0.5) * 0.8 + 0.2 + p.y * 0.12;
+        float th = k * 1.25 - 0.08;
+        float keep = smoothstep(th, th + 0.07, field);
+        float rim = smoothstep(th - 0.12, th, field) * (1.0 - keep); // the frayed rim, already smoke
+        vec3 col = satin(p, 1.0, pc, v0.xy, 1.0);
+        vec3 smokeC = pc * uTint * (0.55 + 0.35 * uKeyGain);
+        col = mix(smokeC, col, keep);
+        float a = cov * (keep + rim * 0.45) * alpha * (1.0 - uBridge);
         frag = vec4(col * a, a);
         return;
     }
@@ -404,7 +407,8 @@ void main() {
 
 // ---------------------------------------------------------------- sprites: smoke puffs and wisps, the ring, motes
 
-// a0: center xy, radius, stretch y. a1: rgb, alpha. a2: kind (0 puff, 1 ring, 2 mote, 3 blade), seed, progress, swirl.
+// a0: center xy, radius, stretch y. a1: rgb, alpha. a2: kind (0 puff, 1 ring, 2 mote, 3 blade, 4 a cleared block's smoke), seed,
+// progress, swirl (4: seconds).
 inline const char* SPRITE_VS = R"(#version 330 core
 layout(location = 0) in vec2 aCorner;
 layout(location = 1) in vec4 a0;
@@ -442,6 +446,41 @@ void main() {
         // a blade of light running along a cleared row
         float a = exp(-q.y * q.y * 18.0) * (1.0 - smoothstep(0.75, 1.0, abs(q.x))) * v1.a * fade;
         frag = vec4(v1.rgb * a, 0.0);
+        return;
+    }
+    if (kind == 4) {
+        // a cleared block's body streaming up as smoke: a column over the block, v2.y the row's seed, v2.z the rising
+        // speed, v2.w seconds. A parcel of smoke at height h left the block h / V seconds ago: the block gives off
+        // smoke while it erodes, so the column is a rising band of tendrils whose pattern moves with the smoke.
+        float seed = v2.y, V = v2.z, t = v2.w;
+        vec2 ext = vec2(v0.z, v0.z * v0.w);
+        vec2 wp = v0.xy + q * ext;
+        float rowY = v0.y - ext.y + 0.6;
+        float h = max(wp.y - rowY, 0.0);
+        // some of the smoke climbs faster than the rest: fingers, not a bar
+        V *= 0.5 + 1.0 * texture(uNoise, vec2(wp.x * 0.035 + seed * 0.3, 0.37 + seed)).g;
+        float te = t - h / V;                       // when this parcel left the block
+        const float E = 0.42;                       // the block erodes for that long
+        float env = smoothstep(-0.03, 0.08, te) * (1.0 - smoothstep(0.15, E + 0.3, te));
+        if (env <= 0.0) discard;
+        float age = h / V;
+        // it curls sideways as it climbs, more the higher it gets
+        float up = smoothstep(0.0, 2.5, h);
+        float curl = (texture(uNoise, vec2(wp.x * 0.05 + seed, h * 0.09 + seed * 0.7)).g - 0.5) * 2.4 * up;
+        float xo = wp.x + curl;
+        float wcol = 0.55 + 0.3 * h;
+        float col = 1.0 - smoothstep(wcol * 0.3, wcol, abs(xo - v0.x));
+        // tendrils: thin sheets stretched along the rise, carried with the smoke (keyed on te)
+        float n1 = texture(uNoise, vec2(xo * 0.09 + seed * 1.3, te * 0.3 + h * 0.02 + seed)).b;
+        float n2 = texture(uNoise, vec2(xo * 0.05 + seed * 0.4, te * 0.2 + h * 0.03)).g;
+        float sheet = 1.0 - abs(n1 * 2.0 - 1.0);
+        float hk = smoothstep(0.0, 0.8, h);
+        float tend = mix(1.0, smoothstep(0.4, 0.95, sheet) * (0.3 + 1.2 * n2), hk);
+        // it tears open as it rises: holes that widen with the parcel's age
+        float n3 = texture(uNoise, vec2(xo * 0.03 + seed * 0.9, te * 0.09 + h * 0.012 + seed * 0.2)).r;
+        tend *= mix(1.0, smoothstep(0.15 + 0.3 * age, 0.5 + 0.3 * age, n3), hk);
+        float a = col * env * tend * exp(-age * 1.3) * v1.a * fade;
+        frag = vec4(v1.rgb * a, a);
         return;
     }
     float seed = v2.y, k = v2.z, sw = v2.w;
