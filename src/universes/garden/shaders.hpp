@@ -165,7 +165,8 @@ void main() {
     vP = aQ * 0.5;
     if (aQ.y < 0.0) vP.y -= a3.z; // a root reaches down into the ground
     v0 = a0; v1 = a1; v2 = a2; v3 = a3; v4 = a4;
-    gl_Position = uVP * vec4(a0.xy + vP * a0.z, 0.0, 1.0);
+    float squash = a3.w > 0.0 ? a3.w : 1.0; // a crushed row: flattened (its earth keeps its own frame)
+    gl_Position = uVP * vec4(a0.xy + vec2(vP.x, vP.y * squash) * a0.z, 0.0, 1.0);
 }
 )";
 inline const char* CELL_FS = R"(#version 330 core
@@ -237,7 +238,7 @@ void main() {
         }
         if (wsum > 0.0) base = mix(base, sum / wsum, min(wsum, 0.5));
         // the earth's gradient by height (the clods share it with the ground line)
-        base *= earthAt(v0.y + vP.y * size, uGround, uGroundDeep, uSoil) / max(uSoil, vec3(1e-3));
+        base *= earthAt(v0.y + vP.y * (v3.w > 0.0 ? v3.w : 1.0) * size, uGround, uGroundDeep, uSoil) / max(uSoil, vec3(1e-3));
     }
     vec3 col = base;
     if (!ghost) {

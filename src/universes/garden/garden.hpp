@@ -42,7 +42,7 @@ private:
     std::vector<CellInst> cells_;
     std::vector<SpriteInst> sprites_;
     void cell(float x, float y, float size, int mask, const vec3& col, float alpha, vec2 nc, float crumble, bool ghost,
-              float seed, float moss, const float* blend = nullptr, float root = 0.f);
+              float seed, float moss, const float* blend = nullptr, float root = 0.f, float squash = 1.f);
     // a neighbour's soil packed in one float for the cell shader's blend (-1: none)
     float packSoil(const vec3& c) const;
     void sprite(float x, float y, float hx, float hy, float rot, int kind, const vec3& col, float alpha, float p0 = 0.f,
@@ -68,8 +68,13 @@ private:
     float growthAt(const Soil& s) const;
 
     // Cleared earth crumbling, the stack crumbling at game over.
-    struct Dying { float x, y; int type, mask; vec2 nc; float t, delay, seed, age; };
+    // collapse: a cleared row of earth is crushed under the earth above, which slumps down into it (the rows
+    // below it that stay, the rows of the same clear below it)
+    struct Dying { float x, y; int type, mask; vec2 nc; float t, delay, seed, age; bool collapse = false; int keptBelow = 0, clearedBelow = 0, col = 0, row = 0; };
     std::vector<Dying> dying_;
+    // how far each row of the stack still is above its place (rows), and since when it slumps
+    float slumpFrom_[Game::H] = {}, slumpT_[Game::H] = {};
+    float slumpOff(int y) const;
 
     // Particles: dust, petals, seeds, pollen, fireflies, falling flowers.
     enum { P_DUST = 0, P_PETAL = 1, P_SEED = 2, P_POLLEN = 3, P_FIREFLY = 4, P_FLOWER = 5 };

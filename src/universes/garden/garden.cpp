@@ -13,7 +13,7 @@
 // sky takes the flowers' glow from the horizon; it stays in bloom for the whole drop, swaying slowly on the beat
 // grid, and when the drop ends it fades back and dries out over seconds.
 //
-// A cleared row crumbles into soil dust that falls and settles (its flowers fall with it), a hard landing pushes a
+// A cleared row collapses (the earth above slumps into it and crushes it flat, one mass all along; its flowers fall), a hard landing pushes a
 // puff of dust out from the contact, a Tetris sends dandelion seeds up from the whole ground line and opens the
 // stack's flowers at once, slow motion brings dusk and fireflies, game over crumbles the stack back into the earth,
 // and a change of universe lets the plants sink and the sky fade to the bridge.
@@ -151,6 +151,12 @@ std::string titleCase(const std::string& s) {
 }
 
 // The 8 neighbours, in the shader's bit order (L R D U LD RD LU RU), as game offsets (game y grows down).
+// a cleared row collapses in this long (s, at the real speed): the earth above slumps into it, faster and faster
+constexpr float COLLAPSE = 0.4f;
+float collapseLeft(float t) {
+    const float u = std::clamp(t / COLLAPSE, 0.f, 1.f);
+    return 1.f - u * u;
+}
 // how far the bottom row reaches down into the ground line (cells)
 constexpr float ROOT = 0.35f;
 const int NDX[8] = {-1, 1, 0, 0, -1, 1, -1, 1};
@@ -412,6 +418,8 @@ void GardenUniverse::emitDust(vec2 p, vec2 v, const vec3& col, float size, float
     parts_.push_back(q);
 }
 
+float GardenUniverse::slumpOff(int y) const { return slumpFrom_[y] * collapseLeft(slumpT_[y]); }
+
 int GardenUniverse::maskOf(int x, int y) const {
     const Soil& s = soil_[y][x];
     int m = 0;
@@ -484,20 +492,18 @@ void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
             const vec3 p = layout::cellPos((float)c.x, (float)c.y);
             Dying d;
             d.x = p.x; d.y = p.y; d.type = type;
-            d.mask = s.id >= 0 && s.type == type ? maskOf(c.x, c.y) : 0;
-            // a crumbling clod does not stay joined to the cells that remain
-            int keep = 0;
-            for (int i = 0; i < 8; i++) {
-                const int ny = c.y + NDY[i];
-                if (ny >= 0 && ny < Game::H && cleared[ny]) keep |= d.mask & (1 << i);
-            }
-            d.mask = keep;
+            // it stays one with the earth around it while it is crushed
+            d.mask = s.id >= 0 ? maskOf(c.x, c.y) : 0;
             d.nc = s.id >= 0 ? s.nc : v2((float)c.x, -(float)c.y);
             d.t = 0.f;
-            d.delay = std::fabs(c.x - 4.5f) * 0.012f;
+            d.delay = 0.f;
             d.seed = s.seed;
             const bool exposed = c.y == 0 || soil_[c.y - 1][c.x].id < 0 || cleared[c.y - 1];
             d.age = exposed && s.cover <= 0.f ? s.age : 0.f;
+            d.collapse = true;
+            d.col = c.x; d.row = c.y;
+            d.keptBelow = d.clearedBelow = 0;
+            for (int y = c.y + 1; y < Game::H; y++) (cleared[y] ? d.clearedBelow : d.keptBelow)++;
             dying_.push_back(d);
             const vec3 col = pal_.piece[type];
             for (int i = 0; i < 9; i++)
@@ -519,16 +525,22 @@ void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
                 }
             }
         }
-        // collapse the bookkeeping like the board
+        // collapse the bookkeeping like the board; the rows above a cleared one slump down into it
         Soil next[Game::H][Game::W];
-        int dst = Game::H - 1;
+        float from[Game::H] = {}, since[Game::H] = {};
+        int dst = Game::H - 1, below = 0;
         for (int y = Game::H - 1; y >= 0; y--) {
-            if (cleared[y]) continue;
+            if (cleared[y]) { below++; continue; }
             for (int x = 0; x < Game::W; x++) next[dst][x] = soil_[y][x];
+            if (below > 0) { from[dst] = slumpOff(y) + (float)below; since[dst] = 0.f; }
+            else { from[dst] = slumpFrom_[y]; since[dst] = slumpT_[y]; }
             dst--;
         }
-        for (int y = 0; y < Game::H; y++)
+        for (int y = 0; y < Game::H; y++) {
             for (int x = 0; x < Game::W; x++) soil_[y][x] = next[y][x];
+            slumpFrom_[y] = from[y];
+            slumpT_[y] = since[y];
+        }
         if (tetris) {
             // dandelion seeds rise from the whole ground line, and the stack's flowers open at once
             rush_ = 1.f;
@@ -783,7 +795,13 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
     }
     parts_.erase(std::remove_if(parts_.begin(), parts_.end(), [](const Particle& p) { return p.age > p.life; }), parts_.end());
     for (Dying& d : dying_) d.t += dt;
-    dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + 0.42f; }), dying_.end());
+    dying_.erase(std::remove_if(dying_.begin(), dying_.end(),
+                                [](const Dying& d) { return d.t > d.delay + (d.collapse ? COLLAPSE : 0.42f); }),
+                 dying_.end());
+    for (int y = 0; y < Game::H; y++) {
+        slumpT_[y] += dt;
+        if (slumpT_[y] >= COLLAPSE) slumpFrom_[y] = 0.f;
+    }
 
     gaugeShown_ = approach(gaugeShown_, game.bonusGauge(), 3.f, dt);
 }
@@ -793,10 +811,10 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
 // =====================================================================================================
 
 void GardenUniverse::cell(float x, float y, float size, int mask, const vec3& col, float alpha, vec2 nc, float crumble,
-                          bool ghost, float seed, float moss, const float* blend, float root) {
+                          bool ghost, float seed, float moss, const float* blend, float root, float squash) {
     if (alpha <= 0.003f) return;
     cells_.push_back({{x, y, size, (float)mask}, {col.x, col.y, col.z, alpha}, {nc.x, nc.y, crumble, ghost ? 1.f : 0.f},
-                      {seed, moss, root, 0.f},
+                      {seed, moss, root, squash},
                       {blend ? blend[0] : -1.f, blend ? blend[1] : -1.f, blend ? blend[2] : -1.f, blend ? blend[3] : -1.f}});
 }
 
@@ -988,7 +1006,7 @@ void GardenUniverse::drawStackGrowth(const Game& g, float world) {
         for (int x = 0; x < Game::W; x++) {
             const Soil& s = soil_[y][x];
             if (s.id < 0 || s.age <= 0.f || s.cover >= 1.f) continue;
-            const float off = g.rowOffset(y);
+            const float off = slumpOff(y);
             const vec3 p = layout::cellPos((float)x, y - off);
             const bool lOpen = x == 0 || soil_[y][x - 1].id < 0;
             const bool rOpen = x == Game::W - 1 || soil_[y][x + 1].id < 0;
@@ -997,7 +1015,7 @@ void GardenUniverse::drawStackGrowth(const Game& g, float world) {
         }
     // a crumbling row's grass goes with it
     for (const Dying& d : dying_) {
-        if (d.age <= 0.f) continue;
+        if (d.age <= 0.f || d.collapse) continue;
         const float k = smoothstepf(0.f, 0.25f, d.t - d.delay);
         growth(d.x, d.y + 0.5f - 0.05f, d.age, d.seed, 0.f, pal_.piece[d.type], !(d.mask & 1), !(d.mask & 2), world * (1.f - k));
     }
@@ -1028,24 +1046,40 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
             }
         }
     }
-    // The stack.
+    // The stack. A row being crushed stays joined to the earth under it and to the earth slumping onto it until it
+    // is gone (rows of the board after the clear: the one under it, the one above it).
+    bool crushed[Game::H][Game::W] = {}, onCrushed[Game::H][Game::W] = {};
+    for (const Dying& d : dying_) {
+        if (!d.collapse) continue;
+        const int under = d.row + 1 + d.clearedBelow, over = d.row + d.clearedBelow;
+        if (under < Game::H) crushed[under][d.col] = true;
+        if (over >= 0 && over < Game::H) onCrushed[over][d.col] = true;
+    }
     for (int y = Game::HIDDEN; y < Game::H; y++)
         for (int x = 0; x < Game::W; x++) {
             const Soil& s = soil_[y][x];
             if (s.id < 0) continue;
-            const float off = g.rowOffset(y);
+            // (the rows slumping into a cleared one stay joined: the crushed row fills the space between them)
+            const float off = slumpOff(y);
             int m = maskOf(x, y);
-            // rows still falling into place do not join the rows around them
-            for (int i = 0; i < 8; i++) {
-                const int ny = y + NDY[i];
-                if ((m & (1 << i)) && ny >= 0 && ny < Game::H && std::fabs(g.rowOffset(ny) - off) > 0.02f) m &= ~(1 << i);
+            if (crushed[y][x]) {
+                m |= 1 << 3;
+                if (x > 0 && crushed[y][x - 1] && soil_[y][x - 1].id >= 0) m |= 1 << 6;
+                if (x < Game::W - 1 && crushed[y][x + 1] && soil_[y][x + 1].id >= 0) m |= 1 << 7;
+            }
+            if (onCrushed[y][x]) {
+                m |= 1 << 2;
+                if (x > 0 && onCrushed[y][x - 1] && soil_[y][x - 1].id >= 0) m |= 1 << 4;
+                if (x < Game::W - 1 && onCrushed[y][x + 1] && soil_[y][x + 1].id >= 0) m |= 1 << 5;
             }
             const vec3 p = layout::cellPos((float)x, y - off);
             const float moss = s.cover < 1.f ? growthAt(s) * (1.f - s.cover) : 0.f;
             // the soils of the clods around (L R D U) blend into this one across the joins
             float blend[4];
             for (int i = 0; i < 4; i++)
-                blend[i] = (m & (1 << i)) && y + NDY[i] < Game::H ? packSoil(pal_.piece[soil_[y + NDY[i]][x + NDX[i]].type]) : -1.f;
+                blend[i] = (m & (1 << i)) && y + NDY[i] < Game::H && soil_[y + NDY[i]][x + NDX[i]].id >= 0
+                               ? packSoil(pal_.piece[soil_[y + NDY[i]][x + NDX[i]].type])
+                               : -1.f;
             // the bottom row grows out of the ground: joined below (no rim, no rounded corners), its earth mixing
             // into the ground's
             const bool root = y == Game::H - 1 && std::fabs(off) < 0.02f;
@@ -1058,6 +1092,18 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
         }
     // Cleared earth crumbling (at the real speed, even in slow motion).
     for (const Dying& d : dying_) {
+        if (d.collapse) {
+            // crushed: its height shrinks to nothing between the earth below and the earth slumping onto it
+            const float f = collapseLeft(d.t);
+            const float h = (float)d.keptBelow + (float)d.clearedBelow * f + 0.5f * f; // its middle, above the floor
+            const vec3 p = layout::cellPos(0.f, (float)(Game::H - 1) - (h - 0.5f));
+            // on the floor it keeps its root in the ground
+            const bool root = d.keptBelow == 0 && d.clearedBelow == 0;
+            const int mask = root ? d.mask | (1 << 2) | (1 << 4) | (1 << 5) : d.mask;
+            cell(d.x, p.y, 1.f, mask, pal_.piece[d.type] * (0.75f + 0.25f * f), 1.f, v2(d.x, p.y), 0.f, false, 0.f, 0.f,
+                 nullptr, root ? ROOT / std::max(f, 0.05f) : 0.f, std::max(f, 0.001f));
+            continue;
+        }
         const float k = smoothstepf(0.f, 0.36f, d.t - d.delay);
         cell(d.x, d.y - 0.12f * k * k, 1.f, d.mask, pal_.piece[d.type], 1.f, v2(d.x, d.y), std::max(0.001f, k), false, 0.f, 0.f);
     }
