@@ -46,6 +46,7 @@ uniform vec4 uWell;           // the well's flag (board x0 y0 x1 y1, at z = 0)
 uniform float uBlast, uBlastA;
 uniform float uThick;
 uniform float uSeed;
+uniform float uSpill;         // a drop: billows drifting out of the beam keep some of its light
 
 float dens(vec3 p) {
     vec3 q = p * vec3(0.022, 0.017, 0.022) + uFlow;
@@ -127,7 +128,7 @@ void main() {
         Tall *= 1.0 - a;
     }
     // the beam: march only where the ray crosses the cone (an exact span, so the edge stays crisp)
-    vec2 span = coneSpan(vec3(xy, Z0), Z0 - Z1, uCone * 1.04);
+    vec2 span = coneSpan(vec3(xy, Z0), Z0 - Z1, uCone * (1.04 + 0.6 * uSpill));
     if (span.y > span.x) {
         const int N = 22;
         float dz = (span.y - span.x) / float(N);
@@ -137,6 +138,16 @@ void main() {
             vec3 p = vec3(xy, Z0 - span.x - (float(i) + j) * dz);
             float d = dens(p);
             float s = spot(p, 0.02 + uThick * 0.6);
+            if (uSpill > 0.001) {
+                // a drop: just outside the cone, the thick billows (not the haze) still hold some of the light,
+                // fading with the distance from its edge: smoke curling out of the beam
+                vec3 v = p - uLPos;
+                float ax = dot(v, uLAxis);
+                float r = ax > 0.5 ? length(v - uLAxis * ax) / (ax * uCone) : 9.0;
+                float halo = smoothstep(0.95, 1.05, r) * (1.0 - smoothstep(1.05, 1.6, r));
+                float wisp = smoothstep(0.6, 1.6, (d - uHaze) / max(uSmoke, 1e-4));
+                s += uSpill * halo * wisp;
+            }
             vec3 toL = normalize(uLPos - p);
             float od = dens(p + toL * 1.3) * 1.3 + dens(p + toL * 3.6) * 2.3 + dens(p + toL * 8.0) * 4.4;
             float sh = exp(-od * uShadowK);

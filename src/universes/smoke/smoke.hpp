@@ -18,6 +18,7 @@ public:
     void setBonus(bool on) override;
     void levelUp() override;
     void kick(float amount) override { kickIn_ = std::max(kickIn_, amount); }
+    void drop(float strength) override;
     void render(const Frame& f, GLuint fbo) override;
     vec2 project(const vec3& p) const override;
     TransitionHints hints() const override;
@@ -108,6 +109,8 @@ private:
     // ---- Effects.
     struct Puff { vec2 p, v; float r, grow, t, life, alpha, seed, delay, stretch; int kind; float minGlow = 0.f; int tint = -1; float drag = -1.f, fall = 0.f; }; // tint: a piece type whose color the smoke takes, -1 none; drag (< 0: the kind's own) and fall (gravity) for dust that sags back
     std::vector<Puff> puffs_;
+    bool inDrop_ = false; // a drop: smoke spills out of the beam for its whole length
+    float spill_ = 0.f;
     int lastDrop_ = -1; // rows of the last hard drop, until its lock (-1: none)
     // A hard-dropped piece's lock, waiting for the frame (the rows its lock cleared are known only then): its dust
     // only comes out where it rests on something.

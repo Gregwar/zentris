@@ -437,6 +437,7 @@ void SmokeUniverse::setSong(const SongLook& look, float seconds) {
 void SmokeUniverse::setLevel(int level, float energy, float seconds, float impact) {
     level = std::clamp(level, 0, 2);
     energy_ = energy;
+    if (level < 2) inDrop_ = false;
     if (!hasLevel_ || seconds < 0.1f) {
         hasLevel_ = true;
         level_ = level;
@@ -451,6 +452,12 @@ void SmokeUniverse::setLevel(int level, float energy, float seconds, float impac
     lvT_ = 0.f;
     lvDur_ = std::clamp(seconds, rising ? 1.0f : 2.0f, 6.f);
     if (rising) swell_ = std::max(swell_, 0.25f + 0.5f * impact);
+}
+
+// The drop's first downbeat: for the whole drop, smoke curls out of the beam still holding its light.
+void SmokeUniverse::drop(float strength) {
+    if (level_ >= 2) inDrop_ = true;
+    spill_ = std::max(spill_, 0.4f * strength); // it starts spilling at once, then fills in
 }
 
 void SmokeUniverse::refresh(float strength) { swell_ = std::max(swell_, 0.3f * strength); }
@@ -656,6 +663,7 @@ void SmokeUniverse::simulate(const Game& game, const MusicState& music, float dt
     prevKick_ = kick;
     surge_ = approach(surge_, 0.f, 1.3f, dt);
     swell_ = approach(swell_, 0.f, 0.55f, dt);
+    spill_ = approach(spill_, inDrop_ ? 1.f : 0.f, inDrop_ ? 0.7f : 0.4f, dt);
     blastT_ += dt;
     const float blast = blastT_ < 4.f ? (1.f - smoothstepf(0.6f, 4.f, blastT_)) : 0.f;
     iris_ = approach(iris_, 0.25f * blast, 2.f, dt);
@@ -1081,6 +1089,7 @@ void SmokeUniverse::drawSmoke() {
     set1f(progSmoke_, "uBlastA", blast * 0.9f);
     set1f(progSmoke_, "uThick", thick * 1.0f + overFog_ * 0.3f);
     set1f(progSmoke_, "uSeed", seedF_);
+    set1f(progSmoke_, "uSpill", 1.0f * spill_ * lightOn * (1.f - thick));
     glDisable(GL_BLEND);
     ugl::drawFullscreen();
 }
