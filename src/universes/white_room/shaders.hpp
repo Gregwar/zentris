@@ -3,10 +3,11 @@
 // tone-mapped in the post.
 //
 // ROOM_FS ray-traces the room through the layout camera: a seamless white cyclorama (floor, a cove, the back wall),
-// the plinth and the white panel of the well, and a few matte balls on the floor; it lights them with two soft
-// directional area lights (the key, and a colored gel) and a soft ambient, with soft shadows: the panel's and the
-// plinth's (analytic, the penumbra growing with the distance), the blocks' (an occupancy map of the board,
-// blurred by its mip levels as the shadow travels) and the balls' (analytic).
+// a low plinth, the frosted glass pane of the well, and a few matte balls on the floor; it lights them with two soft
+// lamps in front of the well (the key, and a colored gel) and a soft ambient. The blocks are the shadow casters:
+// seen from a lamp, the board's occupancy map (blurred by its mip levels as the shadow travels) throws the stack and
+// the falling piece onto the wall and the floor behind, enlarged and soft, a shadow play. The pane casts nothing (it
+// only veils what lies behind it); the plinth and the balls cast their own small shadows.
 
 namespace white_room_shaders {
 
@@ -15,13 +16,15 @@ inline const char* COMMON_GLSL = R"(
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float sdBox(vec2 p, vec2 b) { vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
 float sdRound(vec2 p, vec2 b, float r) { vec2 d = abs(p) - b + r; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r; }
-// The two lights: direction toward the light (unit), color x intensity, softness (tan of the angular radius),
-// how much stronger the light is on its own side of the room (a gel coming in from the side).
+// The two lamps: position (board space), color x intensity, radius (the bigger, the softer the shadows), how much
+// stronger the light is on its own side of the room (a gel coming in from the side).
 uniform vec3 uL0, uC0, uL1, uC1;
 uniform float uS0, uS1, uSide0, uSide1;
-uniform vec4 uLamp;        // slow motion: a point lamp (xyz), w: how much light 0 is that lamp
-vec3 dirTo0(vec3 p) { return normalize(mix(uL0, normalize(uLamp.xyz - p), uLamp.w)); }
-float sideK(float side, vec3 l, float x) { return 1.0 + side * clamp(sign(l.x) * x / 16.0, -1.0, 1.0); }
+vec3 lampPos(int i) { return i == 0 ? uL0 : uL1; }
+vec3 dirTo(int i, vec3 p) { return normalize(lampPos(i) - p); }
+// a gentle falloff with the distance to the lamp (1 at the well)
+float lampFall(int i, vec3 p) { vec3 l = lampPos(i); return (dot(l, l) + 1600.0) / (dot(l - p, l - p) + 1600.0); }
+float sideK(float side, vec3 lp, float x) { return 1.0 + side * clamp(sign(lp.x) * x / 16.0, -1.0, 1.0); }
 )";
 
 inline const char* ROOM_FS = R"(#version 330 core
@@ -42,9 +45,13 @@ uniform vec4 uBallC[32];      // albedo, squash (y scale)
 uniform float uBridge;
 uniform vec3 uBridgeCol;
 uniform float uShadowK;       // 1: shadows, 0: none (bridge)
+uniform float uShadowAmt;     // how dark the shadow play is
+uniform float uFrost;         // how much the pane veils what lies behind it
+uniform float uPx;            // a pixel in board units (at the well)
 
 const vec3 PANEL_C = vec3(0.0, 0.1, -0.78);
 const vec3 PANEL_H = vec3(5.22, 10.15, 0.17);
+const float PANE_Z = -0.62;
 const float PLINTH_TOP = -10.05;
 const vec2 PLINTH_HX = vec2(5.5, 1.3);
 
@@ -105,7 +112,7 @@ float ballHit(vec3 ro, vec3 rd, int i, out vec3 n) {
 float occAt(vec2 p, float blur) {
     vec2 uv = (p - uOccRect.xy) / uOccRect.z;
     if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
-    float lod = clamp(log2(max(blur * uOccRect.w, 1.0)), 0.0, uOccLod);
+    float lod = clamp(log2(max(blur * uOccRect.w, 1.0)) - 0.8, 0.0, uOccLod);
     return textureLod(uOcc, uv, lod).r;
 }
 
@@ -127,24 +134,30 @@ float blockShadow(vec3 p, vec3 l, float soft) {
     return occ;
 }
 
-// the panel and the plinth, seen from behind them
-float panelShadow(vec3 p, vec3 l, float soft) {
-    float occ = 0.0;
-    if (p.z < PANEL_C.z - PANEL_H.z && l.z > 0.02) {
-        float t = (PANEL_C.z - p.z) / l.z;
-        vec3 q = p + l * t;
-        float pen = t * soft + 0.03;
-        float d = sdBox(q.xy - PANEL_C.xy, PANEL_H.xy);
-        occ = 1.0 - smoothstep(-pen, pen, d);
-    }
-    if (p.z < -PLINTH_HX.y && l.z > 0.02) {
-        float t = (0.0 - p.z) / l.z;
-        vec3 q = p + l * t;
-        float pen = t * soft + 0.03;
-        float d = sdBox(q.xy - vec2(0.0, 0.5 * (uFloor + PLINTH_TOP)), vec2(PLINTH_HX.x, 0.5 * (PLINTH_TOP - uFloor)));
-        occ = max(occ, 1.0 - smoothstep(-pen, pen, d));
-    }
-    return occ;
+// The shadow play: the blocks seen from lamp i, thrown onto a point of the room behind them. The ray from the point
+// to the lamp crosses the blocks' plane; the penumbra grows with the distance from the blocks to the point, and
+// shrinks with the distance from the lamp to the blocks (the lamp's radius seen from the blocks).
+float stackShadow(vec3 p, int i, float radius) {
+    vec3 l = lampPos(i);
+    const float ZB = -0.2;
+    if (p.z > ZB - 0.3 || l.z < ZB + 1.0) return 0.0;
+    float s = (ZB - p.z) / (l.z - p.z);
+    vec3 q = p + (l - p) * s;
+    float d = length(l - p);
+    float blur = s * d * radius / max((1.0 - s) * d, 1.0) + 0.06;
+    return occAt(q.xy, blur);
+}
+
+// the plinth, seen from behind it
+float plinthShadow(vec3 p, int i, float radius) {
+    vec3 l = lampPos(i);
+    if (p.z > -PLINTH_HX.y || l.z < 1.0) return 0.0;
+    float s = (0.0 - p.z) / (l.z - p.z);
+    vec3 q = p + (l - p) * s;
+    float d = length(l - p);
+    float pen = s * d * radius / max((1.0 - s) * d, 1.0) + 0.03;
+    float sd = sdBox(q.xy - vec2(0.0, 0.5 * (uFloor + PLINTH_TOP)), vec2(PLINTH_HX.x, 0.5 * (PLINTH_TOP - uFloor)));
+    return 1.0 - smoothstep(-pen, pen, sd);
 }
 
 float ballShadow(vec3 p, vec3 l, float soft, int self) {
@@ -176,36 +189,31 @@ float ballAO(vec3 p, vec3 n, int self) {
     return ao;
 }
 
-vec3 light(vec3 p, vec3 n, vec3 alb, float ao, int self, bool panelFace, bool behind) {
+// pane: a point on the frosted pane (the blocks' contact shadows); else a point of the room, the plinth or a ball
+vec3 light(vec3 p, vec3 n, vec3 alb, float ao, int self, bool pane) {
     vec3 col = alb * uAmb * (0.7 + 0.3 * (n.y * 0.5 + 0.5)) * ao;
     for (int i = 0; i < 2; i++) {
-        vec3 l = i == 0 ? dirTo0(p) : uL1;
+        vec3 l = dirTo(i, p);
         vec3 c = i == 0 ? uC0 : uC1;
-        float soft = i == 0 ? uS0 : uS1;
+        float radius = i == 0 ? uS0 : uS1;
         float ndl = max(dot(n, l), 0.0);
         if (ndl <= 0.0 || dot(c, c) < 1e-6) continue;
-        float vis = 1.0;
-        float sh = blockShadow(p + n * 0.01, l, soft) * 0.92;
-        if (behind) sh = max(sh, panelShadow(p, l, soft));
-        vis *= 1.0 - sh * uShadowK;
-        vis *= mix(1.0, ballShadow(p + n * 0.01, l, soft, self), uShadowK);
-        float lampFall = i == 0 ? mix(1.0, 700.0 / (300.0 + dot(uLamp.xyz - p, uLamp.xyz - p)), uLamp.w) : 1.0;
-        col += alb * c * ndl * vis * sideK(i == 0 ? uSide0 : uSide1, l, p.x) * lampFall;
+        float sh = pane ? blockShadow(p + n * 0.01, l, radius / length(lampPos(i) - p)) * 0.8
+                        : max(stackShadow(p, i, radius) * uShadowAmt, plinthShadow(p, i, radius) * 0.8);
+        float vis = 1.0 - sh * uShadowK;
+        vis *= mix(1.0, ballShadow(p + n * 0.01, l, radius / length(lampPos(i) - p), self), uShadowK);
+        col += alb * c * ndl * vis * sideK(i == 0 ? uSide0 : uSide1, lampPos(i), p.x) * lampFall(i, p);
     }
     return col;
 }
 
-void main() {
-    vec2 ndc = vUv * 2.0 - 1.0;
-    vec3 ro = uEye;
-    vec3 rd = normalize(vec3(ndc.x * uTan.x, ndc.y * uTan.y, -1.0));
+// the room, the plinth and the balls (everything but the pane)
+vec3 trace(vec3 ro, vec3 rd) {
     vec3 n, nb;
     float t = roomHit(ro, rd, n);
-    int what = 0; // 0 room, 1 panel, 2 plinth, 3 ball
+    int what = 0; // 0 room, 2 plinth, 3 ball
     int ball = -1;
-    float tb = boxHit(ro, rd, PANEL_C, PANEL_H, nb);
-    if (tb > 0.0 && tb < t) { t = tb; n = nb; what = 1; }
-    tb = boxHit(ro, rd, vec3(0.0, 0.5 * (uFloor + PLINTH_TOP), 0.0), vec3(PLINTH_HX.x, 0.5 * (PLINTH_TOP - uFloor), PLINTH_HX.y), nb);
+    float tb = boxHit(ro, rd, vec3(0.0, 0.5 * (uFloor + PLINTH_TOP), 0.0), vec3(PLINTH_HX.x, 0.5 * (PLINTH_TOP - uFloor), PLINTH_HX.y), nb);
     if (tb > 0.0 && tb < t) { t = tb; n = nb; what = 2; }
     for (int i = 0; i < uBalls; i++) {
         float tt = ballHit(ro, rd, i, nb);
@@ -215,23 +223,13 @@ void main() {
     vec3 col;
     if (what == 3) {
         vec3 alb = uBallC[ball].rgb;
-        // the floor bounces a little light up under the ball
         float ao = 0.75 + 0.25 * (n.y * 0.5 + 0.5);
-        col = light(p, n, alb, ao, ball, false, p.z < -0.96);
-        // a soft sheen (matte plastic)
-        vec3 h = normalize(dirTo0(p) - rd);
-        col += uC0 * pow(max(dot(n, h), 0.0), 24.0) * 0.06;
-    } else if (what == 1) {
-        // the panel: its face catches the blocks' shadows; its rounded edge catches the light
-        float ao = 1.0 - 0.32 * occAt(p.xy, 0.9) * uShadowK;
-        vec2 q = p.xy - PANEL_C.xy;
-        float e = clamp(1.0 + sdBox(q, PANEL_H.xy) / 0.09, 0.0, 1.0);
-        vec2 g = abs(q.x) - PANEL_H.x > abs(q.y) - PANEL_H.y ? vec2(sign(q.x), 0.0) : vec2(0.0, sign(q.y));
-        vec3 nn = n.z > 0.5 ? normalize(vec3(g * e, sqrt(max(1.0 - e * e, 0.0)))) : n;
-        col = light(p, nn, uPanel, ao, -1, true, false);
+        col = light(p, n, alb, ao, ball, false);
+        vec3 h = normalize(dirTo(0, p) - rd);
+        col += uC0 * pow(max(dot(n, h), 0.0), 24.0) * 0.06; // a soft sheen (matte plastic)
     } else if (what == 2) {
         float ao = 1.0 - 0.28 * occAt(vec2(p.x, -9.6), 0.8) * smoothstep(0.6, -0.6, p.z) * uShadowK;
-        col = light(p, n, uWall * 0.98, ao, -1, false, p.z < -0.96);
+        col = light(p, n, uWall * 0.98, ao, -1, false);
     } else {
         // the room: a soft pool of light on the wall, the floor darkened around the plinth and under the balls
         float ao = ballAO(p, n, -1);
@@ -241,11 +239,31 @@ void main() {
             ao *= 1.0 - 0.5 * exp(-max(dist, 0.0) / 0.45);
         }
         ao = mix(1.0, ao, uShadowK);
-        col = light(p, n, uWall, ao, -1, false, p.z < -0.96);
+        col = light(p, n, uWall, ao, -1, false);
         vec2 pd = (p.xy - uPool.xy) / uPool.z;
         col *= 1.0 + uPool.w * (exp(-dot(pd, pd)) - 0.35);
-        // the room's far top fades a touch (an endless space, not a ceiling)
-        col *= 1.0 - 0.1 * smoothstep(4.0, 16.0, p.y);
+        col *= 1.0 - 0.1 * smoothstep(4.0, 16.0, p.y); // the far top fades a touch (an endless space)
+    }
+    return col;
+}
+
+void main() {
+    vec2 ndc = vUv * 2.0 - 1.0;
+    vec3 ro = uEye;
+    vec3 rd = normalize(vec3(ndc.x * uTan.x, ndc.y * uTan.y, -1.0));
+    vec3 col = trace(ro, rd);
+    // the well: a pane of frosted glass standing on the plinth; it veils the shadows behind it (the stack reads on a
+    // calm ground) and catches the blocks' own short contact shadows; a hairline marks its edge
+    float tp = (PANE_Z - ro.z) / rd.z;
+    vec3 pp = ro + rd * tp;
+    float sd = sdBox(pp.xy - PANEL_C.xy, PANEL_H.xy);
+    if (sd < uPx * 1.5) {
+        float ao = 1.0 - 0.3 * occAt(pp.xy, 0.9) * uShadowK;
+        vec3 paneCol = light(pp, vec3(0.0, 0.0, 1.0), uPanel, ao, -1, true);
+        float inside = 1.0 - smoothstep(-uPx * 0.5, uPx * 0.5, sd);
+        col = mix(col, paneCol, uFrost * inside);
+        float line = 1.0 - smoothstep(0.0, uPx * 1.2, abs(sd));
+        col *= 1.0 - 0.22 * line;
     }
     col = mix(col, uBridgeCol, uBridge);
     frag = vec4(col, 1.0);
@@ -329,13 +347,13 @@ vec3 matte(vec2 p, float s, vec3 alb, vec3 wpos) {
     vec3 n = normalize(vec3(g * e, sqrt(max(1.0 - e * e, 0.0))));
     vec3 col = alb * uAmbB * (0.8 + 0.2 * n.z);
     for (int i = 0; i < 2; i++) {
-        vec3 l = i == 0 ? dirTo0(wpos) : uL1;
+        vec3 l = dirTo(i, wpos);
         vec3 c = i == 0 ? uC0 : uC1;
         float ndl = max(dot(n, l), 0.0);
-        float lampFall = i == 0 ? mix(1.0, 700.0 / (300.0 + dot(uLamp.xyz - wpos, uLamp.xyz - wpos)), uLamp.w) : 1.0;
-        col += alb * c * ndl * sideK(i == 0 ? uSide0 : uSide1, l, wpos.x) * lampFall;
+        float fall = lampFall(i, wpos);
+        col += alb * c * ndl * sideK(i == 0 ? uSide0 : uSide1, lampPos(i), wpos.x) * fall;
         vec3 h = normalize(l + vec3(0, 0, 1));
-        col += c * pow(max(dot(n, h), 0.0), 18.0) * 0.05 * lampFall;
+        col += c * pow(max(dot(n, h), 0.0), 18.0) * 0.05 * fall;
     }
     return col;
 }
