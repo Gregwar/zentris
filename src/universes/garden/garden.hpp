@@ -135,7 +135,7 @@ private:
     float energy_ = 0.5f;
 
     // ---- The ground line's state: dry 0..1, height of the grass, density, the bloom (flowers open) and the drop.
-    float dry_ = 0.6f, height_ = 0.6f, density_ = 0.7f, bloom_ = 0.f, drive_ = 0.f, glow_ = 0.f, swell_ = 0.f;
+    float dry_ = 0.6f, grassH_ = 0.6f, density_ = 0.7f, bloom_ = 0.f, drive_ = 0.f, glow_ = 0.f, swell_ = 0.f;
     float flurry_ = 0.f, petalAcc_ = 0.f, gust_ = 0.f;
     float dropPending_ = 0.f;   // drop() was called: its hit fires as soon as the section is known to be a drop
     bool sectionDrop_ = false, sectionChorus_ = false, sectionKnown_ = false;

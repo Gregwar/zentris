@@ -25,6 +25,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 
 #include "layout.hpp"
 #include "universes/garden/shaders.hpp"
@@ -70,7 +71,7 @@ constexpr float WELL_X = 5.15f, WELL_Y = 10.1f;
 float groundY(float x, float seed) {
     const float a = std::fabs(x);
     const float side = smoothstepf(6.f, 12.f, a);
-    return -10.05f + 0.3f * smoothstepf(5.4f, 11.f, a) + 2.4f * std::pow(smoothstepf(11.f, 24.f, a), 1.3f) +
+    return -10.05f + 0.3f * smoothstepf(5.4f, 11.f, a) + 3.4f * std::pow(smoothstepf(11.f, 24.f, a), 1.3f) +
            (0.22f * std::sin(x * 0.37f + seed) + 0.12f * std::sin(x * 0.91f + seed * 1.7f)) * side;
 }
 
@@ -300,12 +301,12 @@ void GardenUniverse::buildGround() {
     Rng r(seed_ ^ 0x6A4DE1ull);
     const float X = viewH_.x + 1.f;
     for (float x = -X; x < X; x += 0.05f) blades_.push_back({x + r.range(-0.02f, 0.02f), r.uniform(), r.uniform(), r.uniform(), r.uniform()});
-    for (float x = -X; x < X; x += r.range(0.22f, 0.42f)) {
+    for (float x = -X; x < X; x += r.range(0.13f, 0.3f)) {
         if (std::fabs(x) < 6.2f) continue;
         GFlower f;
         f.x = x;
-        f.stem = r.range(0.35f, 1.0f);
-        f.head = r.range(0.11f, 0.19f);
+        f.stem = r.range(0.5f, 1.6f);
+        f.head = r.range(0.15f, 0.27f);
         f.u = r.range(0.f, 0.92f);
         f.lean = r.range(-0.18f, 0.18f);
         f.seed = r.range(0.f, 100.f);
@@ -357,8 +358,8 @@ void GardenUniverse::setLevel(int level, float energy, float seconds, float impa
             // an instant level (first frame, viewer): the ground line is already in that state
             const float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 2.f, lv_);
             dry_ = 1.f - 0.65f * wm - 0.35f * wp;
-            height_ = 0.35f + 0.3f * wm + 0.35f * wp;
-            density_ = 0.3f + 0.45f * wm + 0.25f * wp;
+            grassH_ = 0.45f + 0.35f * wm + 0.6f * wp;
+            density_ = 0.22f + 0.5f * wm + 0.28f * wp;
         }
         return;
     }
@@ -668,8 +669,8 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
     // the grass: dry and sparse when calm (and in breaks), green at mid, lush at the peak; dried out at game over
     const float dryT = over ? 1.f : 1.f - 0.65f * wm - 0.35f * wp;
     dry_ = approach(dry_, dryT, dryT > dry_ ? 0.35f : 0.7f, dt);
-    height_ = approach(height_, over ? 0.3f : 0.35f + 0.3f * wm + 0.35f * wp + 0.1f * drive_, 0.5f, dt);
-    density_ = approach(density_, over ? 0.3f : 0.3f + 0.45f * wm + 0.25f * wp, 0.5f, dt);
+    grassH_ = approach(grassH_, over ? 0.4f : 0.45f + 0.35f * wm + 0.6f * wp, 0.5f, dt);
+    density_ = approach(density_, over ? 0.22f : 0.22f + 0.5f * wm + 0.28f * wp, 0.5f, dt);
 
     const float world = 1.f - smoothstepf(0.f, 0.6f, bridge_.amount);
     // Petals on the breeze: a flurry off the opening flowers on the drop's downbeat, then a steady few.
@@ -683,8 +684,8 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
             if (o < 0.5f) continue;
             const float a = std::fabs(f.x);
             const float side = f.x < 0.f ? -1.f : 1.f;
-            const float sc = 1.f + 0.5f * smoothstepf(11.f, 22.f, a);
-            const float y = groundY(f.x, seedF_) + f.stem * sc * (0.7f + 0.3f * height_);
+            const float sc = 1.f + 0.8f * smoothstepf(10.f, 22.f, a);
+            const float y = groundY(f.x, seedF_) + f.stem * sc * (0.5f + 0.5f * grassH_);
             Particle p{};
             p.p = v2(f.x + rng_.range(-0.1f, 0.1f), y);
             p.v = v2(side * rng_.range(0.2f, 0.9f) + rng_.range(-0.3f, 0.3f), rng_.range(0.4f, 1.3f) * (0.5f + gust_));
@@ -727,13 +728,13 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
             vec3 col;
             if (bloom_ > 0.4f && !gflowers_.empty()) {
                 const GFlower& f = gflowers_[rng_.irange(0, (int)gflowers_.size() - 1)];
-                const float sc = 1.f + 0.5f * smoothstepf(11.f, 22.f, std::fabs(f.x));
-                x = f.x; y = groundY(f.x, seedF_) + f.stem * sc * (0.7f + 0.3f * height_);
+                const float sc = 1.f + 0.8f * smoothstepf(10.f, 22.f, std::fabs(f.x));
+                x = f.x; y = groundY(f.x, seedF_) + f.stem * sc * (0.5f + 0.5f * grassH_);
                 col = lerp(pal_.center, vec3(1.f), 0.3f);
             } else {
                 const float side = rng_.chance(0.5f) ? -1.f : 1.f;
                 x = side * rng_.range(6.5f, viewH_.x - 1.f);
-                y = groundY(x, seedF_) + 0.5f * height_;
+                y = groundY(x, seedF_) + 0.5f * grassH_;
                 col = lerp(pal_.lush, vec3(1.f), 0.5f);
             }
             for (int i = 0; i < 4; i++) {
@@ -851,21 +852,21 @@ void GardenUniverse::drawGround(const MusicState& music, float world) {
         const float a = std::fabs(b.x);
         // short and tidy under the well, taller toward the edges of the picture
         const float hs = lerpf(0.2f, 1.f, smoothstepf(5.2f, 6.6f, a));
-        const float side = 1.f + 0.5f * smoothstepf(11.f, 22.f, a);
+        const float side = 1.f + 0.8f * smoothstepf(10.f, 22.f, a);
         const bool stem = b.h1 < 0.14f;   // the stems that stay standing when everything is dry
         const float vis = stem ? 1.f : smoothstepf(density_, density_ - 0.06f, b.h1);
         if (vis <= 0.f) continue;
-        float len = (0.2f + 0.6f * b.h2) * height_ * hs * side;
-        if (stem) len *= 1.f + 0.9f * dry_;
+        float len = (0.25f + 0.75f * b.h2) * grassH_ * hs * side;
+        if (stem) len *= 1.f + 1.4f * dry_;
         const float y0 = groundY(b.x, seedF_) - 0.05f;
         // under the HUD columns, the plants stay below the text
         if (b.x > layout::LEFT_COLUMN[0] - 0.5f && b.x < layout::LEFT_COLUMN[2] + 0.5f) len = std::min(len, layout::LEFT_COLUMN[1] - 0.6f - y0);
         if (b.x > layout::RIGHT_COLUMN[0] - 0.5f && b.x < layout::RIGHT_COLUMN[2] + 0.5f) len = std::min(len, layout::RIGHT_COLUMN[1] - 0.6f - y0);
         if (len <= 0.02f) continue;
         vec3 col = lerp(pal_.grass, pal_.lush, saturate(b.h3 * 0.6f + 0.6f * wp));
-        col = lerp(col, pal_.dry * (0.85f + 0.3f * b.h4), dry_ * (0.65f + 0.35f * b.h3) + (stem ? 0.3f * dry_ : 0.f));
+        col = lerp(col, pal_.dry * (0.85f + 0.3f * b.h4) * (stem ? 0.55f : 1.f), saturate(dry_ * (0.65f + 0.35f * b.h3) + (stem ? 0.35f * dry_ : 0.f)));
         col = col * ((0.78f + 0.4f * b.h4) * dusk);
-        float w = (stem ? 0.022f : 0.034f) * side;
+        float w = (stem ? 0.03f : 0.034f) * side;
         float alpha = world * vis;
         if (w < minW) { alpha *= w / minW; w = minW; }
         const float rot = (b.h4 - 0.5f) * 0.4f + sway(b.x, b.h1) * (0.6f + 0.6f * b.h2);
@@ -886,9 +887,9 @@ void GardenUniverse::drawGround(const MusicState& music, float world) {
             if (stemG <= 0.f) continue;
             const float o = smoothstepf(f.u, f.u + 0.1f, bloom_);
             const float a = std::fabs(f.x);
-            const float side = 1.f + 0.5f * smoothstepf(11.f, 22.f, a);
+            const float side = 1.f + 0.8f * smoothstepf(10.f, 22.f, a);
             const float y0 = groundY(f.x, seedF_) - 0.05f;
-            float len = f.stem * side * (0.7f + 0.3f * height_) * stemG;
+            float len = f.stem * side * (0.5f + 0.5f * grassH_) * stemG;
             if (f.x > layout::LEFT_COLUMN[0] - 0.5f && f.x < layout::LEFT_COLUMN[2] + 0.5f) len = std::min(len, layout::LEFT_COLUMN[1] - 0.8f - y0);
             if (len <= 0.02f) continue;
             const float rot = f.lean + sway(f.x, f.seed) * 1.3f;
@@ -931,11 +932,11 @@ void GardenUniverse::drawStackGrowth(const Game& g, float world) {
         const float lo = lOpen ? -0.33f : -0.5f, hi = rOpen ? 0.33f : 0.5f;
         const float fk = smoothstepf(0.f, 1.f, fold);
         const float keep = 1.f - fk;
-        const int N = 7;
+        const int N = 9;
         for (int i = 0; i < N; i++) {
             const float h1 = hashf(seed, (float)i), h2 = hashf(seed, i + 20.f), h3 = hashf(seed, i + 40.f);
             const float bx = cx + lo + (hi - lo) * (i + 0.5f + (h1 - 0.5f) * 0.7f) / N;
-            const float len = (0.1f + 0.14f * h2) * gr * (0.25f + 0.75f * keep);
+            const float len = (0.11f + 0.18f * h2) * gr * (0.25f + 0.75f * keep);
             vec3 col = lerp(pal_.grass, pal_.lush, h3);
             col = lerp(col, pal_.dry, 0.3f * dry_);
             col = lerp(col * ((0.8f + 0.35f * h1) * dusk), foldCol, fk);
@@ -954,7 +955,7 @@ void GardenUniverse::drawStackGrowth(const Game& g, float world) {
             const float stemG = smoothstepf(start - 1.f, start + 1.2f, age);
             if (stemG > 0.f) {
                 const float fx = cx + lo + 0.1f + (hi - lo - 0.2f) * hashf(seed, 98.f);
-                const float len = (0.2f + 0.1f * hashf(seed, 95.f)) * stemG * keep;
+                const float len = (0.24f + 0.1f * hashf(seed, 95.f)) * stemG * keep;
                 const float rot = (hashf(seed, 94.f) - 0.5f) * 0.3f + sway(fx, seed) * 0.6f;
                 const float c = std::cos(rot), s = std::sin(rot);
                 const vec3 stemCol = lerp(pal_.lush * 0.85f * dusk, foldCol, fk);
@@ -963,9 +964,9 @@ void GardenUniverse::drawStackGrowth(const Game& g, float world) {
                 const float hx = fx - s * (len + 0.03f), hy = top - 0.03f + c * (len + 0.03f);
                 const vec3 col = lerp(pal_.flower[(int)(hashf(seed, 96.f) * 2.999f)] * dusk, foldCol, fk);
                 const float hs = keep;
-                if (op < 0.22f) sprite(hx, hy, 0.03f * stemG * hs, 0.045f * stemG * hs, rot, 6, col, a);
+                if (op < 0.22f) sprite(hx, hy, 0.04f * stemG * hs, 0.06f * stemG * hs, rot, 6, col, a);
                 else {
-                    const float r = (0.07f + 0.02f * hashf(seed, 93.f)) * (0.6f + 0.4f * op) * hs;
+                    const float r = (0.11f + 0.04f * hashf(seed, 93.f)) * (0.6f + 0.4f * op) * hs;
                     sprite(hx, hy, r, r, rot + seed, 2, col, a, op, (float)(5 + (int)(hashf(seed, 92.f) * 3.f)));
                 }
             }
@@ -1011,7 +1012,7 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
                 for (int i = 0; i < 8; i++)
                     if (inGhost(c[0] + NDX[i], c[1] + NDY[i])) m |= 1 << i;
                 const vec3 w = layout::cellPos((float)c[0], (float)c[1]);
-                cell(w.x, w.y, 1.f, m, pal_.piece[std::clamp(p.type, 0, 6)], 0.2f, v2(0, 0), 0.f, true, 0.f, 0.f);
+                cell(w.x, w.y, 1.f, m, lerp(pal_.piece[std::clamp(p.type, 0, 6)], pal_.groundDeep, 0.5f), 0.16f, v2(0, 0), 0.f, true, 0.f, 0.f);
             }
         }
     }
@@ -1161,17 +1162,29 @@ void GardenUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<
         glBufferData(GL_ARRAY_BUFFER, v.size() * sizeof(Vert), v.data(), GL_STREAM_DRAW);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)v.size());
     }
-    const vec3 ink = lerp(pal_.ink, vec3(0.92f, 0.9f, 0.86f), slow_ * (ugl::luma(pal_.ink) < 0.3f ? 0.8f : 0.f));
-    const vec3 accent = lerp(pal_.accent, ink, 0.2f);
+    const vec3 skyInk = lerp(pal_.ink, vec3(0.92f, 0.9f, 0.86f), slow_ * (ugl::luma(pal_.ink) < 0.3f ? 0.8f : 0.f));
+    const vec3 skyAccent = lerp(pal_.accent, skyInk, 0.2f);
+    const vec3 earthInk = lerp(pal_.dry, vec3(1.f), 0.45f) * (1.f - 0.3f * slow_);
     std::vector<float> q;
     for (const HudText& h : hud) {
         if (h.alpha <= 0.01f || h.text.empty()) continue;
         const float base = h.scale * 12.f;
+        // letters over the ground line are set in the earth, pale like dry grass; the others in the sky's ink
+        auto earthAt = [&](float px, float py) {
+            const float bx = viewC_.x + (px / width_ * 2.f - 1.f) * viewH_.x;
+            const float by = viewC_.y - (py / height_ * 2.f - 1.f) * viewH_.y;
+            return by < groundY(bx, seedF_) - 0.1f;
+        };
+        vec3 ink = skyInk, accent = skyAccent;
         const float alpha = saturate(h.alpha);
         q.clear();
         auto place = [&](const Font& f, const std::string& text, float size, float track, float dy = 0.f) {
             const float w = textWidth(f, text, size, track);
-            textQuads(f, text, ugl::hudLeft(h, w, width_), h.y + dy, size, track, q);
+            const float x = ugl::hudLeft(h, w, width_);
+            const bool e = earthAt(x + w * 0.5f, h.y + dy + size * 0.5f);
+            ink = e ? earthInk : skyInk;
+            accent = e ? earthInk : skyAccent;
+            textQuads(f, text, x, h.y + dy, size, track, q);
         };
         switch (h.role) {
         case HUD_UNIVERSE: {
@@ -1189,11 +1202,12 @@ void GardenUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<
             const float x = ugl::hudLeft(h, wName + (var.empty() ? 0.f : gap + wVar), width_);
             textQuads(fontItalic_, name, x, h.y - base * 0.12f, sz, 0.f, q);
             const float a = saturate(0.35f + h.alpha * 1.6f);
-            drawText(fontItalic_, q, ink, a, 0.03f);
+            drawText(fontItalic_, q, earthAt(x + wName * 0.5f, h.y + sz * 0.4f) ? earthInk : skyInk, a, 0.03f);
             if (!var.empty()) {
                 q.clear();
                 textQuads(fontRoman_, var, x + wName + gap, h.y + base * 0.22f, vsz, vtr, q);
-                drawText(fontRoman_, q, ink, a * 0.85f, 0.02f);
+                drawText(fontRoman_, q, earthAt(x + wName + gap + wVar * 0.5f, h.y + base * 0.22f + vsz * 0.5f) ? earthInk : skyInk,
+                         a * 0.85f, 0.02f);
             }
             continue;
         }
@@ -1311,16 +1325,21 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
         set1f(progSky_, "uStars", pal_.stars);
         set1f(progSky_, "uVeil", pal_.veil);
         set1f(progSky_, "uDry", dry_);
+        set1f(progSky_, "uHaze", smoothstepf(0.4f, 1.f, dry_) * (1.f - pal_.stars * 0.6f));
+        set1f(progSky_, "uLush", smoothstepf(1.1f, 2.f, lv_) * (1.f - drive_));
         ugl::drawFullscreen();
     }
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     // ---- The ground line's plants and the air's things (behind the stack).
-    drawGround(music, world);
+    static int SKIP = getenv("GARDEN_SKIP") ? atoi(getenv("GARDEN_SKIP")) : 0;
+    if (!(SKIP & 1)) drawGround(music, world);
     drawParticles(false, world);
+    if (SKIP & 2) sprites_.clear();
     flushSprites();
     // ---- The stack, its growth, the falling piece.
     drawBoard(game, world);
+    if (SKIP & 4) cells_.clear();
     flushCells();
     drawStackGrowth(game, world);
     flushSprites();

@@ -16,6 +16,7 @@ float vnoise(vec2 p) {
     vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
 }
+vec3 enc(vec3 c) { return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)); }
 float fbm(vec2 p) {
     float s = 0.0, a = 0.5;
     for (int i = 0; i < 4; i++) { s += a * vnoise(p); p = p * 2.03 + 17.1; a *= 0.5; }
@@ -32,11 +33,11 @@ out vec4 frag;
 uniform vec4 uView;          // center x, y, half extents x, y (board units)
 uniform vec3 uSkyTop, uSkyLow, uSunCol, uGlow, uGround, uGroundDeep, uLip, uBridgeCol, uDusk;
 uniform vec4 uSun;           // x, y, radius, moon (0 / 1)
-uniform float uGlowAmt, uSlow, uBridge, uSeed, uPx, uStars, uVeil, uDry;
+uniform float uGlowAmt, uSlow, uBridge, uSeed, uPx, uStars, uVeil, uDry, uHaze, uLush;
 float groundY(float x) {
     float a = abs(x);
     float side = smoothstep(6.0, 12.0, a);
-    return -10.05 + 0.3 * smoothstep(5.4, 11.0, a) + 2.4 * pow(smoothstep(11.0, 24.0, a), 1.3)
+    return -10.05 + 0.3 * smoothstep(5.4, 11.0, a) + 3.4 * pow(smoothstep(11.0, 24.0, a), 1.3)
            + (0.22 * sin(x * 0.37 + uSeed) + 0.12 * sin(x * 0.91 + uSeed * 1.7)) * side;
 }
 void main() {
@@ -44,8 +45,12 @@ void main() {
     // the sky: a plain gradient from the horizon up
     float h = clamp((w.y + 10.0) / 23.0, 0.0, 1.0);
     vec3 sky = mix(uSkyLow, uSkyTop, smoothstep(0.0, 1.0, pow(h, 0.75)));
+    // dry spells: a pale, dusty haze; the peak: a deeper, clearer sky
+    float grey = dot(sky, vec3(0.3, 0.5, 0.2));
+    sky = mix(sky, mix(vec3(grey), uSkyLow, 0.55) * 1.04, uHaze * 0.5);
+    sky = mix(sky, sky * mix(vec3(1.0), uSkyTop / max(dot(uSkyTop, vec3(0.33)), 1e-3) * 0.33, 0.25), uLush * smoothstep(-6.0, 12.0, w.y));
     // the drop: a glow of the flowers' color rising from the horizon, steady for the whole drop
-    float glow = uGlowAmt * exp(-max(w.y + 9.0, 0.0) / 9.0);
+    float glow = uGlowAmt * exp(-max(w.y + 9.0, 0.0) / 11.0);
     sky = mix(sky, uGlow, clamp(glow, 0.0, 0.8));
     // slow motion: dusk falls over the garden
     vec3 dusk = mix(uDusk * 0.55, uDusk, smoothstep(-10.0, 6.0, -w.y));
@@ -84,11 +89,13 @@ void main() {
     soil *= 0.88 + 0.24 * fbm(w * vec2(2.2, 3.4) + uSeed);
     float sp = hash12(floor(w * 24.0));
     soil *= sp > 0.94 ? 1.25 : (sp < 0.05 ? 0.7 : 1.0);
-    soil = mix(soil, uLip, exp(-below / 0.09) * 0.55 * (1.0 - 0.5 * uDry));
+    soil = mix(soil, uLip, exp(-max(below, 0.0) / 0.09) * 0.55 * (1.0 - 0.5 * uDry));
+    // dry earth is paler and dustier
+    soil = mix(soil, soil * 1.3 + uLip * 0.15, uDry * 0.35);
     soil *= 1.0 - 0.45 * uSlow;
     vec3 col = mix(sky, soil, edge);
     col = mix(col, uBridgeCol, uBridge);
-    frag = vec4(col, 1.0);
+    frag = vec4(enc(col), 1.0);
 }
 )";
 
@@ -135,7 +142,7 @@ void main() {
         if (offs[i].y < -0.5) dBot = min(dBot, d);
     }
     // rounded outer corners (both sides open)
-    const float R = 0.2;
+    const float R = 0.3;
     for (int c = 0; c < 4; c++) {
         vec2 s = vec2(c == 0 || c == 2 ? -1.0 : 1.0, c < 2 ? -1.0 : 1.0);
         int sx = s.x < 0.0 ? 0 : 1, sy = s.y < 0.0 ? 2 : 3;
@@ -146,33 +153,41 @@ void main() {
     vec2 nc = v2.xy + vP;
     bool ghost = v2.w > 0.5;
     float px = uPx / size;
-    float inset = 0.055;
-    float crumb = ghost ? 0.0 : (fbm(nc * 7.0 + v3.x) - 0.5) * 0.08 + (vnoise(nc * 31.0) - 0.5) * 0.035;
+    float inset = 0.06;
+    // a lumpy outline, a few crumbs off it
+    float crumb = ghost ? 0.0 : (fbm(nc * 3.3 + v3.x) - 0.5) * 0.13 + (vnoise(nc * 15.0) - 0.5) * 0.05;
     float a = smoothstep(inset - px, inset + px, dE + crumb);
-    // loose crumbs just off the edge
     if (!ghost) {
-        float band = smoothstep(inset - 0.07, inset - 0.02, dE + crumb * 0.5) * (1.0 - a);
-        float g = vnoise(nc * 36.0 + 4.0);
-        a = max(a, band * smoothstep(0.74, 0.8, g));
+        vec2 cc = floor(nc * 11.0);
+        vec2 cq = fract(nc * 11.0) - 0.5 - (vec2(hash12(cc + 3.1), hash12(cc + 7.7)) - 0.5) * 0.5;
+        float cr = hash12(cc + 1.7);
+        float band = smoothstep(inset - 0.09, inset - 0.03, dE) * (1.0 - a);
+        a = max(a, band * step(0.72, cr) * smoothstep(0.2, 0.12, length(cq)));
     }
     vec3 base = v1.rgb;
     vec3 col = base;
     if (!ghost) {
         float tb = 1.0 - uBridge;
-        // clumps and fine grain
-        float clump = fbm(nc * 4.2 + v3.x * 1.3);
-        col *= mix(1.0, 0.82 + 0.36 * clump, tb);
+        // relief: the lumps of the clod lit from the upper left (normals from the grain's slope)
+        float e = 0.04;
+        float h0 = fbm(nc * 2.6 + v3.x);
+        float hx = fbm((nc + vec2(e, 0.0)) * 2.6 + v3.x), hy = fbm((nc + vec2(0.0, e)) * 2.6 + v3.x);
+        vec3 nrm = normalize(vec3(-(hx - h0) / e * 0.35, -(hy - h0) / e * 0.35, 1.0));
+        float lam = dot(nrm, normalize(vec3(-0.4, 0.7, 0.6)));
+        col *= mix(1.0, 0.72 + 0.42 * lam, tb);
+        // finer clumps and grains
+        col *= mix(1.0, 0.9 + 0.2 * fbm(nc * 7.0 + 11.0), tb);
         vec2 gc = floor(nc * 22.0);
         float h = hash12(gc + v3.x);
         vec2 gq = fract(nc * 22.0) - 0.5;
         float dot_ = smoothstep(0.42, 0.18, length(gq));
-        col *= mix(1.0, h > 0.9 ? 1.0 + 0.35 * dot_ : (h < 0.1 ? 1.0 - 0.4 * dot_ : 1.0), tb);
-        // light from above: a lighter lip along the open top, the underside in shade, a darker crumbly rim
-        col *= mix(1.0, 1.0 + 0.16 * exp(-max(dTop - inset, 0.0) / 0.07), tb);
-        col *= mix(1.0, 1.0 - 0.22 * exp(-max(dBot - inset, 0.0) / 0.16), tb);
-        col *= mix(1.0, 1.0 - 0.14 * exp(-max(dE - inset, 0.0) / 0.035), tb);
+        col *= mix(1.0, h > 0.92 ? 1.0 + 0.3 * dot_ : (h < 0.08 ? 1.0 - 0.35 * dot_ : 1.0), tb);
+        // light from above: the top of the clod catches it, its underside in shade, a darker crumbly rim
+        col *= mix(1.0, 1.0 + 0.14 * exp(-max(dTop - inset, 0.0) / 0.2), tb);
+        col *= mix(1.0, 1.0 - 0.28 * exp(-max(dBot - inset, 0.0) / 0.3), tb);
+        col *= mix(1.0, 1.0 - 0.18 * exp(-max(dE + crumb - inset, 0.0) / 0.04), tb);
         // moss where grass has taken on the top
-        col = mix(col, uMoss, v3.y * 0.35 * exp(-max(dTop - inset, 0.0) / 0.06) * tb);
+        col = mix(col, uMoss, v3.y * 0.4 * exp(-max(dTop - inset, 0.0) / 0.07) * tb);
     }
     // a cleared row crumbles: the earth breaks up from its grain
     float cr = v2.z;
@@ -183,7 +198,7 @@ void main() {
         col *= 1.0 - 0.25 * smoothstep(k + 0.25, k, n);
     }
     col = mix(col, uBridgeInk, uBridge);
-    frag = vec4(col, a * v1.a);
+    frag = vec4(enc(col), a * v1.a);
 }
 )";
 
@@ -273,7 +288,7 @@ void main() {
         a = smoothstep(1.0, 0.8, e);
         col = mix(col, col * 0.35 + vec3(0.04, 0.08, 0.03), smoothstep(0.1, -0.6, q.y));
     }
-    frag = vec4(col, a * v2.a);
+    frag = vec4(enc(col), a * v2.a);
 }
 )";
 
@@ -298,7 +313,7 @@ void main() {
     float d = texture(uFont, vUv).r;
     float w = max(fwidth(d), 1e-3) * 0.75;
     float a = smoothstep(0.5 - uBias - w, 0.5 - uBias + w, d);
-    frag = vec4(uInk, a * uAlpha);
+    frag = vec4(enc(uInk), a * uAlpha);
 }
 )";
 
@@ -315,7 +330,7 @@ void main() {
 inline const char* SHAPE_FS = R"(#version 330 core
 in vec4 vCol;
 out vec4 frag;
-void main() { frag = vCol; }
+void main() { frag = vec4(enc(vCol.rgb), vCol.a); }
 )";
 
 // ---------------------------------------------------------------- the final pass
@@ -331,7 +346,7 @@ void main() {
     c *= 1.0 - 0.12 * dot(q, q) * 2.0;
     c *= 1.0 - uDim * 0.5;
     c *= uFade;
-    frag = vec4(pow(max(c, 0.0), vec3(1.0 / 2.2)), 1.0);
+    frag = vec4(c, 1.0);
 }
 )";
 
