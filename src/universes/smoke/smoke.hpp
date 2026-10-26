@@ -38,7 +38,7 @@ private:
     struct Sprite { float a0[4], a1[4], a2[4]; };
     struct Vert { float x, y, r, g, b, a; };
     std::vector<Tile> tiles_;
-    std::vector<Sprite> sprites_, motes_, blades_;
+    std::vector<Sprite> sprites_, motes_, blades_, wisps_;
     void tile(float x, float y, float hw, float hh, const vec3& c, float alpha, int kind, float e0 = 1.f, float e1 = 0.f,
               float e2 = 0.f, float e3 = 0.f, float angle = 0.f, float age = -1.f);
 
@@ -109,7 +109,7 @@ private:
     struct Puff { vec2 p, v; float r, grow, t, life, alpha, seed, delay, stretch; int kind; float minGlow = 0.f; int tint = -1; float drag = -1.f, fall = 0.f; }; // tint: a piece type whose color the smoke takes, -1 none; drag (< 0: the kind's own) and fall (gravity) for dust that sags back
     std::vector<Puff> puffs_;
     int lastDrop_ = 0; // rows of the last hard drop, until its lock
-    struct Dying { float x, y, t, delay; int type; bool over; float seed; };
+    struct Dying { float x, y, t, delay; int type; bool over; float seed; float big = 1.f, cx = 0.f; }; // big: the plume's size (a Tetris), cx: the row's middle
     std::vector<Dying> dying_;
     struct Mote { vec3 p; float phase, size; };
     std::vector<Mote> moteList_;
