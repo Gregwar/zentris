@@ -702,9 +702,9 @@ void KintsugiUniverse::onEvent(const GameEvent& ev, const Game&) {
                 const vec2 out = g - ctr;
                 const float ol = std::max(1e-3f, len2(out));
                 const float sp = rng_.range(0.8f, 2.f) * (tetris ? 1.5f : 1.f);
-                s.v = v2(out.x / ol * sp, out.y / ol * sp * 0.6f - rng_.range(0.5f, 2.f));
+                s.v = v2(out.x / ol * sp * 0.45f, out.y / ol * sp * 0.4f - rng_.range(0.8f, 2.2f));
                 s.rot = 0.f;
-                s.spin = rng_.range(-4.f, 4.f);
+                s.spin = rng_.range(-2.5f, 2.5f);
                 s.t = 0.f;
                 s.delay = std::fabs(c.x - 4.5f) * 0.012f;
                 s.life = 0.4f;
@@ -874,7 +874,8 @@ void KintsugiUniverse::simulate(const Game& game, const MusicState& music, float
     // the gold leaf of the drop: a few flakes keep coming down, slowly, for the whole drop
     if (dropness_ > 0.6f && !slowOn_ && leaves_.size() < 60 && rng_.chance(wdt * 3.f)) {
         Leaf l;
-        l.p = v2((rng_.chance(0.5f) ? -1.f : 1.f) * rng_.range(KEEP_R[2] + 0.3f, std::max(KEEP_R[2] + 0.5f, viewH_.x)), viewH_.y + 0.5f);
+        l.p = v2(rng_.range(KEEP_R[2] + 0.3f, std::max(KEEP_R[2] + 0.5f, viewH_.x)), viewH_.y + 0.5f);
+        if (rng_.chance(0.5f)) l.p.y = rng_.range(KEEP_BL[3] + 1.f, KEEP_TL[1] - 1.f), l.p.x = -l.p.x; // left: below the title
         l.v = v2(rng_.range(-0.3f, 0.3f), -rng_.range(0.4f, 0.9f));
         l.rot = rng_.range(0.f, TAU); l.spin = rng_.range(-1.2f, 1.2f);
         l.turn = rng_.range(0.f, TAU); l.turnRate = rng_.range(1.f, 3.f);
@@ -1063,6 +1064,7 @@ void KintsugiUniverse::buildFx() {
         const float face = std::cos(l.turn);
         const float flash = std::pow(std::fabs(face), 6.f);
         const float a = smoothstepf(0.f, 0.15f, l.t) * (1.f - smoothstepf(l.life - 1.5f, l.life, l.t));
+        if (blocked(l.p.x, l.p.y) && std::fabs(l.p.x) > WELL_X + 0.5f) continue; // (never over the HUD)
         const float hot = std::exp(-l.t * 1.5f);
         const vec3 c = lerp(cur_.metal * (0.35f + 1.6f * flash), cur_.hot * 2.5f, hot * 0.7f);
         sprites_.push_back({{l.p.x, l.p.y, l.size, l.rot}, {c.x, c.y, c.z, a}, {1.f, std::max(0.12f, std::fabs(face)), l.seed, 0.f}});
