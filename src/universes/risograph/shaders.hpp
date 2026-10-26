@@ -50,6 +50,11 @@ uniform vec4 uShapeB[4];       // rotation, type (0 disc, 1 rectangle, 2 half di
 uniform vec4 uShapeC[4];       // gradient angle, gradient amount, line screen, -
 uniform vec2 uDrift;           // the screens drift a little (mid)
 uniform float uPx;             // board units per pixel
+uniform vec4 uWell;            // the well: center xy, half extents xy (the sheet's tints keep clear of it)
+uniform float uFloodSide;      // +1: the flood comes from the right
+uniform vec4 uFlood;           // C's flood of the peak (density), B's wash (density), wash angle, flood swell
+// Distance from the well (0 inside), for the tints that cover the sheet around it.
+float wellDist(vec2 p) { vec2 e = abs(p - uWell.xy) - uWell.zw; return length(max(e, 0.0)); }
 void main() {
     vec2 p = uView.xy + (vUv * 2.0 - 1.0) * uView.zw;
     vec3 ink = vec3(0.0);
@@ -77,6 +82,22 @@ void main() {
         int drum = int(uShapeB[i].z + 0.5);
         float cov = inside * screenAt(p + uDrift, de, drum, uShapeC[i].z > 0.5);
         ink[drum] = max(ink[drum], cov);
+    }
+    // the sheet's tints, in a coarse screen: B's faint wash across the paper (always), and the peak's flood of the
+    // third ink printed to the sheet's edges, its dots growing away from the well (and with the kicks)
+    float wd = wellDist(p);
+    if (uFlood.y > 0.0) {
+        vec2 gd = vec2(cos(uFlood.z), sin(uFlood.z));
+        float t = clamp(0.5 + 0.5 * dot(p - uView.xy, gd) / length(uView.zw), 0.0, 1.0);
+        float de = uFlood.y * smoothstep(0.35, 1.0, t) * smoothstep(0.4, 3.5, wd);
+        ink.g = max(ink.g, screenAt(p * 0.42 + 0.3, de, 1, false));
+    }
+    if (uFlood.x > 0.0) {
+        // from the shapes' side of the sheet (the text's side stays clear)
+        vec2 q = (p - uView.xy) / uView.zw;
+        float edge = smoothstep(0.05, 0.95, uFloodSide * q.x + 0.25 * abs(q.y));
+        float de = uFlood.x * smoothstep(0.5, 4.0, wd) * edge * uFlood.w;
+        ink.b = max(ink.b, screenAt(p * 0.55 + uDrift * 0.5, de, 2, false));
     }
     frag = vec4(ink, 0.0);
 }
@@ -297,10 +318,20 @@ void main() {
     float gb = 1.0 - uGrain * (0.10 * (1.0 - mott) + 0.16 * smoothstep(0.45, 0.95, vnoise(g + 17.0)) + 0.35 * step(0.93, vnoise(g * 0.67 + 29.0)));
     float gc = 1.0 - uGrain * (0.08 * mott + 0.14 * smoothstep(0.45, 0.95, vnoise(g + 41.0)));
     a *= ga; b *= gb; c *= gc;
-    // the paper: neutral, with a faint fiber
-    float fib = vnoise(vec2(bp.x * 2.0, bp.y * 40.0)) * 0.5 + vnoise(bp * 9.0) * 0.5;
-    vec3 col = uPaper * (1.0 - 0.018 * (fib - 0.5) * (1.0 - uDark));
-    col += vec3(0.006 * (fib - 0.5)) * uDark;
+    // the paper: a stock of its own tone, with a tooth, a slow cloudy formation and fibers (short hairs, a few
+    // darker, a few lighter), all fixed in the sheet
+    float form = vnoise(bp * 0.35 + 3.0) * 0.6 + vnoise(bp * 1.1 + 9.0) * 0.4;
+    float toothP = vnoise(bp * 46.0) * 0.5 + vnoise(bp * 97.0 + 5.0) * 0.5;
+    float fibers = 0.0;
+    for (int i = 0; i < 3; i++) {
+        float an = 0.7 + float(i) * 2.1;
+        vec2 r = mat2(cos(an), sin(an), -sin(an), cos(an)) * bp;
+        float n = vnoise(vec2(r.x * 1.6, r.y * 26.0) + float(i) * 13.0);
+        float sel = vnoise(r * 0.9 + float(i) * 7.0);
+        fibers += smoothstep(0.86, 0.95, n) * smoothstep(0.55, 0.8, sel) * (i == 1 ? -0.6 : 1.0);
+    }
+    float tex = 0.035 * (form - 0.5) + 0.03 * (toothP - 0.5) - 0.045 * fibers;
+    vec3 col = uPaper * (1.0 + tex * mix(1.0, 4.0, uDark));
     // white paper: the inks multiply (overprints darken); black paper: the inks lie like light
     vec3 w = col * (vec3(1.0) - a * (vec3(1.0) - uInkA)) * (vec3(1.0) - b * (vec3(1.0) - uInkB)) * (vec3(1.0) - c * (vec3(1.0) - uInkC));
     vec3 k = vec3(1.0) - (vec3(1.0) - col) * (vec3(1.0) - a * uInkA) * (vec3(1.0) - b * uInkB) * (vec3(1.0) - c * uInkC);
