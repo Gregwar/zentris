@@ -221,8 +221,8 @@ bool LaserUniverse::init(int width, int height) {
     buildFont(fontMedium_, FONT_MEDIUM);
     pal_ = paletteOf(0);
     // the projectors: low on each side below the frame, and one hidden behind the well
-    em_[0].origin = v2(-17.5f, -14.5f);
-    em_[1].origin = v2(17.5f, -14.5f);
+    em_[0].origin = v2(-20.5f, -14.5f);
+    em_[1].origin = v2(20.5f, -14.5f);
     em_[2].origin = v2(0.f, -3.f);
     resize(width, height);
     return glGetError() == GL_NO_ERROR;
@@ -649,11 +649,11 @@ void LaserUniverse::updateEmitters(const MusicState& music, float dt, float wdt)
             const float cCalm = (6.f + 5.f * calmDrift * mir) * DEG;
             const float cMid = (16.f + 4.f * sway8 + 12.f * bandLean) * DEG;
             const float cChorus = (22.f + 9.f * (e == 0 ? sway8 : sway8b) + 8.f * bandLean) * DEG;
-            const float cDrop = (9.f + 9.f * (e == 0 ? sway8 : sway8b)) * DEG;
+            const float cDrop = (7.f + 7.f * (e == 0 ? sway8 : sway8b)) * DEG;
             center = wCalm_ * cCalm + wMid_ * cMid + wChorus_ * cChorus + wDrop_ * cDrop;
             const float sMid = (30.f + 2.f * stepShown_) * DEG;
             const float sChorus = (58.f + 4.f * stepShown_) * DEG * chorusOpen;
-            const float sDrop = (58.f + 3.f * stepShown_ + 5.f * sway4) * DEG * open;
+            const float sDrop = (56.f + 3.f * stepShown_ + 4.f * sway4) * DEG * open;
             spread = wMid_ * sMid + wChorus_ * sChorus + wDrop_ * sDrop;
             // a build gathers the beams toward one point above the well
             if (tension_ > 0.001f) {
