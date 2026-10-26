@@ -829,6 +829,9 @@ void GardenUniverse::flushCells() {
     set1f(progCell_, "uBridge", bb);
     set3f(progCell_, "uBridgeInk", bridge_.ink);
     set3f(progCell_, "uMoss", pal_.moss);
+    set3f(progCell_, "uGround", pal_.ground);
+    set3f(progCell_, "uGroundDeep", pal_.groundDeep);
+    set3f(progCell_, "uSoil", pal_.piece[0]);
     glBindVertexArray(cellVao_);
     glBindBuffer(GL_ARRAY_BUFFER, cellVbo_);
     glBufferData(GL_ARRAY_BUFFER, cells_.size() * sizeof(CellInst), cells_.data(), GL_STREAM_DRAW);
@@ -1055,8 +1058,7 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
             // into the ground's
             const bool root = y == Game::H - 1 && std::fabs(off) < 0.02f;
             if (root) {
-                m |= (1 << 2) | (1 << 4) | (1 << 5);
-                blend[2] = packSoil(pal_.ground);
+                m |= (1 << 2) | (1 << 4) | (1 << 5); // (the gradient gives it the ground's color)
             }
             cell(p.x, p.y, 1.f, m, pal_.piece[s.type], 1.f, s.nc, 0.f, false, (float)(s.id % 97), moss, blend,
                  root ? ROOT : 0.f);
@@ -1360,6 +1362,7 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
         set3f(progSky_, "uSunCol", pal_.sun);
         set3f(progSky_, "uGlow", pal_.glow);
         set3f(progSky_, "uGround", pal_.ground);
+        set3f(progSky_, "uSoil", pal_.piece[0]);
         set3f(progSky_, "uGroundDeep", pal_.groundDeep);
         set3f(progSky_, "uLip", pal_.lip);
         set3f(progSky_, "uDusk", pal_.dusk);

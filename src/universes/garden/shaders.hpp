@@ -17,6 +17,13 @@ float vnoise(vec2 p) {
     return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
 }
 vec3 enc(vec3 c) { return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)); }
+// The earth's color at a height (board units, the well's floor at -10): one gradient for the ground line and the
+// clods, dark deep down, its own soil at the floor, a little lighter and drier as it rises.
+vec3 earthAt(float y, vec3 ground, vec3 deep, vec3 soil) {
+    vec3 floorC = mix(ground, soil, 0.2);
+    if (y < -10.0) return mix(floorC, deep, smoothstep(0.0, 3.5, -10.0 - y));
+    return mix(floorC, soil * 1.12, smoothstep(-10.0, 8.0, y));
+}
 float fbm(vec2 p) {
     float s = 0.0, a = 0.5;
     for (int i = 0; i < 4; i++) { s += a * vnoise(p); p = p * 2.03 + 17.1; a *= 0.5; }
@@ -31,7 +38,7 @@ inline const char* SKY_FS = R"(#version 330 core
 in vec2 vUv;
 out vec4 frag;
 uniform vec4 uView;          // center x, y, half extents x, y (board units)
-uniform vec3 uSkyTop, uSkyLow, uSunCol, uGlow, uGround, uGroundDeep, uLip, uBridgeCol, uDusk;
+uniform vec3 uSkyTop, uSkyLow, uSunCol, uGlow, uGround, uGroundDeep, uLip, uBridgeCol, uDusk, uSoil;
 uniform vec4 uSun;           // x, y, radius, moon (0 / 1)
 uniform float uGlowAmt, uSlow, uBridge, uSeed, uPx, uStars, uVeil, uDry, uHaze, uLush;
 float groundY(float x) {
@@ -90,7 +97,8 @@ void main() {
     float below = gy - w.y;
     float edge = smoothstep(-uPx * 1.2, uPx * 1.2, below + (vnoise(vec2(w.x * 9.0, 3.0)) - 0.5) * 0.05);
     float depth = smoothstep(0.0, 3.2, below);
-    vec3 soil = mix(uGround, uGroundDeep, depth);
+    // the same gradient as the clods (dark deep down, lighter as the banks rise), the deep earth below the surface
+    vec3 soil = mix(earthAt(w.y, uGround, uGroundDeep, uSoil), uGroundDeep, depth * 0.5);
     soil *= 0.88 + 0.24 * fbm(w * vec2(2.2, 3.4) + uSeed);
     float sp = hash12(floor(w * 24.0));
     soil *= sp > 0.94 ? 1.25 : (sp < 0.05 ? 0.7 : 1.0);
@@ -135,7 +143,7 @@ vec3 unpackSoil(float f) {
     return c * c;
 }
 uniform float uPx, uBridge;
-uniform vec3 uBridgeInk, uMoss;
+uniform vec3 uBridgeInk, uMoss, uGround, uGroundDeep, uSoil;
 float boxD(vec2 p, vec2 o) {
     vec2 q = abs(p - o) - 0.5;
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
@@ -193,9 +201,8 @@ void main() {
             wsum += w;
         }
         if (wsum > 0.0) base = mix(base, sum / wsum, min(wsum, 0.5));
-        // a root: below the cell, the earth turns into the ground's and fades into it
-        if (v3.z > 0.0 && v4[2] >= 0.0)
-            base = mix(base, unpackSoil(v4[2]), smoothstep(-0.5, -0.5 - v3.z * 0.8, vP.y + (fbm(nc * 5.0) - 0.5) * 0.1));
+        // the earth's gradient by height (the clods share it with the ground line)
+        base *= earthAt(v0.y + vP.y * size, uGround, uGroundDeep, uSoil) / max(uSoil, vec3(1e-3));
     }
     vec3 col = base;
     if (!ghost) {
