@@ -1,6 +1,8 @@
 #pragma once
-// LASER SHOW: a few laser beams in a dark, hazy room; edge-lit acrylic pieces (see laser.cpp).
+// LASER SHOW: a dark, hazy room where each piece is projected by its own laser; edge-lit acrylic pieces (see laser.cpp).
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ugl.hpp"
@@ -36,24 +38,44 @@ public:
     };
 
 private:
-    // ---- The projectors: three fans of beams (left and right below the frame, one hidden behind the well).
-    static constexpr int SLOTS = 15, EMITTERS = 3, MAX_BEAMS = 48;
-    struct Emitter {
-        vec2 origin;
-        float center = 0.f, spread = 0.f; // radians: the fan's axis (0 straight up, + toward the well) and its width
-        float vis[SLOTS] = {};            // each beam's presence, eased
+    // ---- The projectors: one per piece (the falling one and each piece of the stack), at a random spot of the dark
+    // room, projecting its piece: a soft cone of light and thin rays to the corners of its outline.
+    struct Proj {
+        vec2 home;            // where it stands (board space, outside the well and the HUD)
+        float seed = 0.f;
+        float power = 0.f;    // on 0..1, eased
+        int type = 0;
     };
-    Emitter em_[EMITTERS];
+    std::map<int, Proj> projs_; // by piece id (own_)
+    Proj fall_;                 // the falling piece's
+    bool hasFall_ = false;
+    // A cleared part: its projector gets weak, blinks and switches off (a whole piece: its lens too).
+    struct DyingCone {
+        vec2 src;
+        std::vector<vec2> corners;
+        int type;
+        float t, delay, seed, power;
+        bool lens;
+    };
+    std::vector<DyingCone> dyingCones_;
     struct BeamGpu { float a0[4], a1[4], a2[4]; };
+    struct ConeGpu { float a0[4], a1[4], a2[4]; };
     std::vector<BeamGpu> beams_;
-    void buildBeams();
-    void updateEmitters(const MusicState& music, float dt, float wdt);
+    std::vector<ConeGpu> cones_;
+    vec2 randomSpot();
+    vec2 srcPos(const Proj& p) const;
+    vec3 laserColor(int type) const;
+    void buildProjection(const Game& game);
+    void addProjection(vec2 src, const std::vector<vec2>& corners, const vec3& col, float power, float depth, bool lens);
+    void updateProjectors(const Game& game, const MusicState& music, float dt);
+    // The outline corners of a set of cells (game grid), at their drawn positions.
+    std::vector<vec2> outline(const std::vector<std::pair<int, int>>& cells, const Game* game, float dx, float dy) const;
 
     struct Tile { float a0[4], a1[4], a2[4], a3[4]; };
     struct Spark { float a0[4], a1[4], a2[4]; };
     struct Vert { float x, y, r, g, b, a; };
     std::vector<Tile> tiles_;
-    std::vector<Spark> sparks_;
+    std::vector<Spark> sparks_, lenses_;
     void tile(float x, float y, float h, const vec3& c, float alpha, int kind, int mask, float flash, float scale,
               float e0 = 1.f, float e1 = 0.f, float e2 = 0.f, float e3 = 0.f);
 
@@ -79,16 +101,15 @@ private:
     void drawText(const Font& f, const std::vector<float>& quads, const vec3& color, float alpha, float halo, float bias);
 
     // ---- GL.
-    GLuint progHaze_ = 0, progComp_ = 0, progBeam_ = 0, progWell_ = 0, progShape_ = 0, progTile_ = 0, progSpark_ = 0,
+    GLuint progCone_ = 0, progHaze_ = 0, progComp_ = 0, progBeam_ = 0, progWell_ = 0, progShape_ = 0, progTile_ = 0, progSpark_ = 0,
            progText_ = 0, progDown_ = 0, progUp_ = 0, progPost_ = 0;
-    GLuint quadVbo_ = 0, tileVao_ = 0, tileVbo_ = 0, beamVao_ = 0, beamVbo_ = 0, sparkVao_ = 0, sparkVbo_ = 0,
+    GLuint quadVbo_ = 0, coneVao_ = 0, coneVbo_ = 0, tileVao_ = 0, tileVbo_ = 0, beamVao_ = 0, beamVbo_ = 0, sparkVao_ = 0, sparkVbo_ = 0,
            shapeVao_ = 0, shapeVbo_ = 0, textVao_ = 0, textVbo_ = 0, volTex_ = 0, noiseTex_ = 0;
     ugl::Target hazeT_, sceneT_;
     static constexpr int BLOOM_MIPS = 5;
     ugl::Target bloomT_[BLOOM_MIPS];
     void createTargets();
     void buildNoise();
-    void setBeamUniforms(GLuint prog);
     void setHazeUniforms(GLuint prog);
     mat4 vp_;
     vec2 viewC_{0, 0.4f}, viewH_{22, 12.4f};
@@ -101,20 +122,18 @@ private:
     Palette pal_{};
     uint64_t seed_ = 0;
     float seedF_ = 0.f;
-    int calmSide_ = 0; // which projector keeps the lone beam when calm
 
     // ---- The music's staging: continuous weights of each moment, eased.
     int level_ = 1;
     bool hasLevel_ = false;
     float lv_ = 1.f, lvTarget_ = 1.f;
     float energy_ = 0.5f;
-    float wCalm_ = 0.f, wMid_ = 1.f, wChorus_ = 0.f, wDrop_ = 0.f; // the fans' shape
+    float wCalm_ = 0.f, wMid_ = 1.f, wChorus_ = 0.f, wDrop_ = 0.f; // the moment, eased
     float dropColor_ = 0.f;   // the drop's lasers (0 the song's)
     bool inDrop_ = false;     // the drop look holds (until the peak ends)
     float dropWait_ = -1.f;   // rising into a peak: seconds waiting for the drop's downbeat
-    float dropT_ = 99.f;      // seconds since the fans opened
-    float chorusT_ = 99.f;    // seconds since a peak without a drop opened
-    float tension_ = 0.f;     // a build: the beams gather toward one point above the well
+    float dropT_ = 99.f;      // seconds since the drop opened
+    float tension_ = 0.f;     // a build: more projectors switch on as the pace rises
     float swell_ = 0.f;       // the haze lit up once (a drop, a level up), settling over seconds
     float sig_ = 1.f;         // the section's pace and glow (a drop runs faster and brighter than a chorus)
     float bass_ = 0.f, high_ = 0.f;
@@ -123,7 +142,7 @@ private:
     float stepPhase_ = 0.f, stepShown_ = 0.f, lastHalf_ = -1.f;
     vec3 flow_{0.f};
     float worldTime_ = 0.f;
-    float saluteT_ = 99.f;    // a Tetris: every projector salutes with one white fan
+    float saluteT_ = 99.f;    // a Tetris: every projector flares up white once
 
     // ---- Effects.
     struct SparkFx { vec2 p; float t, life, size, len; vec3 c; };
