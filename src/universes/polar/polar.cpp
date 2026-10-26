@@ -731,7 +731,8 @@ void PolarUniverse::simulate(const Game& game, const MusicState& music, float dt
     }
     powder_.erase(std::remove_if(powder_.begin(), powder_.end(), [](const Powder& p) { return p.t > p.delay + p.life; }), powder_.end());
     for (auto& d : dying_) {
-        d.t += d.over ? dt : wdt;
+        // a line clear runs at the real speed, even in slow motion (the row must not hide the stack for long)
+        d.t += dt;
         if (d.over && !d.crumbled && d.t - d.delay > 1.3f + d.seed * 0.5f) {
             d.crumbled = true;
             cellToPowder(d.x, d.y, 0.f, wind_ > 0.f ? 1.f : -1.f, 1.1f);

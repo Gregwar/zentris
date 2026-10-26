@@ -610,7 +610,8 @@ void WatercolorUniverse::simulate(const Game& game, const MusicState& music, flo
     prevKick_ = kick;
 
     // Effects age.
-    for (auto& l : lifted_) l.t += wdt;
+    // a line clear runs at the real speed, even in slow motion (the row must not hide the stack for long)
+    for (auto& l : lifted_) l.t += dt;
     lifted_.erase(std::remove_if(lifted_.begin(), lifted_.end(), [](const Lifted& l) { return l.t > l.delay + 0.45f; }), lifted_.end());
     for (auto& r : running_) r.t += dt;
     running_.erase(std::remove_if(running_.begin(), running_.end(), [](const Running& r) { return r.t > r.delay + 3.2f; }), running_.end());

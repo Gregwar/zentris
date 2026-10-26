@@ -610,7 +610,8 @@ void RisographUniverse::simulate(const Game& game, const MusicState& music, floa
     offC_ = v2(std::cos(dirC_) * mC, std::sin(dirC_) * mC);
 
     // Effects age.
-    for (auto& s : strips_) s.t += wdt;
+    // a line clear runs at the real speed, even in slow motion (the row must not hide the stack for long)
+    for (auto& s : strips_) s.t += dt;
     strips_.erase(std::remove_if(strips_.begin(), strips_.end(), [](const Strip& s) { return s.t > s.delay + 0.45f; }), strips_.end());
     for (auto& d : dying_) d.t += dt;
     dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + 1.4f; }), dying_.end());

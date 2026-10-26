@@ -47,6 +47,7 @@ noticeable at a glance) matter far more than the slow motion bonus or the game o
 - A line clear makes the blocks themselves disappear (fade, melt, break, fall, pop), quickly (under ~0.5 s). Never
   draw something over the row (a brush stroke, a white dash, a blade of light), and leave nothing behind (no tide
   mark, no lingering trail).
+  It runs at the real speed even in slow motion (the slowed world clock would leave the row hiding the stack).
 - No scan or swipe crossing the whole screen (for phase changes or anything else): changes come from the world
   itself, dynamically (things rising, bursting, moving with the music).
 - Locks and hard drops stay small and come from where the impact is (smoke or dust pushed out from under the

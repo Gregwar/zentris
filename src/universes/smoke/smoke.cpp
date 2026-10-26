@@ -644,7 +644,8 @@ void SmokeUniverse::simulate(const Game& game, const MusicState& music, float dt
         if (p.kind == 0) p.v.x += std::sin(p.t * 1.7f + p.seed * 9.f) * 0.35f * wdt; // a curl as it rises
     }
     puffs_.erase(std::remove_if(puffs_.begin(), puffs_.end(), [](const Puff& p) { return p.t > p.delay + p.life; }), puffs_.end());
-    for (auto& d : dying_) d.t += d.over ? dt : wdt;
+    // a line clear runs at the real speed, even in slow motion (the row must not hide the stack for long)
+    for (auto& d : dying_) d.t += dt;
     dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + (d.over ? 9.f : 0.45f); }), dying_.end());
     for (auto& s : sweeps_) s.t += wdt;
     sweeps_.erase(std::remove_if(sweeps_.begin(), sweeps_.end(), [](const Sweep& s) { return s.t > 0.6f; }), sweeps_.end());
