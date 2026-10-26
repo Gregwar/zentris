@@ -4,15 +4,15 @@
 // stars (the Milky Way faint across it), and the aurora. The aurora is the music: each of its ribbons follows a group
 // of frequency bands (the far, low ribbon the bass, the nearer and higher ones the mids and the highs), brightening,
 // growing taller and rippling with them, and its light falls on the snow and on the pieces. The well is a sheet of
-// dark ice with a hairline rim and frost at its foot; the pieces are clear, tinted ice (a dense core, light gathered
-// along the edges, a crisp rim of frost, faint fractures), the cells of one piece one body of ice (two pieces never
+// dark ice with a hairline rim and frost at its foot; the pieces are tinted ice (the night refracted through it, clear
+// edges, a dense core, crisp chamfers, a faceted top, fractures and bubbles), the falling piece still water; the cells of one piece one body of ice (two pieces never
 // join, a thin seam stays between them).
 //
 // Calm is a still night (one faint ribbon low on the horizon, the stars, a few flakes drifting), mid wakes the
 // aurora (several curtains, folds drifting with the tempo, a light ripple on each beat) and the snow falls, peak
 // fills the sky (curtains overhead, tall rays converging upward, the kicks sending surges of light along them,
-// blowing snow skimming over the drifts). A lock freezes the piece (a breath of frost receding into its edges) and
-// pushes a small puff of powder out from under it; a cleared row turns to snow and crumbles into powder blown away by the wind; a Tetris
+// blowing snow skimming over the drifts). A lock freezes the piece (a front of frost crystallising from where it
+// touched down, the water turning to ice behind it); a cleared row cracks and shatters into falling shards; a Tetris
 // is an auroral substorm (the whole sky flares and dances); slow motion freezes time (the falling snow hangs in the
 // air and glints, the aurora barely moves, the colors drain to silver, frost creeps in from the edges of the screen);
 // game over freezes the stack white from the bottom up, then it crumbles into powder while the blowing snow buries
