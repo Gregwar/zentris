@@ -323,8 +323,8 @@ void main() {
         if (cov <= 0.0) discard;
         float e = max(-sd, 0.0);
         float n = texture(uNoise, vWorld * 0.31 + v3.y).r * 0.6 + texture(uNoise, vWorld * 0.13 + v3.y * 1.7).b * 0.4;
-        float field = e * 1.9 + (n - 0.5) * 0.55;
-        float th = smoothstep(0.08, 1.0, k) * 1.35 - 0.05;
+        float field = e * 1.1 + (n - 0.5) * 1.1;
+        float th = smoothstep(0.08, 1.0, k) * 1.25 - 0.45;
         float keep = smoothstep(th, th + 0.05, field);
         float front = exp(-pow((field - th) / 0.045, 2.0)) * step(0.08, k);
         float flare = 1.0 + 1.4 * smoothstep(0.0, 0.08, k);

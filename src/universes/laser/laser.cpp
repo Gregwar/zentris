@@ -80,27 +80,27 @@ struct VariantDef {
     unsigned piece[7];
 };
 const VariantDef VARIANTS[] = {
-    // the classic 532 nm green; the drop turns cyan
+    // the classic 532 nm green; the drop turns cyan. Cool pastel acrylics.
     {"GREEN", {0x2cff5c, 0x2cff5c, 0x2cff5c}, {0x30d8ff, 0x2aa8ff, 0x30d8ff}, 0x030806, 0x6dffa0, 0xdcefe2, 0x59ff8a,
      {0x6fe6ff, 0xfff08a, 0xc79cff, 0x9cff8a, 0xff7f8c, 0x7e9bff, 0xffb070}},
-    // white lasers (red, green and blue mixed); the drop splits them into pure red, green and blue
+    // white lasers; the drop splits them into pure red, green and blue. Pale, nearly white acrylics.
     {"RGB WHITE", {0xf4f2ff, 0xf4f2ff, 0xf4f2ff}, {0xff2a3a, 0x2cff6a, 0x3a6cff}, 0x050506, 0xe8ecff, 0xeeeef2, 0xdfe4ff,
-     {0x8fd6f2, 0xf2e2a0, 0xc6aef2, 0xa6e6b0, 0xf0a0ac, 0x9aaef2, 0xf2c296}},
-    // magenta and cyan in turn; the drop turns gold
+     {0x9fdcf2, 0xf2e6b0, 0xd0bcf2, 0xb4ecbe, 0xf2b0ba, 0xa8baf2, 0xf2cca6}},
+    // magenta and cyan in turn; the drop turns gold. Saturated neon acrylics.
     {"MAGENTA CYAN", {0xff2ad8, 0x22eaff, 0xff2ad8}, {0xffc23a, 0xffa82a, 0xffc23a}, 0x070409, 0xff8cf0, 0xf2e2f6, 0xff5ae6,
-     {0x4ff0ff, 0xfff27a, 0xff6ae8, 0x6affb4, 0xff5a6e, 0x8a7cff, 0xffa65a}},
-    // one deep red; the drop turns amber
-    {"RED", {0xff1e14, 0xff1e14, 0xff1e14}, {0xffa018, 0xffc040, 0xffa018}, 0x090303, 0xff7060, 0xf2dcd6, 0xff4a38,
-     {0x9fe6f5, 0xffe2a6, 0xe2b0ff, 0xb8f2a6, 0xff8a6a, 0x9cb4ff, 0xffbe8a}},
-    // 445 nm blue and 405 nm violet; the drop turns aqua
-    {"BLUE VIOLET", {0x2a4cff, 0x9a3cff, 0x2a4cff}, {0x22ffd0, 0x22e0ff, 0x22ffd0}, 0x040410, 0x8aa0ff, 0xe0e4f8, 0x6c7cff,
-     {0x72f4ff, 0xffe680, 0xe490ff, 0x86f0a0, 0xff7aa8, 0x6e8cff, 0xffa47a}},
-    // sodium amber; the drop turns green
+     {0x2af0ff, 0xfff23a, 0xff4ae0, 0x3aff9a, 0xff3a5a, 0x7a6aff, 0xff9a3a}},
+    // one deep red; the drop turns violet. Warm acrylics (ivory, gold, rose, vermilion...).
+    {"RED", {0xff1e14, 0xff1e14, 0xff1e14}, {0xb04cff, 0xd060ff, 0xb04cff}, 0x090303, 0xff7060, 0xf2dcd6, 0xff4a38,
+     {0xfff0e0, 0xffc860, 0xff7aa0, 0xa8e070, 0xff5a3c, 0x9a8cff, 0xffa060}},
+    // 445 nm blue and 405 nm violet; the drop turns ice white. Icy acrylics.
+    {"BLUE VIOLET", {0x2a4cff, 0x9a3cff, 0x2a4cff}, {0xd8e8ff, 0xb8d0ff, 0xd8e8ff}, 0x040410, 0x8aa0ff, 0xe0e4f8, 0x6c7cff,
+     {0xa8f8ff, 0xfff4b8, 0xd8a8ff, 0x90ffd8, 0xff94c8, 0x6c8cff, 0xffc6a0}},
+    // sodium amber; the drop turns green. Candy acrylics.
     {"AMBER", {0xffa20e, 0xffa20e, 0xffa20e}, {0x46ff6a, 0x9cff3a, 0x46ff6a}, 0x080603, 0xffc070, 0xf4ead8, 0xffb43a,
-     {0x7fdcff, 0xfff0b0, 0xd2a0ff, 0xb2f07a, 0xff7462, 0x8ea2ff, 0xffc88a}},
-    // aqua; the drop turns rose
+     {0x70e0e0, 0xffe070, 0xe08cd0, 0xb8e858, 0xff6a50, 0x7a9cff, 0xffa848}},
+    // aqua; the drop turns rose. Tropical acrylics.
     {"AQUA", {0x14f0d2, 0x14f0d2, 0x14f0d2}, {0xff3c96, 0xff5ad0, 0xff3c96}, 0x030807, 0x7affea, 0xdcf2ee, 0x3cf5dc,
-     {0xa0f4ff, 0xffd870, 0xbf8cff, 0x8affc0, 0xff6f8a, 0x7896ff, 0xffa060}},
+     {0xc8fff8, 0xffd060, 0xb070ff, 0x60f0a0, 0xff6a90, 0x5a90ff, 0xff9a50}},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 
@@ -646,7 +646,7 @@ void LaserUniverse::updateEmitters(const MusicState& music, float dt, float wdt)
                 target[i] = std::min(1.f, v);
             }
             const float bandLean = (e == 0 ? bass_ : high_) - 0.35f;
-            const float cCalm = (6.f + 5.f * calmDrift * mir) * DEG;
+            const float cCalm = (15.f + 5.f * calmDrift * mir) * DEG;
             const float cMid = (16.f + 4.f * sway8 + 12.f * bandLean) * DEG;
             const float cChorus = (22.f + 9.f * (e == 0 ? sway8 : sway8b) + 8.f * bandLean) * DEG;
             const float cDrop = (7.f + 7.f * (e == 0 ? sway8 : sway8b)) * DEG;
@@ -771,7 +771,7 @@ void LaserUniverse::buildBeams() {
             const vec2 d = v2(std::sin(a) * mir, std::cos(a));
             const int ci = (i + e) % 3;
             vec3 c = lerp(pal_.laser[ci], pal_.dropLaser[ci], dropColor_);
-            c = lerp(c, vec3(1.f), sal * 0.55f);
+            c = lerp(c, vec3(1.f), sal * 0.4f);
             c = lerp(c, ice * 0.8f, cold * 0.75f);
             const float I = 1.5f * gain * v * off * (1.f + 0.35f * cold);
             const float depth = std::fmod(i * 0.137f + e * 0.311f + 0.05f, 1.f);
@@ -1064,10 +1064,10 @@ void LaserUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<H
             while (!name.empty() && name.back() == ' ') name.pop_back();
             while (!var.empty() && var.front() == ' ') var.erase(var.begin());
             name = upper(name);
-            const float sz = base * 0.95f, tr = sz * 0.32f, vsz = base * 0.72f, vtr = vsz * 0.36f;
+            const float sz = base * 0.9f, tr = sz * 0.22f, vsz = base * 0.68f, vtr = vsz * 0.22f;
             const float wName = textWidth(fontLight_, name, sz, tr);
             const float wVar = var.empty() ? 0.f : textWidth(fontLight_, var, vsz, vtr);
-            const float gap = base * 1.1f;
+            const float gap = base * 0.8f;
             const float x = ugl::hudLeft(h, wName + (var.empty() ? 0.f : gap + wVar), width_);
             textQuads(fontLight_, name, x, h.y, sz, tr, q);
             const float a = saturate(0.35f + h.alpha * 1.6f);
@@ -1200,7 +1200,7 @@ void LaserUniverse::render(const Frame& f, GLuint fbo) {
         // the room's own haze, faintly lit by the lasers (their color, the drop's while it lasts)
         vec3 room = (lerp(pal_.laser[0], pal_.dropLaser[0], dropColor_) + lerp(pal_.laser[1], pal_.dropLaser[1], dropColor_)) * 0.5f;
         room = lerp(room, lin(0xd6e6ff), cold * 0.7f);
-        const float amb = (0.0015f + 0.002f * wMid_ + 0.003f * wChorus_ + 0.009f * wDrop_ + 0.012f * swell_ + 0.01f * cold) *
+        const float amb = (0.0015f + 0.002f * wMid_ + 0.003f * wChorus_ + 0.009f * wDrop_ + 0.012f * swell_ + 0.006f * cold) *
                           (1.f - over_ * 0.8f) * (1.f - smoothstepf(0.1f, 0.7f, bridge_.amount));
         set3f(progHaze_, "uAmbientCol", room);
         set1f(progHaze_, "uAmbient", amb);
