@@ -92,7 +92,9 @@ constexpr float SEA_LINES = 14.f;
 constexpr float SAND_Y = -9.35f;
 // the bottles: gravity in flight; a bottle lying on its side (its thickness, its center over what it lies on); the
 // piles' columns; the stopper's center and the neck's mouth (CELL_FS's CAP_C, NECK_C + NECK_H); how full they are
-constexpr float B_GRAV = 22.f, B_LAYER = 0.74f, B_LIFT = 0.36f, B_COL = 0.98f, CAP_Y = 0.355f, MOUTH_Y = 0.31f, B_FULL = 0.7f;
+constexpr float B_GRAV = 22.f, B_LAYER = 0.84f, B_LIFT = 0.41f, B_COL = 1.02f, CAP_Y = 0.4f, MOUTH_Y = 0.35f, B_FULL = 0.7f;
+// the empty bottles sink slowly into the sand (a layer in this many seconds) and are gone once under it
+constexpr float B_SINK_T = 12.f;
 // how many bottles stay on the sand at most (the oldest go first, buried)
 constexpr int B_MAX = 420;
 // clear water, almost colorless (linear)
@@ -901,6 +903,16 @@ void SeaUniverse::restBottles(int n) {
 
 // The bottles thrown out of a cleared row (at the real speed): flight, landing, the stopper popping, the pour.
 void SeaUniverse::simulateBottles(float dt) {
+    // the sand slowly swallows the empty bottles (all of a pile together, so none is left hanging)
+    for (int k = 0; k < 2; k++) {
+        bool any = false;
+        for (const Bottle& b : bottles_) any = any || ((b.side > 0) == (k == 1) && b.state == BS_REST);
+        if (!any) continue;
+        Pile& P = pile_[k];
+        const float d = dt * B_LAYER / B_SINK_T;
+        P.target += d;
+        for (float& v : P.h) v = std::max(0.f, v - d);
+    }
     for (Pile& p : pile_) p.bury = approach(p.bury, p.target, 0.22f, dt);
     for (Bottle& b : bottles_) {
         const float side = (float)b.side;

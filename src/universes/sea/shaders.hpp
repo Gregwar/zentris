@@ -450,10 +450,11 @@ uniform sampler2D uBg;          // the scene behind (encoded)
 uniform vec2 uRes;
 uniform float uPx, uTime, uBridge, uLightPanel, uSlow;
 uniform vec3 uBridgeInk, uSea2, uDeep, uDusk, uWood;
-const vec2 BODY_C = vec2(0.0, -0.12), BODY_H = vec2(0.38, 0.31);
-const float BODY_R = 0.11;
-const vec2 NECK_C = vec2(0.0, 0.235), NECK_H = vec2(0.092, 0.075);
-const vec2 CAP_C = vec2(0.0, 0.355), CAP_H = vec2(0.118, 0.078);
+// a cube of glass with a cork in a short mouth on top
+const vec2 BODY_C = vec2(0.0, -0.07), BODY_H = vec2(0.43, 0.36);
+const float BODY_R = 0.06;
+const vec2 NECK_C = vec2(0.0, 0.315), NECK_H = vec2(0.08, 0.035);
+const vec2 CAP_C = vec2(0.0, 0.4), CAP_H = vec2(0.105, 0.065);
 const float WT = 0.05;   // the glass's thickness
 float rbox(vec2 p, vec2 h, float r) {
     vec2 q = abs(p) - h + r;
@@ -468,7 +469,7 @@ float glassSd(vec2 p) {
     float n = rbox(p - NECK_C, NECK_H, 0.02);
     // a small lip at the top of the neck
     float lip = rbox(p - vec2(0.0, NECK_C.y + NECK_H.y - 0.018), vec2(NECK_H.x + 0.016, 0.02), 0.012);
-    return min(smin(b, n, 0.08), lip);
+    return min(smin(b, n, 0.04), lip);
 }
 // the stopper: a wooden plug, a little narrower where it goes into the neck
 float capSd(vec2 p) {
