@@ -7,8 +7,9 @@
 //
 // The song sets how much lives here: calm is deep silence (snow, a few distant lights, god rays far above), mid
 // brings jellyfish and siphonophores drifting and pulsing their light on the beat and schools of fish as specks of
-// light, peak brings a giant whale with bioluminescent spots passing slowly behind the well, plankton clouds
-// flaring with the kicks. A lock makes the jelly quiver and stirs a few motes from under
+// light, peak brings a giant whale with bioluminescent spots passing slowly behind the well and the bioluminescence
+// blooming through the water (the water lit in its accent, dense plankton, brightness pulsing with the kicks; a
+// drop's peak floods it more than a chorus', and its first downbeat surges the light). A lock makes the jelly quiver and stirs a few motes from under
 // it; a cleared row's jelly breaks into points of light (a brief burst of sparks); a Tetris makes the plankton bloom
 // all through the water at once; slow motion puts every light out but the pieces' (long slow glows) and an anglerfish's lure; game over
 // sinks the stack into the dark, its lights going out one by one. It leaves and enters by the water closing over it,
@@ -399,6 +400,13 @@ void AbyssUniverse::setLevel(int level, float energy, float seconds, float impac
     }
 }
 
+// The drop's first downbeat: the bioluminescence surges through the water, then settles to the peak's bloom.
+void AbyssUniverse::drop(float strength) {
+    surge_ = std::max(surge_, saturate(0.6f + 0.4f * strength));
+    bloom_ = std::max(bloom_, 0.8f * strength);
+    flash_ = std::max(flash_, 0.6f * strength);
+}
+
 void AbyssUniverse::refresh(float strength) {
     flash_ = std::max(flash_, 0.5f * strength);
     if (strength > 0.4f) bloom_ = std::max(bloom_, 0.4f * strength);
@@ -634,7 +642,12 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
         }
     }
     prevKick_ = kick;
+    kickEnv_ = std::max(saturate(kick), approach(kickEnv_, 0.f, 5.f, dt)); // soft: ~0.3 s, never a strobe
     bloom_ = approach(bloom_, 0.f, 1.2f, dt);
+    surge_ = approach(surge_, 0.f, 0.45f, dt); // a few seconds
+    // A drop's peak against a chorus' one (both the top level): the drop's sections drive harder (the song
+    // structure's pace), and the bloom goes further.
+    drive_ = approach(drive_, peak_ * smoothstepf(1.27f, 1.42f, music.hasSong ? music.speed : 1.f), 0.8f, dt);
     flash_ = approach(flash_, 0.f, 1.5f, dt);
     tetrisT_ += dt;
 
@@ -1250,6 +1263,10 @@ void AbyssUniverse::drawWorld() {
     set1f(progWorld_, "uLights", 0.3f + 0.7f * life_);
     set1f(progWorld_, "uPlankton", smoothstepf(0.3f, 1.f, life_) * (0.5f + 0.5f * peak_));
     set1f(progWorld_, "uBloom", bloom_);
+    set1f(progWorld_, "uBio", std::max(peak_ * (0.4f + 0.6f * drive_), 0.9f * surge_) * (1.f - slow_)); // the surge lights it at once
+    set1f(progWorld_, "uDrive", drive_);
+    set1f(progWorld_, "uKick", kickEnv_ * peak_);
+    set1f(progWorld_, "uSurge", surge_);
     set1f(progWorld_, "uBeat", beatGlow_);
     set1f(progWorld_, "uFlash", flash_);
     set1f(progWorld_, "uTetris", tetrisT_);
