@@ -73,12 +73,26 @@ float hashf(float a, float b) {
 
 constexpr float WELL_X = 5.15f, WELL_Y = 10.1f;
 
+// The ground line's banks, not mirrored: per song, one side rises tall and far, the other stays low (its lip, the
+// height of its bank, where the bank starts and ends).
+vec4 groundSide(float seed, bool right) {
+    const bool tall = (hashf(seed, 5.f) < 0.5f) == right;
+    const float k = right ? 1.f : 0.f;
+    const float h1 = hashf(seed + k * 7.3f, 1.f), h2 = hashf(seed + k * 7.3f, 2.f), h3 = hashf(seed + k * 7.3f, 3.f),
+                h4 = hashf(seed + k * 7.3f, 4.f);
+    const float lip = tall ? 0.75f + 0.4f * h1 : 0.3f + 0.35f * h1;
+    const float bank = tall ? 3.2f + 1.8f * h2 : 0.7f + 1.1f * h2;
+    const float s = tall ? 9.5f + 3.f * h3 : 11.f + 5.f * h3;
+    return vec4{lip, bank, s, s + (tall ? 9.f : 7.f) + 8.f * h4};
+}
+
 // The ground line's top edge (board y) at board x; the same function as SKY_FS's groundY.
 float groundY(float x, float seed) {
     const float a = std::fabs(x);
+    const vec4 g = groundSide(seed, x > 0.f);
     const float side = smoothstepf(6.f, 12.f, a);
-    return -10.05f + 0.9f * smoothstepf(5.5f, 7.6f, a) + 0.25f * smoothstepf(7.6f, 11.f, a) + 3.f * std::pow(smoothstepf(11.f, 24.f, a), 1.3f) +
-           (0.22f * std::sin(x * 0.37f + seed) + 0.12f * std::sin(x * 0.91f + seed * 1.7f)) * side;
+    return -10.05f + g.x * smoothstepf(5.5f, 7.6f, a) + 0.25f * smoothstepf(7.6f, 11.f, a) + g.y * std::pow(smoothstepf(g.z, g.w, a), 1.3f) +
+           (0.22f * std::sin(x * 0.37f + seed) + 0.12f * std::sin(x * 0.91f + seed * 1.7f) + 0.3f * std::sin(x * 0.17f + seed * 2.1f)) * side;
 }
 
 // The variants (sRGB): the sky (top, at the horizon), the sun or moon, the drop's glow, the ground (top, deep, its
@@ -468,7 +482,7 @@ void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
             Soil& s = soil_[c.y][c.x];
             s.id = id; s.type = std::clamp((int)c.type, 0, 6);
             s.nc = v2((float)(c.x - minX) + sx, -(float)(c.y - minY) + sy);
-            s.age = 0.f; s.cover = 0.f; s.coverType = -1;
+            s.age = 0.f; s.cover = 0.f; s.coverType = -1; s.sunk = 0;
             s.seed = rng_.range(0.f, 100.f);
         }
         // a hard landing pushes one puff of soil dust out from under the piece, at the contact
@@ -516,6 +530,7 @@ void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
             // it stays one with the earth around it while it is crushed
             d.mask = s.id >= 0 ? maskOf(c.x, c.y) : 0;
             d.nc = s.id >= 0 ? s.nc : v2((float)c.x, -(float)c.y);
+            d.tex = v2(p.x, layout::cellPos((float)c.x, (float)(c.y - s.sunk)).y);
             d.t = 0.f;
             d.delay = 0.f;
             d.seed = s.seed;
@@ -526,11 +541,28 @@ void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
             d.keptBelow = d.clearedBelow = 0;
             for (int y = c.y + 1; y < Game::H; y++) (cleared[y] ? d.clearedBelow : d.keptBelow)++;
             dying_.push_back(d);
-            const vec3 col = pal_.piece[type];
-            for (int i = 0; i < 9; i++)
-                emitDust(v2(p.x + rng_.range(-0.45f, 0.45f), p.y + rng_.range(-0.45f, 0.45f)),
-                         v2(rng_.range(-0.7f, 0.7f), rng_.range(-0.6f, 0.4f)), col * rng_.range(0.7f, 1.2f),
-                         rng_.range(0.035f, 0.075f), rng_.range(0.32f, 0.48f), 14.f, true);
+            // soil bursts out of the crushed row: small sharp crumbs of dirt flung up and out to the sides while it
+            // collapses, harder as the earth above slams down (and the more rows go at once), falling over everything
+            // until they reach the ground or leave the picture
+            const float power = 1.f + 0.25f * (float)(std::min(ev.count, 4) - 1);
+            const int nSpill = 16 + 4 * std::min(ev.count, 4);
+            for (int i = 0; i < nSpill; i++) {
+                Particle q{};
+                const float side = rng_.uniform() < 0.5f ? -1.f : 1.f;
+                const float when = rng_.uniform();   // 0: the start of the collapse, 1: the slam at its end
+                q.p = v2(p.x + rng_.range(-0.45f, 0.45f), p.y + rng_.range(-0.35f, 0.35f));
+                const float kick = (0.85f + 0.5f * when * when) * power;
+                q.v = v2(side * rng_.range(0.8f, 5.5f) * kick + p.x * 0.15f, rng_.range(3.5f, 9.f) * kick);
+                q.age = -when * COLLAPSE;
+                q.life = 8.f;
+                const float big = rng_.uniform();
+                q.size = big > 0.85f ? rng_.range(0.07f, 0.1f) : rng_.range(0.03f, 0.06f);
+                q.grav = 16.f; q.drag = 0.3f;
+                q.rot = rng_.range(0.f, TAU); q.spin = rng_.range(-8.f, 8.f);
+                q.kind = P_SPILL; q.real = true; q.front = true; q.seed = rng_.uniform();
+                q.col = earthCol(p.y) * rng_.range(0.85f, 1.2f);
+                parts_.push_back(q);
+            }
             // the flower on its top falls with it
             if (d.age > 0.f && hashf(s.seed, 99.f) < 0.45f) {
                 const float start = 1.5f + 6.5f * hashf(s.seed, 97.f);
@@ -552,7 +584,7 @@ void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
         int dst = Game::H - 1, below = 0;
         for (int y = Game::H - 1; y >= 0; y--) {
             if (cleared[y]) { below++; continue; }
-            for (int x = 0; x < Game::W; x++) next[dst][x] = soil_[y][x];
+            for (int x = 0; x < Game::W; x++) { next[dst][x] = soil_[y][x]; next[dst][x].sunk += below; }
             if (below > 0) { from[dst] = slumpOff(y) + (float)below; since[dst] = 0.f; }
             else { from[dst] = slumpFrom_[y]; since[dst] = slumpT_[y]; }
             dst--;
@@ -633,6 +665,7 @@ void GardenUniverse::syncSoil(const Game& g, float gdt) {
                 s.seed = hashf((float)x, (float)y * 7.f + c.type) * 100.f;
                 s.age = 12.f + 8.f * hashf(s.seed, 3.f);
                 s.cover = 0.f;
+                s.sunk = 0;
             }
             const bool exposed = y == 0 || g.cell(x, y - 1).type < 0;
             if (exposed) {
@@ -818,6 +851,13 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
         p.rot += p.spin * pdt;
         // a crumb is gone where it touches something (a tiny puff)
         if (p.kind == P_CRUMB && crumbHits(game, p.p)) {
+            puffs.push_back(p.p);
+            p.age = p.life + 1.f;
+            continue;
+        }
+        // spilled soil falls until it reaches the ground or the bottom of the picture
+        if (p.kind == P_SPILL && (p.p.y < groundY(p.p.x, seedF_) || (std::fabs(p.p.x) < 5.f && p.p.y < -10.f) ||
+                                  p.p.y < viewC_.y - viewH_.y - 1.f)) {
             puffs.push_back(p.p);
             p.age = p.life + 1.f;
             continue;
@@ -1368,8 +1408,10 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
             if (root) {
                 m |= (1 << 2) | (1 << 4) | (1 << 5); // (the gradient gives it the ground's color)
             }
-            // landed earth is textured in the world's frame, like the ground line: one continuous earth
-            cell(p.x, p.y, 1.f, m, pal_.piece[s.type], 1.f, v2(p.x, p.y), 0.f, false, 0.f, moss, blend,
+            // landed earth is textured in the world's frame where it landed, like the ground line (one continuous
+            // earth), and its texture sinks with it when rows below it are cleared
+            const vec2 tex = v2(p.x, layout::cellPos((float)x, (float)(y - s.sunk)).y);
+            cell(p.x, p.y, 1.f, m, pal_.piece[s.type], 1.f, tex, 0.f, false, 0.f, moss, blend,
                  root ? ROOT : 0.f);
         }
     // Cleared earth crumbling (at the real speed, even in slow motion).
@@ -1382,7 +1424,7 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
             // on the floor it keeps its root in the ground
             const bool root = d.keptBelow == 0 && d.clearedBelow == 0;
             const int mask = root ? d.mask | (1 << 2) | (1 << 4) | (1 << 5) : d.mask;
-            cell(d.x, p.y, 1.f, mask, pal_.piece[d.type] * (0.75f + 0.25f * f), 1.f, v2(d.x, p.y), 0.f, false, 0.f, 0.f,
+            cell(d.x, p.y, 1.f, mask, pal_.piece[d.type] * (0.75f + 0.25f * f), 1.f, d.tex, 0.f, false, 0.f, 0.f,
                  nullptr, root ? ROOT / std::max(f, 0.05f) : 0.f, std::max(f, 0.001f));
             continue;
         }
@@ -1396,7 +1438,7 @@ void GardenUniverse::drawParticles(bool front, float world) {
     for (const Particle& p : parts_) {
         if (p.front != front || p.age < 0.f) continue;
         const float t = p.age / p.life;
-        float a = (p.kind == P_DUST || p.kind == P_FLOWER || p.kind == P_CRUMB) ? 1.f - smoothstepf(0.55f, 1.f, t)
+        float a = (p.kind == P_DUST || p.kind == P_FLOWER || p.kind == P_CRUMB || p.kind == P_SPILL) ? 1.f - smoothstepf(0.55f, 1.f, t)
                                                            : smoothstepf(0.f, 0.12f, t) * (1.f - smoothstepf(0.7f, 1.f, t));
         if (!front) {
             a *= world;
@@ -1405,6 +1447,7 @@ void GardenUniverse::drawParticles(bool front, float world) {
         }
         switch (p.kind) {
         case P_DUST: sprite(p.p.x, p.p.y, p.size, p.size, 0.f, 1, p.col, a * 0.9f, 0.35f); break;
+        case P_SPILL: sprite(p.p.x, p.p.y, std::max(p.size, px_ * 0.8f), std::max(p.size, px_ * 0.8f) * (0.8f + 0.5f * p.seed), p.rot, 1, p.col, a, 0.82f); break;
         case P_CRUMB: sprite(p.p.x, p.p.y, std::max(p.size, px_ * 0.7f), std::max(p.size, px_ * 0.7f) * 1.1f, p.rot, 1, p.col, a, 0.55f); break;
         case P_POLLEN: sprite(p.p.x, p.p.y, p.size, p.size, 0.f, 1, p.col * dusk, a * 0.85f, 0.1f); break;
         case P_PETAL: {
@@ -1694,6 +1737,11 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
         set1f(progSky_, "uSlow", slow_);
         set1f(progSky_, "uBridge", smoothstepf(0.05f, 0.85f, bridge));
         set1f(progSky_, "uSeed", seedF_);
+        {
+            const vec4 gl = groundSide(seedF_, false), gr = groundSide(seedF_, true);
+            set4f(progSky_, "uGroundL", gl.x, gl.y, gl.z, gl.w);
+            set4f(progSky_, "uGroundR", gr.x, gr.y, gr.z, gr.w);
+        }
         set1f(progSky_, "uPx", px_);
         set1f(progSky_, "uStars", pal_.stars);
         set1f(progSky_, "uVeil", pal_.veil * (1.f - bridge_.amount));

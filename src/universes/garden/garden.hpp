@@ -59,6 +59,7 @@ private:
         float cover = 0.f;  // 0..1: buried by a block landing on it (the growth folding back into the soil)
         int coverType = -1; // the earth that buried it
         float seed = 0.f;
+        int sunk = 0;       // rows it has sunk since it landed (its texture goes down with it)
     };
     Soil soil_[Game::H][Game::W];
     int nextId_ = 1;
@@ -70,7 +71,7 @@ private:
     // Cleared earth crumbling, the stack crumbling at game over.
     // collapse: a cleared row of earth is crushed under the earth above, which slumps down into it (the rows
     // below it that stay, the rows of the same clear below it)
-    struct Dying { float x, y; int type, mask; vec2 nc; float t, delay, seed, age; bool collapse = false; int keptBelow = 0, clearedBelow = 0, col = 0, row = 0; };
+    struct Dying { float x, y; int type, mask; vec2 nc, tex{0, 0}; float t, delay, seed, age; bool collapse = false; int keptBelow = 0, clearedBelow = 0, col = 0, row = 0; };
     std::vector<Dying> dying_;
     // how far each row of the stack still is above its place (rows), and since when it slumps
     float slumpFrom_[Game::H] = {}, slumpT_[Game::H] = {};
@@ -78,7 +79,7 @@ private:
 
     // Particles: dust, petals, seeds, pollen, fireflies, falling flowers.
     // P_CRUMB: a crumb of soil falling from the falling clod, gone where it touches something.
-    enum { P_DUST = 0, P_PETAL = 1, P_SEED = 2, P_POLLEN = 3, P_FIREFLY = 4, P_FLOWER = 5, P_CRUMB = 6 };
+    enum { P_DUST = 0, P_PETAL = 1, P_SEED = 2, P_POLLEN = 3, P_FIREFLY = 4, P_FLOWER = 5, P_CRUMB = 6, P_SPILL = 7 };
     struct Particle {
         vec2 p, v;
         float age, life, size, rot, spin, grav, drag, seed;
