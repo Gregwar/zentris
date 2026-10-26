@@ -244,6 +244,21 @@ void main() {
     if (!ghost) {
         float tb = 1.0 - uBridge;
         col = earthTexture(col, base, nc, v3.x, px, tb);
+        // each cell reads as one block: a checker of lighter and darker earth, the border between two cells soft
+        // and ragged (both cells place it the same, in world space, so the tones meet without a seam)
+        vec2 wp = v0.xy + vP * size;
+        vec2 cell = floor(v0.xy / size + 0.5);
+        float mine = mod(cell.x + cell.y, 2.0) < 0.5 ? 1.0 : -1.0;
+        vec4 seamD = vec4(0.5 + vP.x, 0.5 - vP.x, 0.5 + vP.y, 0.5 - vP.y);
+        float other = 0.0;
+        for (int i = 0; i < 4; i++) {
+            if (((m >> i) & 1) == 0) continue;
+            vec2 along = i < 2 ? wp.yy : wp.xx;
+            float wob = (vnoise(along * 2.3 + float(i / 2) * 7.0) - 0.5) * 0.12 + (vnoise(along * 9.0) - 0.5) * 0.04;
+            float t = seamD[i] + (i == 0 || i == 2 ? wob : -wob);
+            other = max(other, 1.0 - smoothstep(-0.035, 0.035, t));
+        }
+        col *= mix(1.0, 1.0 + 0.08 * mine * (1.0 - 2.0 * other), tb);
         // light from above: the top of the clod catches it, its underside in shade, a darker crumbly rim
         col *= mix(1.0, 1.0 + 0.14 * exp(-max(dTop - inset, 0.0) / 0.2), tb);
         col *= mix(1.0, 1.0 - 0.28 * exp(-max(dBot - inset, 0.0) / 0.3), tb);
