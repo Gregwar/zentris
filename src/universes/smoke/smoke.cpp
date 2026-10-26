@@ -650,7 +650,7 @@ void SmokeUniverse::simulate(const Game& game, const MusicState& music, float dt
     puffs_.erase(std::remove_if(puffs_.begin(), puffs_.end(), [](const Puff& p) { return p.t > p.delay + p.life; }), puffs_.end());
     // a line clear runs at the real speed, even in slow motion (the row must not hide the stack for long)
     for (auto& d : dying_) d.t += dt;
-    dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + (d.over ? 9.f : 1.8f); }), dying_.end());
+    dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + (d.over ? 9.f : 1.5f); }), dying_.end());
     for (auto& s : sweeps_) s.t += wdt;
     sweeps_.erase(std::remove_if(sweeps_.begin(), sweeps_.end(), [](const Sweep& s) { return s.t > 0.6f; }), sweeps_.end());
 
@@ -787,24 +787,25 @@ void SmokeUniverse::buildFx() {
         (p.kind == 1 ? blades_ : sprites_).push_back({{p.p.x, p.p.y, r, p.stretch}, {c.x, c.y, c.z, a},
                             {(float)p.kind, p.seed * 11.f, k, (p.seed - 0.5f) * 3.f}});
     }
-    // cleared blocks turned to smoke: each block's body lifts off as a wisp of its own color, the wisps of a row sharing
-    // one smoke field so the row rises as one sheet, billowing, drifting up through the beam and thinning out
+    // cleared blocks turned to smoke: while a block erodes, its body streams up out of it as smoke of its own color, in
+    // thin curling tendrils that rise fast, spread and thin out; one column per block, in a smoke field shared by the
+    // row (the columns merge, the row rises as one sheet), lit by the beam
     wisps_.clear();
     for (const Dying& d : dying_) {
         if (d.over) continue;
         const float t = d.t - d.delay;
         if (t <= 0.f) continue;
         const float B = d.big;
-        const float rise = B * (2.2f * (1.f - std::exp(-1.7f * t)) + 0.35f * t);
-        const float spread = (d.x - d.cx) * 0.1f * B * (1.f - std::exp(-1.5f * t));
-        const float x = d.x + spread + 0.25f * std::sin(d.seed * 17.f + d.y * 0.7f) * t;
-        const float y = d.y + rise;
-        const float r = 0.55f + 0.75f * B * (1.f - std::exp(-2.f * t));
-        const float lit = spotAt(vec3(x, y, 0.6f));
+        const float V = 3.6f * B;                // how fast the smoke streams up (board units per second)
+        const float H = V * 1.5f;                // the column's height
+        const float bottom = d.y - 0.6f, top = d.y + H;
+        const float lit = spotAt(vec3(d.x, d.y + 1.5f, 0.6f));
         const float glow = std::max(lit, 0.4f);
-        const vec3 c = cur_.piece[d.type] * (0.3f + 0.95f * glow) * (0.4f + 0.6f * lightOn);
-        const float a = 0.75f * smoothstepf(0.f, 0.22f, t) * (1.f - smoothstepf(0.35f, 1.6f, t));
-        wisps_.push_back({{x, y, r, 1.25f}, {c.x, c.y, c.z, a}, {4.f, d.seed * 13.f, saturate(t / 1.6f), t}});
+        const vec3 pc = cur_.piece[d.type];
+        const vec3 c = pc * (0.35f + 0.95f * glow) * (0.4f + 0.6f * lightOn);
+        const float a = 0.65f * (1.f - smoothstepf(0.6f, 1.45f, t));
+        wisps_.push_back({{d.x, 0.5f * (bottom + top), 1.6f, 0.5f * (top - bottom) / 1.6f}, {c.x, c.y, c.z, a},
+                          {4.f, d.seed * 13.f, V, t}});
     }
     // a blade of light along each cleared row
     for (const Sweep& s : sweeps_) {
