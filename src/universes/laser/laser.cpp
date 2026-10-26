@@ -69,8 +69,8 @@ vec2 v2(float x, float y) { return vec2{x, y}; }
 
 vec3 hex(unsigned v) { return {((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255.f, (v & 255) / 255.f}; }
 
-// The laser sets (sRGB here, linear once loaded): the song's lasers (up to three, the fans' slots take them in
-// turn), the drop's lasers, the room's haze, the well's rim, the HUD's ink and accent, and the seven acrylics
+// The laser sets (sRGB here, linear once loaded): the song's lasers, the drop's pair (the first two: every piece and
+// its laser take one of them while a drop lasts), the room's haze, the well's rim, the HUD's ink and accent, and the seven acrylics
 // (I O T S Z J L).
 struct VariantDef {
     const char* name;
@@ -79,26 +79,26 @@ struct VariantDef {
     unsigned piece[7];
 };
 const VariantDef VARIANTS[] = {
-    // the classic 532 nm green; the drop turns cyan. Cool pastel acrylics.
-    {"GREEN", {0x2cff5c, 0x2cff5c, 0x2cff5c}, {0x30d8ff, 0x2aa8ff, 0x30d8ff}, 0x030806, 0x6dffa0, 0xdcefe2, 0x59ff8a,
+    // the classic 532 nm green; the drop is cyan and magenta. Cool pastel acrylics.
+    {"GREEN", {0x2cff5c, 0x2cff5c, 0x2cff5c}, {0x2ad8ff, 0xff3ad0, 0x2ad8ff}, 0x030806, 0x6dffa0, 0xdcefe2, 0x59ff8a,
      {0x6fe6ff, 0xfff08a, 0xc79cff, 0x9cff8a, 0xff7f8c, 0x7e9bff, 0xffb070}},
-    // white lasers; the drop splits them into pure red, green and blue. Pale, nearly white acrylics.
-    {"RGB WHITE", {0xf4f2ff, 0xf4f2ff, 0xf4f2ff}, {0xff2a3a, 0x2cff6a, 0x3a6cff}, 0x050506, 0xe8ecff, 0xeeeef2, 0xdfe4ff,
+    // white lasers; the drop is pure red and blue. Pale, nearly white acrylics.
+    {"RGB WHITE", {0xf4f2ff, 0xf4f2ff, 0xf4f2ff}, {0xff2a3a, 0x3a6cff, 0xff2a3a}, 0x050506, 0xe8ecff, 0xeeeef2, 0xdfe4ff,
      {0x9fdcf2, 0xf2e6b0, 0xd0bcf2, 0xb4ecbe, 0xf2b0ba, 0xa8baf2, 0xf2cca6}},
-    // magenta and cyan in turn; the drop turns gold. Saturated neon acrylics.
-    {"MAGENTA CYAN", {0xff2ad8, 0x22eaff, 0xff2ad8}, {0xffc23a, 0xffa82a, 0xffc23a}, 0x070409, 0xff8cf0, 0xf2e2f6, 0xff5ae6,
+    // magenta and cyan in turn; the drop is gold and deep blue. Saturated neon acrylics.
+    {"MAGENTA CYAN", {0xff2ad8, 0x22eaff, 0xff2ad8}, {0xffc23a, 0x3a5cff, 0xffc23a}, 0x070409, 0xff8cf0, 0xf2e2f6, 0xff5ae6,
      {0x2af0ff, 0xfff23a, 0xff4ae0, 0x3aff9a, 0xff3a5a, 0x7a6aff, 0xff9a3a}},
-    // one deep red; the drop turns violet. Warm acrylics (ivory, gold, rose, vermilion...).
-    {"RED", {0xff1e14, 0xff1e14, 0xff1e14}, {0xb04cff, 0xd060ff, 0xb04cff}, 0x090303, 0xff7060, 0xf2dcd6, 0xff4a38,
+    // one deep red; the drop is violet and cyan. Warm acrylics (ivory, gold, rose, vermilion...).
+    {"RED", {0xff1e14, 0xff1e14, 0xff1e14}, {0xb04cff, 0x2ae0ff, 0xb04cff}, 0x090303, 0xff7060, 0xf2dcd6, 0xff4a38,
      {0xfff0e0, 0xffc860, 0xff7aa0, 0xa8e070, 0xff5a3c, 0x9a8cff, 0xffa060}},
-    // 445 nm blue and 405 nm violet; the drop turns ice white. Icy acrylics.
-    {"BLUE VIOLET", {0x2a4cff, 0x9a3cff, 0x2a4cff}, {0xd8e8ff, 0xb8d0ff, 0xd8e8ff}, 0x040410, 0x8aa0ff, 0xe0e4f8, 0x6c7cff,
+    // 445 nm blue and 405 nm violet; the drop is ice white and red. Icy acrylics.
+    {"BLUE VIOLET", {0x2a4cff, 0x9a3cff, 0x2a4cff}, {0xd8e8ff, 0xff2a3a, 0xd8e8ff}, 0x040410, 0x8aa0ff, 0xe0e4f8, 0x6c7cff,
      {0xa8f8ff, 0xfff4b8, 0xd8a8ff, 0x90ffd8, 0xff94c8, 0x6c8cff, 0xffc6a0}},
-    // sodium amber; the drop turns green. Candy acrylics.
-    {"AMBER", {0xffa20e, 0xffa20e, 0xffa20e}, {0x46ff6a, 0x9cff3a, 0x46ff6a}, 0x080603, 0xffc070, 0xf4ead8, 0xffb43a,
+    // sodium amber; the drop is green and violet. Candy acrylics.
+    {"AMBER", {0xffa20e, 0xffa20e, 0xffa20e}, {0x46ff6a, 0xa04cff, 0x46ff6a}, 0x080603, 0xffc070, 0xf4ead8, 0xffb43a,
      {0x70e0e0, 0xffe070, 0xe08cd0, 0xb8e858, 0xff6a50, 0x7a9cff, 0xffa848}},
-    // aqua; the drop turns rose. Tropical acrylics.
-    {"AQUA", {0x14f0d2, 0x14f0d2, 0x14f0d2}, {0xff3c96, 0xff5ad0, 0xff3c96}, 0x030807, 0x7affea, 0xdcf2ee, 0x3cf5dc,
+    // aqua; the drop is rose and amber. Tropical acrylics.
+    {"AQUA", {0x14f0d2, 0x14f0d2, 0x14f0d2}, {0xff3c96, 0xffb02a, 0xff3c96}, 0x030807, 0x7affea, 0xdcf2ee, 0x3cf5dc,
      {0xc8fff8, 0xffd060, 0xb070ff, 0x60f0a0, 0xff6a90, 0x5a90ff, 0xff9a50}},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
@@ -511,7 +511,7 @@ void LaserUniverse::onEvent(const GameEvent& ev, const Game& game) {
                 x0 = std::min(x0, p.x); x1 = std::max(x1, p.x); yb = std::max(yb, -p.y);
             }
         const float hard = lastDrop_ >= 2 ? 1.f : 0.f;
-        const vec3 pc = pal_.piece[std::clamp(ev.cells[0].type, 0, 6)];
+        const vec3 pc = pieceColor(ev.cells[0].type, id);
         sparkFx_.push_back({v2(0.5f * (x0 + x1), -yb - 0.5f), 0.f, 0.22f + 0.08f * hard, 0.5f + 0.15f * hard,
                             0.5f * (x1 - x0) + 0.5f + 0.4f * hard, lerp(pc, vec3(1.f), 0.45f) * (1.6f + 0.8f * hard)});
         lastDrop_ = 0;
@@ -534,6 +534,7 @@ void LaserUniverse::onEvent(const GameEvent& ev, const Game& game) {
             d.x = p.x; d.y = p.y; d.t = 0.f; d.type = std::clamp(c.type, 0, 6); d.over = false; d.seed = seed;
             d.delay = std::fabs(c.x - 4.5f) * 0.012f;
             const int id = (c.y >= 0 && c.y < Game::H) ? own_[c.y][c.x].id : -1;
+            d.id = id;
             d.mask = id < 0 ? 0 : neighbourMask([&](int dx, int dy) {
                 const int nx = c.x + dx, ny = c.y + dy;
                 if (nx < 0 || nx >= Game::W || ny < 0 || ny >= Game::H || !inClear(nx, ny)) return false;
@@ -557,6 +558,7 @@ void LaserUniverse::onEvent(const GameEvent& ev, const Game& game) {
                 dc.src = srcPos(it->second);
                 dc.corners = outline(kv.second, nullptr, 0.f, 0.f);
                 dc.type = it->second.type;
+                dc.id = kv.first;
                 dc.t = 0.f;
                 dc.delay = 0.f;
                 dc.seed = it->second.seed;
@@ -598,6 +600,7 @@ void LaserUniverse::onEvent(const GameEvent& ev, const Game& game) {
             d.delay = (c.y - top) * 0.08f;
             d.seed = 0.f;
             const int id = (c.y >= 0 && c.y < Game::H) ? own_[c.y][c.x].id : -1;
+            d.id = id;
             d.mask = id < 0 ? 0 : neighbourMask([&](int dx, int dy) {
                 const int nx = c.x + dx, ny = c.y + dy;
                 if (nx < 0 || nx >= Game::W || ny < 0 || ny >= Game::H) return false;
@@ -619,6 +622,7 @@ void LaserUniverse::onEvent(const GameEvent& ev, const Game& game) {
                 dc.src = srcPos(it->second);
                 dc.corners = outline(c->second, &game, 0.f, 0.f);
                 dc.type = it->second.type;
+                dc.id = it->first;
                 dc.t = 0.f;
                 dc.delay = 0.1f + 0.14f * rank++;
                 dc.seed = it->second.seed;
@@ -664,10 +668,17 @@ vec2 LaserUniverse::srcPos(const Proj& p) const {
     return v2(p.home.x + sx * amp + breath * std::cos(p.seed * 9.f), p.home.y + sy * amp * 1.2f + breath * std::sin(p.seed * 9.f));
 }
 
-// A projector's light: the piece's own color, the drop's lasers while it lasts, ice white in slow motion.
-vec3 LaserUniverse::laserColor(int type) const {
+// A piece's color: its own, or during a drop one of the drop's pair (the pieces alternate by id, so the stack is
+// split evenly between the two).
+vec3 LaserUniverse::pieceColor(int type, int id) const {
     const int t = std::clamp(type, 0, 6);
-    vec3 c = lerp(pal_.piece[t], pal_.dropLaser[t % 3], dropColor_);
+    const int side = id >= 0 ? (id & 1) : (t & 1);
+    return lerp(pal_.piece[t], pal_.dropLaser[side], dropColor_);
+}
+
+// A projector's light: its piece's color, ice white in slow motion.
+vec3 LaserUniverse::laserColor(int type, int id) const {
+    vec3 c = pieceColor(type, id);
     c = lerp(c, lin(0xd6e6ff), smoothstepf(0.f, 1.f, slow_) * 0.75f);
     c = lerp(c, vec3(1.f), bell(saluteT_, 0.3f, 0.5f, 1.2f) * 0.45f);
     return c;
@@ -816,7 +827,7 @@ void LaserUniverse::simulate(const Game& game, const MusicState& music, float dt
         ease(wMid_, tMid, 1.2f, 0.8f);
         ease(wChorus_, tChorus, 2.0f, 0.7f);
         ease(wDrop_, tDrop, dropT_ < 1.f ? 7.f : 1.5f, 0.5f);
-        dropColor_ = approach(dropColor_, tDrop, tDrop > dropColor_ ? 6.f : 0.6f, dt);
+        dropColor_ = approach(dropColor_, tDrop, tDrop > dropColor_ ? 3.f : 1.1f, dt); // in over ~0.35 s, out over ~1 s
         // a build: more projectors switch on as the pace rises toward the peak
         const float tens = level_ == 1 ? smoothstepf(1.0f, 1.42f, music.speed) : 0.f;
         tension_ = approach(tension_, tens, tens > tension_ ? 0.8f : 3.f, dt);
@@ -875,7 +886,7 @@ void LaserUniverse::buildProjection(const Game& g) {
         const Proj& p = kv.second;
         float power = p.power;
         if (overK > 0.f) power = 0.f; // game over: the dying cones switch them off one by one
-        addProjection(srcPos(p), outline(cells[kv.first], &g, 0.f, 0.f), laserColor(p.type), power,
+        addProjection(srcPos(p), outline(cells[kv.first], &g, 0.f, 0.f), laserColor(p.type, kv.first), power,
                       std::fmod(p.seed * 7.3f + 0.1f, 1.f), true);
         i++;
     }
@@ -888,7 +899,7 @@ void LaserUniverse::buildProjection(const Game& g) {
         for (auto& c : c4)
             if (c[1] >= Game::HIDDEN - 1) cs.push_back({c[0], c[1]});
         const float dx = g.pieceVisualX() - pc.x, dy = g.pieceVisualY() - pc.y;
-        addProjection(srcPos(fall_), outline(cs, nullptr, dx, dy), laserColor(pc.type), fall_.power * 1.7f,
+        addProjection(srcPos(fall_), outline(cs, nullptr, dx, dy), laserColor(pc.type, pieceCounter_), fall_.power * 1.7f,
                       std::fmod(fall_.seed * 7.3f + 0.1f, 1.f), true);
     }
     // the cleared parts: weak, blinking, off
@@ -901,7 +912,7 @@ void LaserUniverse::buildProjection(const Game& g) {
             const float blink = std::fabs(h) > 0.4f ? 1.f : 0.12f;
             k = weak * lerpf(1.f, blink, smoothstepf(0.04f, 0.12f, t)) * 0.75f;
         }
-        addProjection(d.src, d.corners, laserColor(d.type), d.power * k, std::fmod(d.seed * 3.1f, 1.f), d.lens);
+        addProjection(d.src, d.corners, laserColor(d.type, d.id), d.power * k, std::fmod(d.seed * 3.1f, 1.f), d.lens);
     }
 }
 
@@ -955,7 +966,7 @@ void LaserUniverse::buildBoard(const Game& g) {
                 return std::fabs(g.rowOffset(y + dy) - g.rowOffset(y)) < 0.01f;
             });
             const float age = c.flash > 0.f ? (1.f - c.flash) * Game::LOCK_FX_SECONDS : -1.f;
-            tile(p.x, p.y, 0.6f, pal_.piece[c.type], 1.f, 0, mask, age, 1.f, glowOn);
+            tile(p.x, p.y, 0.6f, pieceColor(c.type, id), 1.f, 0, mask, age, 1.f, glowOn);
         }
     // cleared blocks burning out; a topped-out stack going dark
     for (const Dying& d : dying_) {
@@ -963,12 +974,12 @@ void LaserUniverse::buildBoard(const Game& g) {
         if (d.over) {
             const float k = smoothstepf(0.f, 0.6f, t);
             const float a = 1.f - smoothstepf(5.f, 8.f, d.t);
-            tile(d.x, d.y, 0.6f, pal_.piece[d.type], a, 0, d.mask, -1.f, 1.f, lerpf(1.f, 0.08f, k));
+            tile(d.x, d.y, 0.6f, pieceColor(d.type, d.id), a, 0, d.mask, -1.f, 1.f, lerpf(1.f, 0.08f, k));
             continue;
         }
         const float k = saturate(t / 0.4f);
         if (k >= 1.f) continue;
-        tile(d.x, d.y, 0.6f, pal_.piece[d.type], 1.f, 2, d.mask, -1.f, 1.f, k, d.seed + d.x * 0.37f);
+        tile(d.x, d.y, 0.6f, pieceColor(d.type, d.id), 1.f, 2, d.mask, -1.f, 1.f, k, d.seed + d.x * 0.37f);
     }
     // the falling piece and its ghost: one shape each
     if (g.hasPiece()) {
@@ -982,7 +993,7 @@ void LaserUniverse::buildBoard(const Game& g) {
                 return false;
             });
         };
-        const vec3 col = pal_.piece[p.type];
+        const vec3 col = pieceColor(p.type, pieceCounter_); // the id it will lock with
         Piece gp = p;
         gp.y = g.ghostY();
         if (gp.y > p.y) {
@@ -1002,7 +1013,7 @@ void LaserUniverse::buildBoard(const Game& g) {
         }
     }
     // previews
-    auto preview = [&](int type, vec2 center, float sc, float alpha) {
+    auto preview = [&](int type, int id, vec2 center, float sc, float alpha) {
         if (type < 0) return;
         Piece p{type, 0, 0, 0};
         int cells[4][2];
@@ -1019,13 +1030,13 @@ void LaserUniverse::buildBoard(const Game& g) {
                     if (o[0] == c[0] + ddx && o[1] == c[1] + ddy) return true;
                 return false;
             });
-            tile(pos.x, pos.y, 0.6f * sc, pal_.piece[type], alpha, 0, mask, -1.f, sc, 1.f);
+            tile(pos.x, pos.y, 0.6f * sc, pieceColor(type, id), alpha, 0, mask, -1.f, sc, 1.f);
         }
     };
-    preview(g.holdType(), v2(layout::HOLD_CENTER.x, layout::HOLD_CENTER.y), layout::previewScale(0), g.holdUsed() ? 0.4f : 1.f);
+    preview(g.holdType(), -1, v2(layout::HOLD_CENTER.x, layout::HOLD_CENTER.y), layout::previewScale(0), g.holdUsed() ? 0.4f : 1.f);
     for (int i = 0; i < 3; i++) {
         const vec3 c = layout::nextCenter(i);
-        preview(g.next(i), v2(c.x, c.y), layout::previewScale(i), 1.f);
+        preview(g.next(i), pieceCounter_ + 1 + i, v2(c.x, c.y), layout::previewScale(i), 1.f);
     }
     // the bonus gauge: a ring of laser light
     {

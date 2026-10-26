@@ -31,7 +31,7 @@ public:
     // A laser set (linear RGB once loaded; floats only, so two sets blend).
     struct Palette {
         vec3 laser[3];     // the song's lasers (the slots of a fan take them in turn)
-        vec3 dropLaser[3]; // the drop's
+        vec3 dropLaser[3]; // the drop's pair (the first two; the third repeats the first)
         vec3 haze;         // the room's own faint haze
         vec3 rim, ink, accent;
         vec3 piece[7];
@@ -53,7 +53,7 @@ private:
     struct DyingCone {
         vec2 src;
         std::vector<vec2> corners;
-        int type;
+        int type, id;
         float t, delay, seed, power;
         bool lens;
     };
@@ -64,7 +64,8 @@ private:
     std::vector<ConeGpu> cones_;
     vec2 randomSpot();
     vec2 srcPos(const Proj& p) const;
-    vec3 laserColor(int type) const;
+    vec3 laserColor(int type, int id) const;
+    vec3 pieceColor(int type, int id) const;
     void buildProjection(const Game& game);
     void addProjection(vec2 src, const std::vector<vec2>& corners, const vec3& col, float power, float depth, bool lens);
     void updateProjectors(const Game& game, const MusicState& music, float dt);
@@ -147,7 +148,7 @@ private:
     // ---- Effects.
     struct SparkFx { vec2 p; float t, life, size, len; vec3 c; };
     std::vector<SparkFx> sparkFx_;
-    struct Dying { float x, y, t, delay; int type, mask; bool over; float seed; };
+    struct Dying { float x, y, t, delay; int type, mask; bool over; float seed; int id; };
     std::vector<Dying> dying_;
     int lastDrop_ = 0;
     // The piece each locked cell came from: a piece's cells join (no seam inside it), two pieces never do.
