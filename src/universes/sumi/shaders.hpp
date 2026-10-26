@@ -97,6 +97,9 @@ uniform vec4 uLevel;      // level A, level B, wash front radius (world, <0: non
 uniform float uImpact, uSeed;
 uniform vec2 uWell;       // board half extents
 uniform float uWorld;     // 1: the landscape, 0: bare paper (the bridge of a change of universe)
+uniform vec3 uSkyCol;     // the peak's sky wash: its pigment, its density, the sun (center xy, radius)
+uniform float uSky;
+uniform vec3 uSun;
 float wellMask(vec2 p, float soft) {
     vec2 d = abs(p) - uWell;
     return 1.0 - smoothstep(0.0, soft, max(d.x, d.y));
@@ -162,6 +165,17 @@ void main() {
     float dMid = mid * aMid * (1.0 - 0.75 * mist);
     float dNear = near * aNear * (1.0 - 0.35 * mist);
     float behind = (1.0 - 0.94 * well) * uWorld;
+    // The peak's sky: a wash of color soaked into the paper, graded up from the hills and deepest around the
+    // sun; the top of the sheet stays white.
+    if (uSky > 0.001) {
+        float yn = (p.y - uView.y) / uView.w;
+        float grad = smoothstep(0.45, -0.75, yn);
+        float ds = length(p - uSun.xy) / max(uSun.z, 0.1);
+        float halo = exp(-ds * ds * 0.09);
+        float mott = 0.7 + 0.6 * fbm3(p * vec2(0.08, 0.16) + vec2(uDriftFar * 2.0, 3.0));
+        float d = uSky * peakW * (0.17 * grad + 0.22 * halo) * mott * behind;
+        col *= 1.0 - d * (1.0 - uSkyCol);
+    }
     vec3 inkFar = mix(SUMI, INDIGO, 0.45), inkMid = mix(SUMI, INDIGO, 0.2);
     col *= 1.0 - behind * dFar * (1.0 - inkFar);
     col *= 1.0 - behind * dMid * (1.0 - inkMid);
@@ -398,6 +412,39 @@ void main() {
         float body = 1.0 - smoothstep(0.85, 1.0, e);
         dens = body * (0.45 + 0.4 * smoothstep(0.6, 0.97, e));
         ink = vC.rgb;
+    } else if (kind == 9) { // ---- plum blossom. vC.rgb color, vC.w opening 0..1. vD.x style: 0 wash, 1 outline, 2 bud
+        vec2 q = l / (vA.z / 1.15);
+        float open = vC.w;
+        int style = int(vD.x + 0.5);
+        ink = vC.rgb;
+        if (style == 2) { // a bud: a dark dab of ink
+            float r = length(q * vec2(1.0, 1.3)) + (vnoise(q * 4.0 + seed) - 0.5) * 0.18;
+            dens = (1.0 - smoothstep(0.6 * open, 0.75 * open + 0.01, r)) * 0.95;
+            ink = SUMI;
+        } else {
+            float sp = mix(0.4, 1.0, open); // the petals spread as it opens
+            float petals = 0.0, rim = 0.0;
+            for (int k = 0; k < 5; k++) {
+                float a = 6.2831853 * float(k) / 5.0 + seed;
+                vec2 c = vec2(cos(a), sin(a)) * 0.45 * sp;
+                float d = length(q - c) / (0.42 * sp) + (vnoise(q * 5.0 + float(k) * 3.1 + seed) - 0.5) * 0.14;
+                petals = max(petals, 1.0 - smoothstep(0.86, 1.0, d));
+                rim = max(rim, exp(-pow((d - 0.9) / 0.08, 2.0)));
+            }
+            // an accent wash (red plum) or a pale ink wash (white plum), each petal with a darker tide line
+            dens = petals * (0.5 + 0.3 * fbm3(q * 2.0 + seed)) + rim * 0.22;
+            if (style == 1) dens *= 0.45;
+            // the heart: a dark calyx dot and a few stamens around it
+            float st = 1.0 - smoothstep(0.06, 0.10, length(q));
+            for (int k = 0; k < 6; k++) {
+                float a = 6.2831853 * float(k) / 6.0 + seed * 1.7;
+                vec2 c = vec2(cos(a), sin(a)) * 0.27 * sp;
+                st = max(st, 1.0 - smoothstep(0.035, 0.06, length(q - c)));
+            }
+            st *= smoothstep(0.3, 0.8, open);
+            ink = mix(ink, SUMI, st);
+            dens = max(dens, st * 0.9);
+        }
     } else if (kind == 8) { // ---- bloom: a drop of ink spreading in wet paper. vD: radius, wash, core, roughness
         float R = max(vD.x, 1e-3);
         float r = length(l) / R;

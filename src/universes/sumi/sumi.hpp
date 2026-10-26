@@ -11,6 +11,7 @@ public:
     void resize(int width, int height) override;
     void setSong(const SongLook& look, float seconds) override;
     void setLevel(int level, float energy, float seconds, float impact) override;
+    void drop(float strength) override;
     void refresh(float strength) override;
     void onEvent(const GameEvent& ev, const Game& game) override;
     void setBonus(bool on) override;
@@ -27,9 +28,13 @@ private:
     // One instanced quad per ink mark (see SPRITE_FS for the meaning of each field by kind).
     struct Sprite { float x, y, hw, hh, rot, kind, seed, alpha, c[4], d[4]; };
     enum { K_BLOCK = 0, K_GHOST = 1, K_DROP = 2, K_STROKE = 3, K_SEAL = 4, K_ENSO = 5, K_SUN = 6, K_PETAL = 7,
-           K_BLOOM = 8, K_BEHIND = 100 };
+           K_BLOOM = 8, K_BLOSSOM = 9, K_BEHIND = 100 };
     struct Bloom { vec2 pos; float age, life, size, inner, tide, rough, seed; vec3 col; };
-    struct Petal { vec2 pos, vel; float rot, spin, size, age, life, seed; };
+    struct Petal { vec2 pos, vel; float rot, spin, size, age, life, seed, flip, flipRate; bool red; };
+    // The peak's plum branch: brushed limbs and shoots (painted one after another, from the paper's edge) and
+    // the blossoms opening along them once the brush has passed.
+    struct BranchSeg { vec2 a, b; float width, t0, dur, dry, taper, seed; };
+    struct Blossom { vec2 pos; float size, rot, t0, seed; int style; }; // style 0 accent wash, 1 ink outline, 2 bud
     struct Drop { vec2 pos, vel; float size, grow, age, life, alpha, seed; vec3 col; };
     struct Stroke { vec2 a, b; float width, age, draw, hold, fade, dry, taper, dens, seed, wellFade; vec3 col; };
     struct Stamp { vec2 pos; float size, rot, age, life, seed; };
@@ -49,6 +54,8 @@ private:
     void spawnBloom(vec2 pos, float size, float strength, vec3 col);
     void drawText(const std::vector<HudText>& hud, const std::vector<HudRect>& panels);
     void startWash(int level, float seconds, float impact);
+    void buildBranch();
+    void spawnPetal(vec2 pos, bool fromBranch);
     vec2 randomSidePoint();
     int pickVariant(const SongLook& look) const;
 
@@ -73,6 +80,16 @@ private:
     float neg_ = 0.f;
     float driftFar_ = 0, driftMid_ = 0, driftNear_ = 0;
     float ensoT_ = 0, ensoPresence_ = 0, sunPresence_ = 0, petalPresence_ = 0;
+    std::vector<BranchSeg> branch_;
+    std::vector<Blossom> blossoms_;
+    float branchT_ = 0, branchPresence_ = 0, branchSeed_ = 0;
+    float dropHeld_ = 0;   // just after the drop: the sprites show the peak even before the wash reaches them
+    float dropWait_ = 0;   // rising into a drop: the enso and the branch wait for its first downbeat
+    float petalBurst_ = 0; // the drop's flurry of petals, settling to the peak's steady fall
+    float petalAcc_ = 0;
+    float drive_ = 0;      // a drop's peak (the song driving harder) against a chorus' one
+    float skyWash_ = 0, skySwell_ = 0; // the drop's colored wash in the sky: steady, one swell on the drop
+    vec3 skyCol_{0.784f, 0.251f, 0.165f};
 
     std::vector<Bloom> blooms_;
     std::vector<Petal> petals_;

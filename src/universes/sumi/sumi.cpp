@@ -263,8 +263,15 @@ void SumiUniverse::setLevel(int level, float, float seconds, float impact) {
         ensoT_ = level >= 2 ? 5.f : 0.f;
         ensoPresence_ = sunPresence_ = level >= 2 ? 1.f : 0.f;
         petalPresence_ = level >= 2 ? 1.f : level == 1 ? 0.6f : 0.f;
+        branch_.clear();
+        blossoms_.clear();
+        branchT_ = level >= 2 ? 60.f : 0.f;
+        branchPresence_ = level >= 2 ? 1.f : 0.f;
+        dropWait_ = 0.f;
         return;
     }
+    // Rising into a drop: the enso and the branch are brushed on its first downbeat (drop()), not before.
+    if (level == 2 && impact >= 0.75f && ensoPresence_ < 0.5f) dropWait_ = 1.6f;
     if (washT_ < 1.f) { // never interrupt a wash: queue, and hurry the running one a little
         pendingLevel_ = level;
         pendingDur_ = seconds;
@@ -275,6 +282,132 @@ void SumiUniverse::setLevel(int level, float, float seconds, float impact) {
         return;
     }
     startWash(level, seconds, impact);
+}
+
+// The drop's first downbeat: the enso is brushed in one breath, a plum branch is painted in from the edge of
+// the paper, its blossoms open and a flurry of petals blows across, the sky takes its colored wash (one swell
+// that settles to the drop's steady level) and two drops of ink bloom in the paper.
+void SumiUniverse::drop(float strength) {
+    if (level_ < 2 && !(hasPending_ && pendingLevel_ == 2)) return;
+    strength = saturate(strength);
+    dropWait_ = 0.f;
+    dropHeld_ = 2.f;
+    lvShown_ = std::max(lvShown_, 1.5f);
+    if (ensoT_ < 1.3f) ensoT_ = 0.f;
+    if (branchPresence_ < 0.3f || branch_.empty()) {
+        branch_.clear();
+        blossoms_.clear();
+        branchT_ = 0.f;
+    }
+    petalBurst_ = std::max(petalBurst_, strength);
+    skySwell_ = std::max(skySwell_, strength);
+    for (int i = 0; i < 2; i++) spawnBloom(randomSidePoint(), rng_.range(2.4f, 3.2f), 0.9f, i ? verm_ : inkC_);
+}
+
+// The peak's plum branch, from the right edge of the paper above the enso: an old limb in a few angular
+// strokes, young shoots rising from its joints, blossoms (an accent wash or an ink outline) and dark buds.
+void SumiUniverse::buildBranch() {
+    branch_.clear();
+    blossoms_.clear();
+    // From the bottom right corner, under the enso, reaching left below the right HUD column (it ends above
+    // the gauge); the branch shrinks on narrow screens.
+    const float right = viewC_.x + viewH_.x;
+    const float room = right - 7.5f;
+    const float sc = std::clamp(room / 10.5f, 0.45f, 1.4f), wsc = std::sqrt(sc);
+    const float roof = layout::RIGHT_COLUMN[1] - 0.4f; // the lowest HUD element right of the well
+    auto dir = [](float a) { return v2(std::cos(a), std::sin(a)); };
+    vec2 p = v2(right + 0.9f, viewC_.y - viewH_.y + rng_.range(1.6f, 2.4f));
+    const float heading = PI - rng_.range(0.26f, 0.34f); // leftward, rising
+    float t = 0.f, w = 0.26f * wsc;
+        int side = rng_.chance(0.5f) ? 1 : -1;
+    auto addSeg = [&](vec2 a, vec2 b, float width, float t0, float speed, float dry, float taper) {
+        float dx = b.x - a.x, dy = b.y - a.y, len = std::sqrt(dx * dx + dy * dy);
+        BranchSeg s{a, b, width, t0, len / speed, dry, taper, rng_.range(0.f, 100.f)};
+        branch_.push_back(s);
+        return s.t0 + s.dur;
+    };
+    auto addBlossoms = [&](const BranchSeg& s, int n, float t0Extra) {
+        vec2 d = v2(s.b.x - s.a.x, s.b.y - s.a.y);
+        float len = std::sqrt(d.x * d.x + d.y * d.y);
+        vec2 nrm = v2(-d.y / len, d.x / len);
+        for (int k = 0; k < n; k++) {
+            float u = rng_.range(0.3f, 0.95f);
+            float off = rng_.range(-1.f, 1.f) * (s.width * 0.6f + 0.18f);
+            Blossom b;
+            b.pos = add(add(s.a, mul(d, u)), mul(nrm, off));
+            b.size = rng_.range(0.40f, 0.50f) * wsc;
+            b.rot = rng_.range(0.f, TAU);
+            b.t0 = s.t0 + s.dur * u + rng_.range(0.15f, 0.9f) + t0Extra;
+            b.seed = rng_.range(0.f, 100.f);
+            b.style = rng_.chance(0.65f) ? 0 : 1;
+            blossoms_.push_back(b);
+        }
+    };
+    auto addBud = [&](vec2 at, float t0, float along) {
+        Blossom b;
+        b.pos = at;
+        b.size = rng_.range(0.15f, 0.19f) * wsc;
+        b.rot = along;
+        b.t0 = t0;
+        b.seed = rng_.range(0.f, 100.f);
+        b.style = 2;
+        blossoms_.push_back(b);
+    };
+    // The old limb: three long angular strokes. From it, young shoots rise almost straight up (plum shoots
+    // grow like whips), one hangs down; the blossoms sit along the shoots, buds at their tips.
+    const float lens[3] = {4.0f, 3.3f, 2.6f};
+    for (int i = 0; i < 3; i++) {
+        const float a = heading + side * rng_.range(0.10f, 0.24f);
+        side = -side;
+        const vec2 d = dir(a);
+        const vec2 q = add(p, mul(d, lens[i] * sc));
+        const float end = addSeg(add(p, mul(d, -0.06f)), q, w, t, 7.f, 0.6f, i == 2 ? 0.85f : 0.25f);
+        const BranchSeg limb = branch_.back();
+        addBlossoms(limb, 1 + (int)rng_.chance(0.5f), 0.f);
+        const int shoots = i == 0 ? 1 : 2;
+        for (int k = 0; k < shoots; k++) {
+            const float u = k == 0 ? rng_.range(0.75f, 0.95f) : rng_.range(0.3f, 0.5f);
+            const vec2 root = add(limb.a, mul(v2(q.x - limb.a.x, q.y - limb.a.y), u));
+            const bool hang = false;
+            const float sa = hang ? -PI * 0.5f - rng_.range(0.2f, 0.5f) : PI * 0.5f + rng_.range(-0.55f, 0.65f);
+            float sl = (hang ? rng_.range(1.2f, 1.7f) : rng_.range(1.5f, 2.5f)) * sc;
+            if (root.x < layout::RIGHT_COLUMN[2] + 0.8f) sl = std::min(sl, std::max(0.6f, (roof - root.y) / std::sin(sa)));
+            // two strokes with a slight kink, the second thinner
+            const float kink = rng_.range(0.15f, 0.3f) * (rng_.chance(0.5f) ? 1.f : -1.f);
+            const vec2 sm = add(root, mul(dir(sa), sl * 0.55f));
+            const vec2 sb = add(sm, mul(dir(sa + kink), sl * 0.45f));
+            const float t1 = addSeg(root, sm, 0.06f * wsc, limb.t0 + limb.dur * u + 0.1f, 7.5f, 0.3f, 0.35f);
+            const BranchSeg shoot = branch_.back();
+            addSeg(sm, sb, 0.042f * wsc, t1 - 0.03f, 7.5f, 0.3f, 0.95f);
+            const BranchSeg tip = branch_.back();
+            addBlossoms(shoot, 1, 0.f);
+            if (!hang) addBlossoms(tip, 1, 0.f);
+            addBud(sb, tip.t0 + tip.dur + 0.2f, sa + kink);
+        }
+        p = q;
+        t = end - 0.04f;
+        w *= 0.72f;
+    }
+    addBud(p, t + 0.3f, heading);
+}
+
+// A petal on the wind: from an open blossom of the branch (the drop's flurry) or from beyond the paper's edge.
+void SumiUniverse::spawnPetal(vec2 pos, bool fromBranch) {
+    if (petals_.size() >= 70) return;
+    Petal p;
+    p.pos = pos;
+    const float wind = fromBranch ? 1.25f : 1.f;
+    p.vel = v2(-rng_.range(0.45f, 0.95f) * wind, -rng_.range(0.32f, 0.6f));
+    p.rot = rng_.range(0.f, TAU);
+    p.spin = rng_.range(-0.6f, 0.6f);
+    p.size = rng_.range(0.2f, 0.3f);
+    p.age = 0;
+    p.life = 60.f;
+    p.seed = rng_.range(0.f, 100.f);
+    p.flip = rng_.range(0.f, TAU);
+    p.flipRate = rng_.range(0.7f, 1.5f) * (rng_.chance(0.5f) ? 1.f : -1.f);
+    p.red = rng_.chance(fromBranch ? 0.45f : 0.25f);
+    petals_.push_back(p);
 }
 
 // A new section at the same level, or a level up: a soft wash.
@@ -505,7 +638,9 @@ void SumiUniverse::simulate(const Game&, const MusicState& music, float dt, floa
                 if (r < 0.22f) col = ink2C_;
                 else if (r < 0.30f && music.kick > 0.4f) col = verm_;
             } else if (lv >= 0.5f && rng_.chance(0.15f)) col = ink2C_;
-            spawnBloom(randomSidePoint(), (0.9f + 1.6f * strength) * rng_.range(0.75f, 1.2f), strength, col);
+            if (lv >= 1.5f && drive_ > 0.5f && rng_.chance(0.25f)) col = verm_;
+            const float big = lv >= 1.5f ? 1.3f : 1.f;
+            spawnBloom(randomSidePoint(), big * (0.9f + 1.6f * strength) * rng_.range(0.75f, 1.2f), strength, col);
         }
     }
     if (music.kick > 0.85f && sinceBloom_ > 1.2f && lv >= 1.5f)
@@ -516,28 +651,41 @@ void SumiUniverse::simulate(const Game&, const MusicState& music, float dt, floa
         i++;
     }
 
-    // Plum petals, mid and peak only.
-    const float want = petalPresence_ * (5.f + 6.f * e);
-    if ((float)petals_.size() < want && rng_.chance(std::min(1.f, wdt * 1.6f))) {
-        Petal p;
-        float side = rng_.chance(0.5f) ? 1.f : -1.f;
-        p.pos = v2(side * rng_.range(6.5f, viewH_.x + 1.f), viewC_.y + viewH_.y + 0.6f);
-        p.vel = v2(rng_.range(-0.35f, 0.05f), -rng_.range(0.45f, 0.85f));
-        p.rot = rng_.range(0.f, TAU);
-        p.spin = rng_.range(-1.2f, 1.2f);
-        p.size = rng_.range(0.2f, 0.3f);
-        p.age = 0;
-        p.life = 40.f;
-        p.seed = rng_.range(0.f, 100.f);
-        petals_.push_back(p);
+    // Plum petals on a gentle wind: a few at mid, a steady fall at peak (more in a drop), a flurry from the
+    // branch's open blossoms on the drop that settles over a few seconds.
+    {
+        const float peakW = smoothstepf(1.f, 2.f, lv);
+        const float rate = petalPresence_ * (0.12f + peakW * (0.45f + 0.25f * e + 0.45f * drive_)) + 7.f * petalBurst_;
+        petalAcc_ += rate * wdt;
+        const float top = viewC_.y + viewH_.y, right = viewC_.x + viewH_.x;
+        while (petalAcc_ >= 1.f) {
+            petalAcc_ -= 1.f;
+            int open = 0;
+            for (const Blossom& bl : blossoms_) open += bl.style != 2 && branchT_ > bl.t0 + 0.4f;
+            if (open > 0 && rng_.chance(0.25f + 0.6f * petalBurst_)) {
+                int k = (int)rng_.range(0.f, (float)open - 0.001f);
+                for (const Blossom& bl : blossoms_)
+                    if (bl.style != 2 && branchT_ > bl.t0 + 0.4f && k-- == 0) { spawnPetal(bl.pos, true); break; }
+            } else if (rng_.chance(0.7f)) {
+                spawnPetal(v2(rng_.range(-0.4f * viewH_.x, right + 2.f), top + 0.6f), false);
+            } else {
+                spawnPetal(v2(right + 0.8f, viewC_.y + rng_.range(-0.1f, 0.9f) * viewH_.y), false);
+            }
+        }
     }
     for (size_t i = 0; i < petals_.size();) {
         Petal& p = petals_[i];
         p.age += wdt;
-        float sway = std::sin(p.age * 1.3f + p.seed) * 0.35f;
-        p.pos = add(p.pos, mul(add(p.vel, v2(sway, 0.f)), wdt));
+        const float sway = std::sin(p.age * 0.8f + p.seed) * 0.3f;
+        const float bob = std::sin(p.age * 1.1f + p.seed * 1.7f) * 0.12f;
+        p.pos = add(p.pos, mul(add(p.vel, v2(sway, bob)), wdt));
         p.rot += p.spin * wdt;
-        if (p.pos.y < viewC_.y - viewH_.y - 1.f || p.age > p.life) { petals_[i] = petals_.back(); petals_.pop_back(); continue; }
+        p.flip += p.flipRate * wdt;
+        if (p.pos.y < viewC_.y - viewH_.y - 1.f || p.pos.x < viewC_.x - viewH_.x - 1.f || p.age > p.life) {
+            petals_[i] = petals_.back();
+            petals_.pop_back();
+            continue;
+        }
         i++;
     }
 
@@ -614,9 +762,33 @@ void SumiUniverse::collectScenery(const MusicState& music, std::vector<Sprite>& 
         float a = smoothstepf(0.f, 0.12f, b.age) * std::pow(1.f - b.age / b.life, 1.3f);
         put(b.pos.x, b.pos.y, R * 1.45f, R * 1.45f, 0, K_BLOOM + K_BEHIND, b.seed, a, b.col, 0, R, b.inner, b.tide * std::exp(-b.age * 1.1f), b.rough);
     }
+    // Petals: a pale ink wash or the accent, turning over as they fall (their width follows the flip).
+    const float petalFade = saturate(petalPresence_ * 2.f + petalBurst_);
     for (const Petal& p : petals_) {
-        float a = smoothstepf(0.f, 1.f, p.age) * petalPresence_;
-        put(p.pos.x, p.pos.y, p.size, p.size, p.rot, K_PETAL + K_BEHIND, p.seed, 0.42f * a, verm_, 0, 0, 0, 0, 0);
+        float a = smoothstepf(0.f, 0.8f, p.age) * petalFade;
+        float flip = 0.3f + 0.7f * std::fabs(std::cos(p.flip));
+        put(p.pos.x, p.pos.y, p.size * flip, p.size, p.rot, K_PETAL + K_BEHIND, p.seed, (p.red ? 0.6f : 0.34f) * a,
+            p.red ? verm_ : inkC_, 0, 0, 0, 0, 0);
+    }
+    // The plum branch: each stroke brushed after the one before, the blossoms opening behind the brush.
+    if (branchPresence_ > 0.01f) {
+        for (const BranchSeg& b : branch_) {
+            float reveal = saturate((branchT_ - b.t0) / b.dur);
+            if (reveal <= 0.f) continue;
+            reveal = 1.f - (1.f - reveal) * (1.f - reveal);
+            vec2 c = mul(add(b.a, b.b), 0.5f);
+            float dx = b.b.x - b.a.x, dy = b.b.y - b.a.y, len = std::sqrt(dx * dx + dy * dy);
+            put(c.x, c.y, len * 0.5f, b.width * 1.3f, std::atan2(dy, dx), K_STROKE + K_BEHIND, b.seed,
+                0.94f * branchPresence_, inkC_, 0, reveal, b.dry, 1.f, b.taper);
+        }
+        for (const Blossom& b : blossoms_) {
+            float open = saturate((branchT_ - b.t0) / 0.9f);
+            if (open <= 0.f) continue;
+            open = 1.f - (1.f - open) * (1.f - open) * (1.f - open);
+            const vec3 col = b.style == 0 ? verm_ : inkC_;
+            put(b.pos.x, b.pos.y, b.size * 1.15f, b.size * 1.15f, b.rot, K_BLOSSOM + K_BEHIND, b.seed,
+                branchPresence_ * smoothstepf(0.f, 0.3f, open), col, open, (float)b.style, 0, 0, 0);
+        }
     }
     // The well: three brush lines (left, right, bottom), open at the top, and the signature seal.
     auto stroke = [&](vec2 a, vec2 b, float width, float seed, float dry, float taper, float dens, vec3 col, float reveal,
@@ -899,14 +1071,28 @@ void SumiUniverse::render(const Frame& f, GLuint fbo) {
         }
     }
     // The sprites (enso, sun, petals, blooms) follow the level once the wash has passed them.
-    const float target = (washFront_ < 0.f || washFront_ > 12.f) ? lvB_ : lvA_;
+    dropHeld_ = std::max(0.f, dropHeld_ - dt);
+    const float target = (dropHeld_ > 0.f || washFront_ < 0.f || washFront_ > 12.f) ? lvB_ : lvA_;
     lvShown_ = approach(lvShown_, target, 2.f, dt);
-    const float peak = lvShown_ >= 1.5f ? 1.f : 0.f;
+    // Rising into a drop, the enso and the branch wait for its first downbeat (drop()).
+    const bool waiting = dropWait_ > 0.f;
+    if (waiting) dropWait_ = std::max(0.f, dropWait_ - dt);
+    const float peak = lvShown_ >= 1.5f && !waiting ? 1.f : 0.f;
     ensoPresence_ = approach(ensoPresence_, peak, peak > 0.f ? 3.f : 0.6f, dt);
     if (peak > 0.f) ensoT_ += dt;
     else if (ensoPresence_ < 0.01f) ensoT_ = 0.f;
     sunPresence_ = approach(sunPresence_, peak, 0.5f, dt);
     petalPresence_ = approach(petalPresence_, lvShown_ >= 1.5f ? 1.f : lvShown_ >= 0.5f ? 0.6f : 0.f, 0.3f, dt);
+    if (peak > 0.f && branch_.empty()) { buildBranch(); }
+    branchPresence_ = approach(branchPresence_, peak, peak > 0.f ? 4.f : 0.35f, dt);
+    if (peak > 0.f) branchT_ += dt;
+    else if (branchPresence_ < 0.01f) { branch_.clear(); blossoms_.clear(); branchT_ = 0.f; }
+    petalBurst_ = approach(petalBurst_, 0.f, 0.2f, dt);
+    // A drop's peak against a chorus' one: the drop's sections drive harder (the song structure's pace). It
+    // colors the sky: a steady wash for the whole drop, one swell on the drop's downbeat settling over seconds.
+    drive_ = approach(drive_, peak * smoothstepf(1.27f, 1.42f, music.hasSong ? music.speed : 1.4f), 0.8f, dt);
+    skySwell_ = approach(skySwell_, 0.f, 0.3f, dt);
+    skyWash_ = approach(skyWash_, peak * (0.45f + 0.55f * drive_), peak > 0.f ? 1.2f : 0.4f, dt);
     // The song's ink variant; its colors ease in (a new song arrives with its wash).
     {
         const Variant& V = VARIANTS[variant_];
@@ -923,6 +1109,10 @@ void SumiUniverse::render(const Frame& f, GLuint fbo) {
             ivory_ = lerp(ivory_, vec3(0.925f, 0.9f, 0.845f), k);
         }
         neg_ = k >= 1.f ? (V.negative ? 1.f : 0.f) : approach(neg_, V.negative ? 1.f : 0.f, 0.7f, dt);
+        // The sky's wash takes the accent, or the second ink when the accent is a gold or an ochre (a yellow
+        // wash would tint the paper).
+        const bool yellow = V.accent.y > 0.55f * V.accent.x && V.accent.z < 0.3f;
+        skyCol_ = lerp(skyCol_, yellow ? V.ink2 : V.accent, k);
     }
 
     invT_ += dt;
@@ -959,6 +1149,13 @@ void SumiUniverse::render(const Frame& f, GLuint fbo) {
     set1f(progBg_, "uSeed", washSeed_ * 0.f);
     set2f(progBg_, "uWell", WELL_HX + 0.05f, WELL_HY + 0.05f);
     set1f(progBg_, "uWorld", world);
+    set3f(progBg_, "uSkyCol", skyCol_);
+    set1f(progBg_, "uSky", saturate(skyWash_ + 0.6f * skySwell_ * sunPresence_));
+    {
+        const float x0 = layout::RIGHT_COLUMN[2] - 0.2f, x1 = viewH_.x - 0.7f;
+        const float R = std::clamp((x1 - x0) * 0.5f - 0.5f, 2.f, 4.4f);
+        set3f(progBg_, "uSun", vec3((x0 + x1) * 0.5f + R * 0.16f, 4.4f + R * 0.14f, R * 0.46f));
+    }
     glBindVertexArray(emptyVao_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
