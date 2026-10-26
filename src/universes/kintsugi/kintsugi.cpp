@@ -761,7 +761,7 @@ void KintsugiUniverse::onEvent(const GameEvent& ev, const Game&) {
             return &own_[y][x];
         };
         for (auto& c : ev.cells) {
-            if (c.y < 0 || c.y >= Game::H) continue;
+            if (c.y < Game::HIDDEN || c.y >= Game::H) continue; // (the hidden rows above the well stay hidden)
             const Owner& o = own_[c.y][c.x];
             const bool known = o.type == c.type && o.id >= 0;
             int mask = 0;
@@ -1180,7 +1180,7 @@ void KintsugiUniverse::drawHud(const std::vector<HudText>& hud, const std::vecto
             while (!name.empty() && name.back() == ' ') name.pop_back();
             while (!var.empty() && var.front() == ' ') var.erase(var.begin());
             name = titleCase(name);
-            const float sz = base * 1.55f, vsz = base * 0.62f, vtr = vsz * 0.32f;
+            const float sz = base * 1.5f, vsz = base * 0.56f, vtr = vsz * 0.26f;
             const float wName = textWidth(fontItalic_, name, sz, 0.f);
             const float wVar = var.empty() ? 0.f : textWidth(fontCaps_, var, vsz, vtr);
             const float gap = base * 0.8f;

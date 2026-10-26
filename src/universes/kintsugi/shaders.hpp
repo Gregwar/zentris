@@ -80,7 +80,7 @@ void main() {
     vec2 p = uView.xy + (vUv * 2.0 - 1.0) * uView.zw;
     vec4 m = texture(uMarble, vUv);
     float lit = rake(p) * uGain;
-    vec3 base = mix(uStone, uCloud, smoothstep(0.25, 0.8, m.r));
+    vec3 base = mix(uStone, uCloud, 0.75 * smoothstep(0.3, 0.85, m.r));
     base = mix(base, uCalcite, 0.5 * smoothstep(0.45, 0.75, m.g) * smoothstep(0.3, 0.7, m.r));
     vec3 c = base * lit * uLightCol;
     // the polished slab mirrors the soft box: a broad, faint band, where the crystal grain sparkles a little
