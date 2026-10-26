@@ -2,10 +2,10 @@
 // FLUO's shaders (see fluo.cpp).
 //
 // Three layers: the wall (a static texture of the wall's grain, generated once per size, toned per variant in
-// COMPOSITE_FS), the paint (a persistent buffer the splashes are stamped into, premultiplied linear color + coverage,
-// never cleared during a song) and the play (the pieces, the ghost, the gauge, specks of paint, drawn last over the
-// composite). The paint's glow at the drops is a blur of the paint buffer at a quarter of the resolution, recomputed
-// only when the paint changed.
+// COMPOSITE_FS), the paint (a persistent pair of buffers the splashes are stamped into once they are done: the
+// color, premultiplied linear + coverage, and the coat's thickness, for its relief; never cleared during a song; a
+// "wet" pair, redrawn each frame, holds the splashes still spreading and the drips still running) and the play (the
+// pieces, the ghost, the gauge, the paint in flight, specks, drawn last over the composite).
 
 namespace fluo_shaders {
 
@@ -85,19 +85,22 @@ inline const char* PAINT_FS = R"(#version 330 core
 in vec2 vP;
 flat in vec4 vA0, vA1, vA2, vA3;
 out vec4 frag;
-uniform float uPx; // board units per pixel
+uniform float uPx;  // board units per pixel
+uniform int uOut;   // 0: the color (premultiplied, "over"), 1: the coat's thickness (added)
 void main() {
     vec2 p = vP;
     float seed = vA1.w;
-    float d;
+    float d, r;
+    // the ragged edge's noise is never finer than a few pixels (finer, it would only alias)
+    float fmax = 0.3 / uPx;
     if (vA1.z < 0.5) {
         vec2 a = vA0.xy, ba = vA0.zw - vA0.xy;
         float l2 = dot(ba, ba);
         float h = l2 > 1e-6 ? clamp(dot(p - a, ba) / l2, 0.0, 1.0) : 0.0;
-        float r = mix(vA1.x, vA1.y, h);
+        r = mix(vA1.x, vA1.y, h);
         d = length(p - a - ba * h) - r;
         // ragged paint edge, scaled to the stroke
-        float f = 2.2 / max(vA1.x, 0.04);
+        float f = min(2.2 / max(vA1.x, 0.04), fmax);
         d += (vnoise(p * f + seed * 13.7) - 0.5) * vA3.x * r;
     } else {
         vec2 q = p - vA0.xy;
@@ -111,12 +114,30 @@ void main() {
                   + 0.18 * sin(21.0 * ang + 1.7 * s);
         // sharpen the lobes into short spikes, like a real splat's rim
         lob = sign(lob) * pow(abs(lob), 1.6);
+        r = vA1.x;
         float R = vA1.x * (1.0 + vA3.y * 0.45 * lob);
         d = length(q) - R;
-        d += (vnoise(p * (2.4 / max(vA1.x, 0.05)) + seed * 7.3) - 0.5) * vA3.x * vA1.x;
+        d += (vnoise(p * min(2.4 / max(vA1.x, 0.05), fmax) + seed * 7.3) - 0.5) * vA3.x * vA1.x;
     }
-    float cov = 1.0 - smoothstep(-uPx * 0.9, uPx * 0.9, d);
+    // the coverage over one pixel of the (distorted) distance: smooth edges at any resolution
+    float fw = clamp(fwidth(d), uPx * 0.5, uPx * 4.0);
+    float cov = 1.0 - smoothstep(-fw, fw, d);
     if (cov <= 0.0) discard;
+    if (uOut == 1) {
+        // the coat's thickness: it rises over a short width from the edge (droplets and drips: a dome), a
+        // slightly thicker rim where the paint piled up as it spread, then an uneven plateau
+        float in_ = max(-d, 0.0);
+        // (never steeper than over a few pixels, and a tiny droplet is thin: no glittering specks)
+        float wr = clamp(r, 3.0 * uPx, 0.12);
+        float u = 1.0 - clamp(in_ / wr, 0.0, 1.0), e = (in_ - wr) / (wr * 0.8);
+        float rise = 1.0 - u * u;
+        float rim = exp(-e * e);
+        float plate = 0.8 + 0.2 * vnoise(p * 3.0 + seed * 5.3);
+        float T = 0.032 * clamp(r / 0.08, 0.3, 1.0);
+        float h = T * rise * mix(plate, 1.0, rim * 0.5) + T * 0.35 * rim * step(0.06, r);
+        frag = vec4(h * cov * vA2.a, 0.0, 0.0, 0.0);
+        return;
+    }
     // the coat is a little uneven: thicker and thinner patches
     vec3 col = vA2.rgb * (0.9 + 0.2 * vnoise(p * 3.0 + seed * 3.1));
     float a = cov * vA2.a;
@@ -132,38 +153,28 @@ uniform vec4 uColor;
 void main() { frag = uColor; }
 )";
 
-// ---------------------------------------------------------------- the glow's blur (separable, quarter resolution)
-inline const char* BLUR_FS = R"(#version 330 core
-in vec2 vUv;
-out vec4 frag;
-uniform sampler2D uSrc;
-uniform vec2 uStep; // uv step between taps
-void main() {
-    const float W[7] = float[7](0.1597, 0.1471, 0.1149, 0.0761, 0.0427, 0.0203, 0.0082);
-    vec3 s = texture(uSrc, vUv).rgb * W[0];
-    for (int i = 1; i < 7; i++) {
-        s += texture(uSrc, vUv + uStep * float(i)).rgb * W[i];
-        s += texture(uSrc, vUv - uStep * float(i)).rgb * W[i];
-    }
-    frag = vec4(s / 0.9777, 1.0);
-}
-)";
-
 // ---------------------------------------------------------------- the wall and its paint
+// The paint: the persistent layer, with the "wet" one over it (splashes still spreading, drips still running:
+// redrawn each frame into a cleared buffer and stamped into the persistent layer once, when done, so a stamp's
+// soft edge is drawn once and never hardens into a jagged one). Its relief comes from its thickness: a light
+// moving slowly across the wall makes highlights slide along the rims, the drips and the droplets.
 inline const char* COMPOSITE_FS = R"(#version 330 core
 in vec2 vUv;
 out vec4 frag;
-uniform sampler2D uWall, uPaint, uBloom;
+uniform sampler2D uWall, uPaint, uHeight, uWet, uWetH;
+uniform int uWetOn;
+uniform vec2 uTexel;           // one pixel in uv
+uniform float uPx;             // board units per pixel
+uniform vec3 uLamp;            // the moving light (board units: x, y, height above the wall)
 uniform vec4 uView;
 uniform vec3 uWallA, uWallB;   // the wall's two tones (linear)
 uniform vec3 uUvTint;          // what the wall becomes under the blacklight (linear)
 uniform vec4 uTex;             // blotches, grain, pores, mottle amounts
 uniform float uLight;          // the room's light (calm .. chorus)
 uniform float uDark;           // the blacklight (0 room light .. 1 lights off, UV on)
-uniform float uGlow;           // the paint's glow (0..~1.3)
+uniform float uGlow;           // the paint's fluorescence (0..~1.3)
 uniform float uIgnite;         // the stains lighting up one region after another (0..1)
-uniform float uTime;
-uniform float uSlow;           // slow motion: the paint drained of its color, the wall cooler
+uniform float uSlow;          // slow motion: the paint drained of its color, the wall cooler
 uniform vec4 uWell;            // center xy, half extents xy
 uniform vec4 uColL, uColR;     // the HUD columns (x0 y0 x1 y1)
 uniform vec4 uText[32];        // the HUD's lines (x0 y0 x1 y1): the paint is held back under them
@@ -175,6 +186,11 @@ float sdBox(vec2 p, vec2 b) { vec2 d = abs(p) - b; return length(max(d, 0.0)) + 
 float inRect(vec2 p, vec4 r, float soft) {
     vec2 c = (r.xy + r.zw) * 0.5, h = abs(r.zw - r.xy) * 0.5;
     return 1.0 - smoothstep(-soft, soft, sdBox(p - c, h));
+}
+float thick(vec2 uv) {
+    float h = texture(uHeight, uv).r;
+    if (uWetOn != 0) h += texture(uWetH, uv).r;
+    return h;
 }
 void main() {
     vec2 p = uView.xy + (vUv * 2.0 - 1.0) * uView.zw;
@@ -194,34 +210,51 @@ void main() {
     vec3 uvWall = (wall * 0.35 + uUvTint * (0.6 + 0.4 * tone)) * vign;
     vec3 col = mix(lit, uvWall, uDark);
 
-    // the paint: subdued behind the well (the blocks stay readable) and somewhat under the HUD's columns
+    // the paint (the wet layer over the persistent one)
     vec4 pt = texture(uPaint, vUv);
-    float cols = max(inRect(p, uColL, 1.8), inRect(p, uColR, 1.8));
-    float txt = 0.0;
-    for (int i = 0; i < uTextN; i++) txt = max(txt, inRect(p, uText[i], 1.0));
-    // (the paint comes back gradually beyond the well's edges: no rim of paint hugging it)
-    float near = 1.0 - smoothstep(-0.3, 2.2, sdBox(p - uWell.xy, uWell.zw));
-    float sub = (1.0 - 0.87 * near) * (1.0 - 0.6 * cols) * (1.0 - 0.95 * txt);
-    vec3 prgb = pt.rgb * sub;
-    float pa = pt.a * sub;
-    // the coat takes the wall's relief a little
-    float relief = 0.9 + 0.2 * w.g - 0.25 * uTex.z * w.b;
-    vec3 base = prgb * relief;
-    float lum = dot(base, vec3(0.2126, 0.7152, 0.0722));
-    base = mix(base, vec3(lum) * 0.8, 0.82 * uSlow);
-    vec3 paintLit = base * mix(1.0, uLight * wash * vign, 0.6);
-    // the glow: the stains light up one region after another, then shimmer slowly (no pulse)
-    float n = vnoise(p * 0.16 + 4.0) * 0.75 + 0.25 * vnoise(p * 0.6);
-    float ign = smoothstep(n * 0.8, n * 0.8 + 0.25, uIgnite);
-    float shimmer = 0.8 + 0.3 * vnoise(p * 0.13 + vec2(uTime * 0.06, -uTime * 0.045));
-    float g = uGlow * ign * shimmer;
-    vec3 emissive = base * (1.0 + 0.55 * g);
-    col = col * (1.0 - pa) + mix(paintLit, emissive, clamp(g, 0.0, 1.0));
-    // the halo around the stains (the blur of the paint), weaker where the paint is held back
-    vec3 bloom = texture(uBloom, vUv).rgb;
-    col += bloom * g * 0.8 * (1.0 - 0.85 * near) * (1.0 - 0.5 * cols) * (1.0 - 0.95 * txt) * (1.0 - 0.6 * uSlow);
+    if (uWetOn != 0) { vec4 wt = texture(uWet, vUv); pt = wt + pt * (1.0 - wt.a); }
+    if (pt.a > 0.002) {
+        vec3 base = pt.rgb / pt.a;
+        // where it is held back: behind the well and the stack (down to the screen's bottom, so the rows stand on
+        // a calm floor; it comes back gradually beyond the well's edges), the HUD's columns and its lines
+        float near = 1.0 - smoothstep(-0.3, 1.6, sdBox(p - (uWell.xy - vec2(0.0, 2.0)), uWell.zw + vec2(0.0, 2.0)));
+        float cols = max(inRect(p, uColL, 1.8), inRect(p, uColR, 1.8));
+        float txt = 0.0;
+        for (int i = 0; i < uTextN; i++) txt = max(txt, inRect(p, uText[i], 1.0));
+        float sub = (1.0 - 0.95 * near) * (1.0 - 0.6 * cols) * (1.0 - 0.95 * txt);
 
-    // a soft shoulder for the brightest glow
+        // the relief: the coat's slope (board units), one pixel either side
+        float hx = thick(vUv + vec2(uTexel.x, 0.0)) - thick(vUv - vec2(uTexel.x, 0.0));
+        float hy = thick(vUv + vec2(0.0, uTexel.y)) - thick(vUv - vec2(0.0, uTexel.y));
+        vec3 N = normalize(vec3(-hx / (2.0 * uPx), -hy / (2.0 * uPx), 1.0) * vec3(1.1, 1.1, 1.0));
+        vec3 L = normalize(uLamp - vec3(p, 0.0));
+        vec3 H = normalize(L + vec3(0.0, 0.0, 1.0));
+        float ndl = max(dot(N, L), 0.0);
+        float nh = max(dot(N, H), 0.0);
+        // a sharp glint on the slopes facing the light, a broad soft sheen of the wet coat around its spot
+        float spec = pow(nh, 70.0) * 0.9 + pow(nh, 12.0) * 0.12;
+        // the wall's grain shows through the coat a little
+        float relief = 0.93 + 0.14 * w.g - 0.2 * uTex.z * w.b;
+
+        float lum = dot(base, vec3(0.2126, 0.7152, 0.0722));
+        // under the room's light: a duller, matte-ish paint (a little greyed, lower), shaded by the moving light
+        vec3 dull = mix(vec3(lum), base, 0.75) * 0.72 * relief;
+        dull = mix(dull, vec3(lum) * 0.6, 0.82 * uSlow);
+        vec3 room = dull * uLight * wash * vign * (0.55 + 0.6 * ndl) + vec3(spec) * 0.55 * uLight * vign;
+        // under the blacklight: the stains light up one region after another and glow, saturated
+        float n = vnoise(p * 0.16 + 4.0) * 0.75 + 0.25 * vnoise(p * 0.6);
+        float ign = smoothstep(n * 0.8, n * 0.8 + 0.25, uIgnite);
+        float g = clamp(uGlow * ign, 0.0, 1.3);
+        vec3 fluo = max(mix(vec3(lum), base, 1.18), 0.0) * (1.05 + 0.25 * g) * relief * (0.85 + 0.2 * ndl);
+        // the tube's reflection: a faint violet glint, still sliding with the light
+        fluo += (uUvTint * 3.0 + vec3(0.06, 0.05, 0.12)) * spec;
+        vec3 paint = mix(room, fluo, clamp(g, 0.0, 1.0));
+        // held back: the paint sinks into the wall (only a faint, colorless trace of it)
+        paint = mix(col * (1.0 - 0.3 * pt.a), paint, sub);
+        col = mix(col, paint, pt.a);
+    }
+
+    // a soft shoulder for the brightest paint
     // (by the brightest channel, so the paint keeps its hue instead of washing out to white)
     float m = max(col.r, max(col.g, col.b));
     if (m > 0.8) col *= (0.8 + 0.2 * (1.0 - exp(-(m - 0.8) / 0.2))) / m;
@@ -235,9 +268,10 @@ void main() {
 // Instanced quads in board space.
 //   a0: center xy, quad half extents xy
 //   a1: color (linear), alpha
-//   a2: kind (0 cell, 1 ghost cell, 2 ring, 3 dot, 4 line), mask (cell: same-piece neighbors), rotation, glow
+//   a2: kind (0 cell, 1 ghost cell, 2 ring, 3 dot, 4 line, 5 paint in flight), mask (cell: same-piece neighbors),
+//       rotation, glow
 //   a3: kind's parameters (cell: scale, flash; ring: radius, width, fill, ready; dot: radius; line: half length, half
-//       width)
+//       width; paint in flight: the head's radius, the tail's length (along -x), the tail's radius)
 inline const char* PLAY_VS = R"(#version 330 core
 layout(location = 0) in vec2 aCorner;
 layout(location = 1) in vec4 aA0;
@@ -284,7 +318,19 @@ float cellSdf(vec2 p, int m, float s, float ext) {
     float rad = (freeX && freeY) ? rr : 0.0;
     vec2 d = abs(q) - b + rad;
     float sd = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - rad;
-    // a concave corner of the piece (two neighbors, no diagonal): keep it clean
+    // a concave corner of the piece (two neighbors, no diagonal: the inside of an L, the joints of a T): the
+    // quadrant beyond it is carved out (its two sides run on into the neighbors' edges, with a small fillet), so the
+    // shape's edge, its rim and its shading go on around the corner instead of stopping at a flat patch
+    const ivec4 SX = ivec4(1, 2, 1, 2), SY = ivec4(4, 4, 8, 8), DG = ivec4(16, 32, 64, 128);
+    const vec4 QX = vec4(-1.0, 1.0, -1.0, 1.0), QY = vec4(-1.0, -1.0, 1.0, 1.0);
+    float fr = 0.06 * s, c0 = h - gap;
+    for (int i = 0; i < 4; i++) {
+        if ((m & SX[i]) == 0 || (m & SY[i]) == 0 || (m & DG[i]) != 0) continue;
+        vec2 pq = vec2(p.x * QX[i], p.y * QY[i]);
+        vec2 dq = vec2(c0 + fr) - pq;
+        float sq = length(max(dq, 0.0)) + min(max(dq.x, dq.y), 0.0) - fr;
+        sd = max(sd, -sq);
+    }
     return sd;
 }
 void main() {
@@ -315,6 +361,10 @@ void main() {
             a = vA2.w * uGlowK * exp(-ds / (0.085 * s)) * (1.0 - smoothstep(-aa, aa, -ds)) * alpha * 0.55;
             outc = col;
         } else {
+            // each cell draws only its own square toward its neighbors (they draw theirs: no doubled seams)
+            float hs = 0.5 * s + aa; // (overlapping by a pixel: no seam)
+            if (((m & 1) != 0 && p.x < -hs) || ((m & 2) != 0 && p.x > hs) || ((m & 4) != 0 && p.y < -hs) ||
+                ((m & 8) != 0 && p.y > hs)) discard;
             float inside = 1.0 - smoothstep(-aa, aa, d);
             if (inside <= 0.0) discard;
             // the coat: flat fluo color, its edges a touch hotter, the top edges catching the light (a glossy
@@ -349,6 +399,21 @@ void main() {
         float d = length(p) - vA3.x;
         a = (1.0 - smoothstep(-aa, aa, d)) * alpha;
         outc = col;
+    } else if (kind == 5) { // a gob of paint in flight: a glossy drop, its tail stretched behind it
+        if (uPass == 0) discard;
+        float R = vA3.x, Lt = vA3.y;
+        float h = Lt > 1e-4 ? clamp(-p.x / Lt, 0.0, 1.0) : 0.0;
+        float rr = mix(R, vA3.z, h);
+        float d = length(p - vec2(-Lt * h, 0.0)) - rr;
+        a = (1.0 - smoothstep(-aa, aa, d)) * alpha;
+        if (a <= 0.0) discard;
+        // lit from above: a wet highlight toward the light, a deeper underside
+        float c = cos(vA2.z), s = sin(vA2.z);
+        vec2 up = vec2(s, c); // the world's up, in the drop's frame
+        float k = clamp(dot(p, up) / max(R, 1e-3), -1.0, 1.0);
+        outc = col * (0.8 + 0.3 * k);
+        vec2 hl = up * R * 0.4;
+        outc = mix(outc, vec3(1.0), 0.6 * (1.0 - smoothstep(R * 0.12, R * 0.32, length(p - hl))));
     } else { // a line
         if (uPass == 0) discard;
         vec2 q = abs(p) - vec2(vA3.x, vA3.y);

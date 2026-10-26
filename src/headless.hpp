@@ -7,4 +7,6 @@ bool init(int width, int height);
 // For gladLoadGL.
 void* proc(const char* name);
 void shutdown();
+// The context runs on an NVIDIA GPU (its video encoder can take the clips).
+bool nvidia();
 } // namespace headless

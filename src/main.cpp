@@ -109,7 +109,7 @@ private:
         else glfwGetFramebufferSize(win_, &w, &h);
     }
     void swap() {
-        if (!headless_) swap();
+        if (!headless_) glfwSwapBuffers(win_);
     }
     AudioEngine audio_;
     Library lib_;
@@ -959,8 +959,11 @@ int App::run() {
                 std::snprintf(spec, sizeof(spec), " -y -loglevel error -f rawvideo -pix_fmt rgb24 -s %dx%d -r 60 -i - -ss %.3f -t %.3f -i ",
                               cw, ch, clipStart_, opt_.clipBefore + opt_.clipAfter);
                 std::string cmd = platform::quoteArg(ff) + spec + platform::quoteArg(track_->path) +
-                                  " -map 0:v -map 1:a -vf vflip -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p"
-                                  " -c:a aac -b:a 192k -shortest " + platform::quoteArg(opt_.clipPath);
+                                  " -map 0:v -map 1:a -vf vflip " +
+                                  // on the GPU's encoder when there is one, else x264 on two threads (a light load)
+                                  std::string(headless_ && headless::nvidia() ? "-c:v h264_nvenc -preset p5 -rc vbr -cq 19 -b:v 0"
+                                                                              : "-c:v libx264 -threads 2 -preset medium -crf 18") +
+                                  " -pix_fmt yuv420p -c:a aac -b:a 192k -shortest " + platform::quoteArg(opt_.clipPath);
                 clipPipe = platform::openWrite(cmd);
                 if (!clipPipe) { std::fprintf(stderr, "[clip] could not start ffmpeg\n"); break; }
             }
