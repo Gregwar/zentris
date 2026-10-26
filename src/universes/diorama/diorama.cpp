@@ -1445,11 +1445,12 @@ void DioramaUniverse::collect(const Game& g, const MusicState& music, double tim
             if (c.type < 0) continue;
             vec3 p = cellPos((float)x, y - g.rowOffset(y));
             vec3 sc(S, S * breath, S);
-            if (c.flash > 0.f) {
+            if (c.flash > 0.f && c.dropped) {
                 const float age = (1.f - c.flash) * Game::LOCK_FX_SECONDS;
                 if (age < 1.4f) {
-                    // Squash and stretch: the piece lands, squashes about its base and springs back.
-                    const float amp = c.dropped ? 0.22f : 0.13f;
+                    // Squash and stretch, only after a hard drop: the piece lands, squashes about its base and
+                    // springs back (a piece that rests into place just settles).
+                    const float amp = 0.22f;
                     const float w = std::exp(-6.5f * age) * std::cos(age * 19.f) * amp;
                     float bottom = (float)y;
                     for (auto& gr : groups)
