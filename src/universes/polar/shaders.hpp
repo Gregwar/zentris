@@ -470,10 +470,12 @@ vec3 ice(vec2 w, float d, float s, float up, vec3 pc, float frost) {
     // refraction: thin inner planes catching the light (deep in the ice only)
     float f = texture(uNoise, w * 0.17 + vec2(0.31, 0.07)).g;
     float plane = 1.0 - smoothstep(0.0, 0.025, abs(f - 0.5));
-    col += mix(pc, vec3(1.0), 0.3) * plane * 0.22 * core * (0.6 + 0.6 * m);
+    col += mix(pc, vec3(1.0), 0.3) * plane * 0.32 * core * (0.6 + 0.6 * m);
     // the aurora mirrored in the ice: a broad sheen gliding slowly across, stronger on the upper faces
     float band = 0.5 + 0.5 * sin(w.x * 0.32 + w.y * 0.55 - uTime * 0.35 + n * 2.2);
-    col += uAurLight * (0.25 * pow(band, 5.0) * (0.5 + 0.5 * core) + 0.3 * up) + uMoonLight * up * 0.08;
+    col += uAurLight * (0.5 * pow(band, 6.0) * (0.5 + 0.5 * core) + 0.3 * up) + uMoonLight * up * 0.08;
+    // the light enters from the sky: the body a little clearer near its upper faces, denser toward its base
+    col *= 0.85 + 0.3 * up;
     // a crisp hairline rim, a little brighter along the top, brighter on the beat
     float rim = exp(-d / (1.1 * uPx / s + 0.008));
     col = mix(col, mix(pc, uFrostCol, 0.3 + 0.25 * up) * (1.15 + 0.4 * uBeat), rim * (0.6 + 0.3 * up));
