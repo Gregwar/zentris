@@ -78,8 +78,8 @@ const VariantDef VARIANTS[] = {
     {"BLACK & FLUO PINK", 0xf4f4f1, 0x222222, 0xff48b0, 0x0078bf, false, false},
     {"VIOLET & GREEN", 0xf4f4f1, 0x765ba7, 0x00a95c, 0xff7477, false, false},
     {"BURGUNDY & MINT", 0xf4f4f1, 0x914e72, 0x82d8d5, 0xffb511, false, true},
-    {"YELLOW & PURPLE ON BLACK", 0x121214, 0xffe800, 0x9d7ad2, 0xff48b0, true, true},
-    {"AQUA & ORANGE ON BLACK", 0x121214, 0x5ec8e5, 0xff6c2f, 0xffe800, true, false},
+    {"YELLOW & PURPLE", 0x121214, 0xffe800, 0x9d7ad2, 0xff48b0, true, true},
+    {"AQUA & ORANGE", 0x121214, 0x5ec8e5, 0xff6c2f, 0xffe800, true, false},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 
@@ -102,15 +102,15 @@ const float RECIPE[2][7][4] = {
      {1.f, 0.5f, 2, 0}},    // L: A with B's lines
 };
 
-// Compositions of the world's three shapes (B's big disc, A's screened band, C's shape): side relative to the
-// main side (+1 / -1), distance of the center from the screen's edge, y, size (radius or half extents),
+// Compositions of the world's three shapes (B's big disc, A's screened band, C's shape): side (+1 the right),
+// distance of the center from the screen's edge, y, size (radius or half extents),
 // rotation, type (0 disc, 1 band, 2 half disc). The peak re-prints them from one composition to the next.
 struct CompShape { float s, e, y, sx, sy, rot, type; };
 const CompShape COMPS[4][3] = {
-    {{1, 5.5f, 3.2f, 7.0f, 0, 0, 0}, {-1, 5.2f, -2.0f, 1.3f, 5.4f, 0.f, 1}, {1, 8.6f, -5.2f, 4.4f, 0, 0, 0}},
-    {{1, 6.4f, -2.8f, 7.4f, 0, 0, 0}, {-1, 5.6f, 3.4f, 1.3f, 4.6f, 0.32f, 1}, {-1, 6.8f, -6.4f, 4.6f, 0, 0.f, 2}},
-    {{1, 4.8f, 1.2f, 6.4f, 0, 0, 0}, {-1, 6.0f, -0.4f, 1.1f, 6.4f, -0.18f, 1}, {1, 7.6f, 6.6f, 3.8f, 0, 0, 0}},
-    {{1, 5.8f, 4.4f, 6.6f, 0, 0, 0}, {-1, 4.8f, -3.2f, 1.4f, 4.8f, 0.14f, 1}, {-1, 7.2f, 5.6f, 4.2f, 0, PI, 2}},
+    {{1, 5.5f, 4.0f, 6.6f, 0, 0, 0}, {-1, 5.0f, 1.2f, 1.3f, 4.6f, 0.f, 1}, {1, 6.0f, -4.4f, 4.4f, 0, 0, 0}},
+    {{1, 6.0f, -2.0f, 6.8f, 0, 0, 0}, {-1, 5.6f, 1.6f, 1.3f, 4.2f, 0.32f, 1}, {1, 5.0f, 5.4f, 4.6f, 0, 0.f, 2}},
+    {{1, 5.2f, 2.6f, 6.4f, 0, 0, 0}, {-1, 6.0f, 1.0f, 1.1f, 4.8f, -0.18f, 1}, {-1, 6.4f, 0.4f, 4.0f, 0, 0, 0}},
+    {{1, 5.8f, 4.2f, 6.6f, 0, 0, 0}, {-1, 4.8f, 0.8f, 1.4f, 4.4f, 0.14f, 1}, {1, 7.0f, -4.6f, 4.6f, 0, PI, 2}},
 };
 
 } // namespace
@@ -272,7 +272,6 @@ int RisographUniverse::pickVariant(const SongLook& t) const {
 void RisographUniverse::setSong(const SongLook& look, float seconds) {
     variant_ = look.variant >= 0 ? look.variant % VARIANT_COUNT : pickVariant(look);
     rng_ = Rng(look.seed ^ 0x4150ull);
-    side_ = (look.seed >> 7) & 1 ? 1 : -1;
     // the drums' misregistration: a direction of their own per song, roughly diagonal
     dirB_ = rng_.range(0.35f, 1.05f) + (rng_.chance(0.5f) ? PI : 0.f);
     dirC_ = dirB_ + rng_.range(1.6f, 2.4f);

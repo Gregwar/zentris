@@ -67,7 +67,9 @@ private:
     bool palSet_ = false;
     vec3 paper_{0.9f}, inkA_{0.f}, inkB_{0.f}, inkC_{0.f};
     float dark_ = 0.f;
-    int side_ = 1;           // the side of the main shape
+    // the main shapes print on the right, where the sheet is free (the title, the section and the universe's name
+    // are on the left)
+    int side_ = 1;
     float dirB_ = 0.6f, dirC_ = 2.4f; // the drums' misregistration directions (radians)
 
     // ---- Scene level: continuous 0 calm .. 2 peak.
