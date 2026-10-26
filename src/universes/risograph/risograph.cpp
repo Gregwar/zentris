@@ -18,7 +18,9 @@
 // them. A lock presses a soft blot of the second ink out under the piece; a cleared row is torn off as a strip of
 // paper (ragged edges, its dots shrinking away); a Tetris stamps the third ink in one huge soft disc over the sheet;
 // slow motion is a monotone print (one ink, the drums locked in register); game over runs the drum dry, the stack
-// fading in streaks. A change of universe lifts the ink off the paper, leaving the stack plain.
+// fading in streaks. A change of universe lifts the ink off the paper, leaving the stack plain. A real drop prints
+// the pieces from another pair of drums (the variant's da / db) for its whole length, eased in and out: the pieces
+// get an ink buffer of their own so that the HUD keeps the variant's inks.
 //
 // Rendering: the background goes into its own buffer (continuous densities), the stack, the marks and the HUD into
 // the ink buffer (one channel per drum, screened where drawn); COMPOSITE_FS prints both on the paper, only the
@@ -71,21 +73,25 @@ vec3 hex(unsigned v) { return {((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255
 // not stand out from the paper (yellow on white, purple on black), so the pieces always back it with A.
 // Inks after the riso ink library (blue, fluorescent pink, yellow, teal, bright red, federal blue, sunflower...).
 // D is the peak's hot ink: a fourth drum, fluorescent, that only prints the drop's forms in the background.
+// da, db: the drop's drums. For the whole drop (not a chorus) the pieces print from another ink pair, chosen for
+// the paper and away from the variant's inks and the peak's C and D (which fill the background then); the same
+// recipes, so the seven types keep their patterns: only the inks change.
 struct VariantDef {
     const char* name;
     unsigned paper, a, b, c, d;
     bool dark, weakB;
+    unsigned da, db;
 };
 const VariantDef VARIANTS[] = {
     // papers: neutral stocks, never cream (a cool white, light grey, pale blue, pink and mint, two blacks)
-    {"FLUO PINK & BLUE", 0xeef0f1, 0x0078bf, 0xff48b0, 0xffe800, 0xff7477, false, false},
-    {"TEAL & YELLOW", 0xe9eaeb, 0x00838a, 0xffe800, 0xff48b0, 0xff6c2f, false, true},
-    {"RED & FEDERAL BLUE", 0xe3eaf0, 0x3d5588, 0xf15060, 0xffb511, 0xff48b0, false, false},
-    {"BLACK & FLUO PINK", 0xf3e5ea, 0x222222, 0xff48b0, 0x0078bf, 0xffe800, false, false},
-    {"VIOLET & GREEN", 0xe2eee8, 0x765ba7, 0x00a95c, 0xff7477, 0xff48b0, false, false},
-    {"BURGUNDY & MINT", 0xe6e6e9, 0x914e72, 0x82d8d5, 0xffb511, 0xff48b0, false, true},
-    {"YELLOW & PURPLE", 0x15161c, 0xffe800, 0x9d7ad2, 0xff48b0, 0xff6c2f, true, true},
-    {"AQUA & ORANGE", 0x1a1a1a, 0x5ec8e5, 0xff6c2f, 0xffe800, 0xff48b0, true, false},
+    {"FLUO PINK & BLUE", 0xeef0f1, 0x0078bf, 0xff48b0, 0xffe800, 0xff7477, false, false, 0x00838a, 0xff6c2f},
+    {"TEAL & YELLOW", 0xe9eaeb, 0x00838a, 0xffe800, 0xff48b0, 0xff6c2f, false, true, 0x3255a4, 0xff48b0},
+    {"RED & FEDERAL BLUE", 0xe3eaf0, 0x3d5588, 0xf15060, 0xffb511, 0xff48b0, false, false, 0x914e72, 0xff6c2f},
+    {"BLACK & FLUO PINK", 0xf3e5ea, 0x222222, 0xff48b0, 0x0078bf, 0xffe800, false, false, 0x00a95c, 0xff6c2f},
+    {"VIOLET & GREEN", 0xe2eee8, 0x765ba7, 0x00a95c, 0xff7477, 0xff48b0, false, false, 0x0078bf, 0xf15060},
+    {"BURGUNDY & MINT", 0xe6e6e9, 0x914e72, 0x82d8d5, 0xffb511, 0xff48b0, false, true, 0x3255a4, 0xff7477},
+    {"YELLOW & PURPLE", 0x15161c, 0xffe800, 0x9d7ad2, 0xff48b0, 0xff6c2f, true, true, 0x5ec8e5, 0x44d62c},
+    {"AQUA & ORANGE", 0x1a1a1a, 0x5ec8e5, 0xff6c2f, 0xffe800, 0xff48b0, true, false, 0xff48b0, 0x44d62c},
 };
 
 // The drop's print: a new layer of big flat forms that inks in on the drop (each a beat-ish after the other,
@@ -278,6 +284,7 @@ void RisographUniverse::resize(int width, int height) {
     vp_ = mat4::ortho(viewC_.x - hw, viewC_.x + hw, viewC_.y - hh, viewC_.y + hh, -1.f, 1.f);
     px_ = 2.f * hh / height_;
     inkT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
+    pieceT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
     bgT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
     // the compositions are placed from the screen's edges
     composition(comp_, next_);
@@ -287,6 +294,7 @@ void RisographUniverse::resize(int width, int height) {
 
 RisographUniverse::~RisographUniverse() {
     inkT_.destroy();
+    pieceT_.destroy();
     bgT_.destroy();
     for (GLuint p : {progWorld_, progMark_, progText_, progPanel_, progComp_}) glDeleteProgram(p);
     for (GLuint v : {markVao_, textVao_, panelVao_}) glDeleteVertexArrays(1, &v);
@@ -346,9 +354,11 @@ void RisographUniverse::setSong(const SongLook& look, float seconds) {
 
 void RisographUniverse::setLevel(int level, float, float seconds, float impact) {
     level = std::clamp(level, 0, 2);
+    if (level < 2) inDrop_ = false; // out of the peak: the pieces go back to the variant's inks
     if (!hasLevel_ || seconds < 0.1f) {
         hasLevel_ = true;
         level_ = level;
+        dropWait_ = 0.f;
         lv_ = lvFrom_ = lvTo_ = (float)level;
         lvT_ = 1.f;
         pres_[0] = 1.f;
@@ -362,6 +372,7 @@ void RisographUniverse::setLevel(int level, float, float seconds, float impact) 
         return;
     }
     const bool rising = level > level_;
+    if (rising && level >= 2) dropWait_ = 1.f; // the peak is announced just before its downbeat: wait for drop()
     level_ = level;
     lvFrom_ = lv_;
     lvTo_ = (float)level;
@@ -374,8 +385,11 @@ void RisographUniverse::setLevel(int level, float, float seconds, float impact) 
     }
 }
 
-// The drop: the third ink's gradient blooms in over a third of a second and swells, then settles (nothing moves).
+// The drop: the third ink's gradient blooms in over a third of a second and swells, then settles (nothing moves);
+// on a real drop the pieces change drums (see simulate).
 void RisographUniverse::drop(float strength) {
+    if (level_ >= 2) inDrop_ = true;
+    dropWait_ = 0.f;
     dropT_ = 0.f;
     dropAmp_ = 0.6f + 0.4f * saturate(strength);
     lv_ = std::max(lv_, 1.6f);
@@ -555,6 +569,17 @@ void RisographUniverse::simulate(const Game& game, const MusicState& music, floa
     } else layer_ = approach(layer_, 0.f, 0.7f, dt);
     layerT_ += dt;
 
+    // The pieces' drums: on a real drop (the peak at a drop's pace, not a chorus) the pieces print from the drop's
+    // ink pair, inked in over half a second from the downbeat; back to the variant's pair over a second after it.
+    // A seek straight into a drop (no downbeat seen) goes by the pace alone.
+    {
+        dropWait_ = std::max(0.f, dropWait_ - dt);
+        // (the pace eases toward the drop's ~1.45 from a chorus's ~1.2: on the downbeat it is only on its way up)
+        const bool hot = level_ >= 2 && dropWait_ <= 0.f &&
+                         (music.hasSong ? music.speed > 1.33f || (inDrop_ && music.speed > 1.26f) : inDrop_);
+        dropInk_ = hot ? std::min(1.f, dropInk_ + dt / 0.5f) : std::max(0.f, dropInk_ - dt / 1.0f);
+    }
+
     // The third ink's gradient: in with the peak (a fast but smooth bloom on the drop), out slowly with it.
     {
         const float target = level_ >= 2 ? wp : 0.f;
@@ -643,7 +668,7 @@ void RisographUniverse::cell(vec2 pos, float scale, float rot, int type, int mas
     if (alpha <= 0.003f) return;
     const float* r = RECIPE[VARIANTS[variant_].weakB ? 1 : 0][std::clamp(type, 0, 6)];
     const float h = 0.65f * scale;
-    inst_.push_back({{pos.x, pos.y, h, h}, {rot, 0.f, (float)mask, alpha}, {r[0], r[1], r[2], r[3]},
+    cellInst_.push_back({{pos.x, pos.y, h, h}, {rot, 0.f, (float)mask, alpha}, {r[0], r[1], r[2], r[3]},
                      {tear, starve, ghost ? 1.f : 0.f, seed}, {offA.x, offA.y, offB.x, offB.y}});
 }
 
@@ -863,28 +888,33 @@ void RisographUniverse::drawText(const Font& f, const std::vector<float>& q, con
 // The HUD in RISOGRAPH's typography: Space Mono, like a riso zine's colophon. Everything in the key ink; the
 // section, the notices and the line under a celebration in the second ink; the celebrations' big words printed
 // by both drums, so they show the registration.
-void RisographUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<HudRect>& panels) {
-    if (!panels.empty()) {
-        std::vector<float> v;
-        glUseProgram(progPanel_);
-        set2f(progPanel_, "uRes", (float)width_, (float)height_);
-        glBindVertexArray(panelVao_);
-        glBindBuffer(GL_ARRAY_BUFFER, panelVbo_);
-        for (const HudRect& r : panels) {
-            const float q[12] = {r.x, r.y, r.x + r.w, r.y, r.x + r.w, r.y + r.h, r.x, r.y, r.x + r.w, r.y + r.h, r.x, r.y + r.h};
-            glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STREAM_DRAW);
-            if (r.accent) { // a screened patch of the second ink
-                glBlendEquation(GL_MAX);
-                glUniform4f(ugl::U(progPanel_, "uColor"), 0.f, 0.3f * r.alpha, 0.f, 0.f);
-            } else { // paper: the ink under it lifted
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
-                glUniform4f(ugl::U(progPanel_, "uColor"), 0.f, 0.f, 0.f, std::min(1.f, r.alpha * 1.1f));
-            }
-            glDrawArrays(GL_TRIANGLES, 0, 6);
+// The menus' panels: paper (the ink under it lifted) or a screened patch of the second ink. eraseOnly: only the
+// lifting (the pieces' own buffer).
+void RisographUniverse::drawPanels(const std::vector<HudRect>& panels, bool eraseOnly) {
+    if (panels.empty()) return;
+    glUseProgram(progPanel_);
+    set2f(progPanel_, "uRes", (float)width_, (float)height_);
+    glBindVertexArray(panelVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, panelVbo_);
+    for (const HudRect& r : panels) {
+        if (eraseOnly && r.accent) continue;
+        const float q[12] = {r.x, r.y, r.x + r.w, r.y, r.x + r.w, r.y + r.h, r.x, r.y, r.x + r.w, r.y + r.h, r.x, r.y + r.h};
+        glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STREAM_DRAW);
+        if (r.accent) { // a screened patch of the second ink
+            glBlendEquation(GL_MAX);
+            glUniform4f(ugl::U(progPanel_, "uColor"), 0.f, 0.3f * r.alpha, 0.f, 0.f);
+        } else { // paper: the ink under it lifted
+            glBlendEquation(GL_FUNC_ADD);
+            glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+            glUniform4f(ugl::U(progPanel_, "uColor"), 0.f, 0.f, 0.f, std::min(1.f, r.alpha * 1.1f));
         }
-        glBlendEquation(GL_MAX);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
     }
+    glBlendEquation(GL_MAX);
+}
+
+void RisographUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<HudRect>& panels) {
+    drawPanels(panels, false);
     const float s = height_ / 1080.f;
     const vec4 key(1.f, 0.f, 0.f, 1.f), second(0.f, 1.f, 0.f, 1.f), both(1.f, 1.f, 0.f, 1.f);
     std::vector<float> q;
@@ -987,6 +1017,8 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         inkB_ = lerp(inkB_, ugl::toLinear(hex(d.b)), k);
         inkC_ = lerp(inkC_, ugl::toLinear(hex(d.c)), k);
         inkD_ = lerp(inkD_, ugl::toLinear(hex(d.d)), k);
+        dropA_ = lerp(dropA_, ugl::toLinear(hex(d.da)), k);
+        dropB_ = lerp(dropB_, ugl::toLinear(hex(d.db)), k);
         dark_ = k >= 1.f ? (d.dark ? 1.f : 0.f) : approach(dark_, d.dark ? 1.f : 0.f, 0.8f, dt);
     }
     slow_ = approach(slow_, slowOn_ ? 1.f : 0.f, 1.4f, dt);
@@ -1102,6 +1134,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
 
     // ---- Marks and pieces, the HUD: each drum's coverage, the most ink wins.
     inst_.clear();
+    cellInst_.clear();
     buildBoard(game);
     glEnable(GL_BLEND);
     glBlendEquation(GL_MAX);
@@ -1115,6 +1148,23 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)inst_.size());
     }
     drawHud(f.hud, f.panels);
+
+    // ---- The pieces, in their own buffer (the same drums, printed in the drop's inks while it lasts), the menus'
+    // paper lifting them too.
+    pieceT_.bind();
+    glClearColor(0.f, 0.f, 0.f, 0.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    if (!cellInst_.empty()) {
+        glBlendEquation(GL_MAX);
+        glUseProgram(progMark_);
+        setMat(progMark_, "uVP", vp_);
+        set1f(progMark_, "uPx", px_);
+        glBindVertexArray(markVao_);
+        glBindBuffer(GL_ARRAY_BUFFER, markVbo_);
+        glBufferData(GL_ARRAY_BUFFER, cellInst_.size() * sizeof(Inst), cellInst_.data(), GL_STREAM_DRAW);
+        glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)cellInst_.size());
+    }
+    drawPanels(f.panels, true);
     glBlendEquation(GL_FUNC_ADD);
     glDisable(GL_BLEND);
 
@@ -1128,6 +1178,9 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, bgT_.tex);
     set1i(progComp_, "uBg", 1);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, pieceT_.tex);
+    set1i(progComp_, "uPiece", 2);
     glActiveTexture(GL_TEXTURE0);
     const float ux = 0.5f / viewH_.x, uy = 0.5f / viewH_.y;
     set2f(progComp_, "uOffA", 0.f, 0.f);
@@ -1140,6 +1193,12 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     set3f(progComp_, "uInkB", lerp(inkB_, monoB, slow_));
     set3f(progComp_, "uInkC", lerp(inkC_, monoC, slow_));
     set3f(progComp_, "uInkD", lerp(inkD_, monoB, slow_));
+    // the pieces' drums: the variant's pair, or the drop's (slow motion stays monotone)
+    {
+        const float e = smoothstepf(0.f, 1.f, dropInk_) * (1.f - slow_);
+        set3f(progComp_, "uPieceA", lerp(inkA_, dropA_, e));
+        set3f(progComp_, "uPieceB", lerp(lerp(inkB_, monoB, slow_), dropB_, e));
+    }
     set1f(progComp_, "uDark", dark_);
     set4f(progComp_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
     set1f(progComp_, "uGrain", 1.f);

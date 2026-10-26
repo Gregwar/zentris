@@ -30,12 +30,14 @@ private:
     // One instanced quad (see MARK_FS for the meaning of each field by kind).
     struct Inst { float a0[4], a1[4], a2[4], a3[4], a4[4]; };
     std::vector<Inst> inst_;
+    std::vector<Inst> cellInst_; // the pieces' cells: their own ink buffer (the drop prints them in other inks)
     void rule(vec2 a, vec2 b, float width, const vec4& ink);
     void ring(vec2 c, float r, float width, const vec4& ink, float discR, float discDens, const vec3& discInk);
     void cell(vec2 pos, float scale, float rot, int type, int mask, float alpha, vec2 offA, vec2 offB, float tear = 0.f,
               float starve = 0.f, bool ghost = false, float seed = 0.f);
     void buildBoard(const Game& g);
     void drawHud(const std::vector<HudText>& hud, const std::vector<HudRect>& panels);
+    void drawPanels(const std::vector<HudRect>& panels, bool eraseOnly);
     void simulate(const Game& game, const MusicState& music, float dt, float wdt);
     int pickVariant(const SongLook& look) const;
 
@@ -57,7 +59,7 @@ private:
     // ---- GL.
     GLuint progWorld_ = 0, progMark_ = 0, progText_ = 0, progPanel_ = 0, progComp_ = 0;
     GLuint quadVbo_ = 0, markVao_ = 0, markVbo_ = 0, textVao_ = 0, textVbo_ = 0, panelVao_ = 0, panelVbo_ = 0;
-    ugl::Target inkT_, bgT_;
+    ugl::Target inkT_, bgT_, pieceT_;
     mat4 vp_;
     vec2 viewC_{0, 0.4f}, viewH_{22, 12.4f};
     float px_ = 0.05f;
@@ -67,6 +69,11 @@ private:
     bool palSet_ = false;
     vec3 paper_{0.9f}, inkA_{0.f}, inkB_{0.f}, inkC_{0.f}, inkD_{0.f};
     float dark_ = 0.f;
+    // The drop's inks: for the whole drop (not a chorus), the pieces print from another pair of drums.
+    vec3 dropA_{0.f}, dropB_{0.f};
+    bool inDrop_ = false;
+    float dropInk_ = 0.f; // 0 the variant's pair .. 1 the drop's pair (linear; eased when used)
+    float dropWait_ = 0.f; // a peak announced, its downbeat (drop()) not hit yet
     // the main shapes print on the right, where the sheet is free (the title, the section and the universe's name
     // are on the left)
     int side_ = 1;
