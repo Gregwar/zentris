@@ -9,9 +9,10 @@
 //
 // The song decides how many projectors are on, newest pieces first: calm keeps the falling piece's and one or two
 // more, dim; mid a few; a build switches more on as the pace rises; a peak without a drop (a chorus) most of the stack,
-// each in its piece's color. A drop switches every projector on one after the other in the drop's own color (each
-// laser set has its own), the sources sweeping slowly around their spots for the whole drop, the haze taking the
-// color (one swell on the downbeat, settling over seconds). The light of the room never pulses with the beat.
+// each in its piece's color. A drop turns the display two-color: every piece and its laser takes one of the drop's
+// pair (each laser set has its own; the pieces alternate by id), every projector switches on one after the other,
+// the sources sweep slowly around their spots for the whole drop, the haze takes the pair's mix (one swell on the
+// downbeat, settling over seconds). The light of the room never pulses with the beat.
 //
 // A lock leaves a small point of light where the piece touched down and the falling piece's projector stays with it;
 // a cleared row burns out (gone in under half a second, at the real speed even in slow motion) while the projectors
