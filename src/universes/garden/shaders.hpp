@@ -17,17 +17,54 @@ float vnoise(vec2 p) {
     return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
 }
 vec3 enc(vec3 c) { return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)); }
+float fbm(vec2 p) {
+    float s = 0.0, a = 0.5;
+    for (int i = 0; i < 4; i++) { s += a * vnoise(p); p = p * 2.03 + 17.1; a *= 0.5; }
+    return s;
+}
+// The earth's texture (the clods and the ground line share it; p in board units): lumps lit from the upper left,
+// finer clumps and grains, a few pale pebbles with a little shade under each. tb: how much of it shows.
+vec3 earthTexture(vec3 col, vec3 base, vec2 p, float seed, float px, float tb) {
+    // relief: the lumps of the clod lit from the upper left (normals from the grain's slope)
+    float e = 0.04;
+    float h0 = fbm(p * 2.6 + seed);
+    float hx = fbm((p + vec2(e, 0.0)) * 2.6 + seed), hy = fbm((p + vec2(0.0, e)) * 2.6 + seed);
+    vec3 nrm = normalize(vec3(-(hx - h0) / e * 0.35, -(hy - h0) / e * 0.35, 1.0));
+    float lam = dot(nrm, normalize(vec3(-0.4, 0.7, 0.6)));
+    col *= mix(1.0, 0.72 + 0.42 * lam, tb);
+    // finer clumps and grains
+    col *= mix(1.0, 0.9 + 0.2 * fbm(p * 7.0 + 11.0), tb);
+    vec2 gc = floor(p * 22.0);
+    float h = hash12(gc + seed);
+    vec2 gq = fract(p * 22.0) - 0.5;
+    float dot_ = smoothstep(0.42, 0.18, length(gq));
+    col *= mix(1.0, h > 0.92 ? 1.0 + 0.3 * dot_ : (h < 0.08 ? 1.0 - 0.35 * dot_ : 1.0), tb);
+    // pebbles here and there: small, pale, greyish stones lit from above, a little shade under each
+    for (int k = 0; k < 2; k++) {
+        float sc = k == 0 ? 3.2 : 6.5;
+        vec2 pc = floor(p * sc);
+        if (hash12(pc + 41.3 + float(k) * 17.0) < (k == 0 ? 0.9 : 0.86)) continue;
+        vec2 jit = vec2(hash12(pc + 5.7), hash12(pc + 9.1)) - 0.5;
+        vec2 pq = (fract(p * sc) - 0.5 - jit * 0.45) / sc;
+        float ang = hash12(pc + 2.9) * 6.283;
+        pq = mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * pq;
+        float r = (k == 0 ? 0.075 : 0.045) * (0.7 + 0.6 * hash12(pc + 13.3));
+        float d = length(pq * vec2(1.0, 1.45)) + (vnoise(p * 40.0) - 0.5) * 0.012;
+        float peb = smoothstep(r + px, r - px, d);
+        float shade = smoothstep(r * 1.6, r, length((pq + vec2(0.0, r * 0.35)) * vec2(1.0, 1.45))) * (1.0 - peb);
+        vec3 stone = mix(vec3(dot(base, vec3(0.3, 0.55, 0.15))), base, 0.35) * (1.1 + 0.35 * hash12(pc + 7.7));
+        stone *= 0.75 + 0.45 * smoothstep(-r, r, pq.y + pq.x * 0.4); // lit from the upper left
+        col = mix(col, col * 0.7, shade * 0.6 * tb);
+        col = mix(col, stone, peb * 0.85 * tb);
+    }
+    return col;
+}
 // The earth's color at a height (board units, the well's floor at -10): one gradient for the ground line and the
 // clods, dark deep down, its own soil at the floor, a little lighter and drier as it rises.
 vec3 earthAt(float y, vec3 ground, vec3 deep, vec3 soil) {
     vec3 floorC = mix(ground, soil, 0.2);
     if (y < -10.0) return mix(floorC, deep, smoothstep(0.0, 3.5, -10.0 - y));
     return mix(floorC, soil * 1.12, smoothstep(-10.0, 8.0, y));
-}
-float fbm(vec2 p) {
-    float s = 0.0, a = 0.5;
-    for (int i = 0; i < 4; i++) { s += a * vnoise(p); p = p * 2.03 + 17.1; a *= 0.5; }
-    return s;
 }
 )";
 
@@ -99,9 +136,7 @@ void main() {
     float depth = smoothstep(0.0, 3.2, below);
     // the same gradient as the clods (dark deep down, lighter as the banks rise), the deep earth below the surface
     vec3 soil = mix(earthAt(w.y, uGround, uGroundDeep, uSoil), uGroundDeep, depth * 0.5);
-    soil *= 0.88 + 0.24 * fbm(w * vec2(2.2, 3.4) + uSeed);
-    float sp = hash12(floor(w * 24.0));
-    soil *= sp > 0.94 ? 1.25 : (sp < 0.05 ? 0.7 : 1.0);
+    soil = earthTexture(soil, soil, w, 0.0, uPx, 1.0 - uBridge); // the clods' own texture: one earth
     soil = mix(soil, uLip, exp(-max(below, 0.0) / 0.09) * 0.55 * (1.0 - 0.5 * uDry));
     // dry earth is paler and dustier
     soil = mix(soil, soil * 1.3 + uLip * 0.15, uDry * 0.35);
@@ -207,38 +242,7 @@ void main() {
     vec3 col = base;
     if (!ghost) {
         float tb = 1.0 - uBridge;
-        // relief: the lumps of the clod lit from the upper left (normals from the grain's slope)
-        float e = 0.04;
-        float h0 = fbm(nc * 2.6 + v3.x);
-        float hx = fbm((nc + vec2(e, 0.0)) * 2.6 + v3.x), hy = fbm((nc + vec2(0.0, e)) * 2.6 + v3.x);
-        vec3 nrm = normalize(vec3(-(hx - h0) / e * 0.35, -(hy - h0) / e * 0.35, 1.0));
-        float lam = dot(nrm, normalize(vec3(-0.4, 0.7, 0.6)));
-        col *= mix(1.0, 0.72 + 0.42 * lam, tb);
-        // finer clumps and grains
-        col *= mix(1.0, 0.9 + 0.2 * fbm(nc * 7.0 + 11.0), tb);
-        vec2 gc = floor(nc * 22.0);
-        float h = hash12(gc + v3.x);
-        vec2 gq = fract(nc * 22.0) - 0.5;
-        float dot_ = smoothstep(0.42, 0.18, length(gq));
-        col *= mix(1.0, h > 0.92 ? 1.0 + 0.3 * dot_ : (h < 0.08 ? 1.0 - 0.35 * dot_ : 1.0), tb);
-        // pebbles here and there: small, pale, greyish stones lit from above, a little shade under each
-        for (int k = 0; k < 2; k++) {
-            float sc = k == 0 ? 3.2 : 6.5;
-            vec2 pc = floor(nc * sc);
-            if (hash12(pc + 41.3 + float(k) * 17.0) < (k == 0 ? 0.9 : 0.86)) continue;
-            vec2 jit = vec2(hash12(pc + 5.7), hash12(pc + 9.1)) - 0.5;
-            vec2 pq = (fract(nc * sc) - 0.5 - jit * 0.45) / sc;
-            float ang = hash12(pc + 2.9) * 6.283;
-            pq = mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * pq;
-            float r = (k == 0 ? 0.075 : 0.045) * (0.7 + 0.6 * hash12(pc + 13.3));
-            float d = length(pq * vec2(1.0, 1.45)) + (vnoise(nc * 40.0) - 0.5) * 0.012;
-            float peb = smoothstep(r + px, r - px, d);
-            float shade = smoothstep(r * 1.6, r, length((pq + vec2(0.0, r * 0.35)) * vec2(1.0, 1.45))) * (1.0 - peb);
-            vec3 stone = mix(vec3(dot(base, vec3(0.3, 0.55, 0.15))), base, 0.35) * (1.1 + 0.35 * hash12(pc + 7.7));
-            stone *= 0.75 + 0.45 * smoothstep(-r, r, pq.y + pq.x * 0.4); // lit from the upper left
-            col = mix(col, col * 0.7, shade * 0.6 * tb);
-            col = mix(col, stone, peb * 0.85 * tb);
-        }
+        col = earthTexture(col, base, nc, v3.x, px, tb);
         // light from above: the top of the clod catches it, its underside in shade, a darker crumbly rim
         col *= mix(1.0, 1.0 + 0.14 * exp(-max(dTop - inset, 0.0) / 0.2), tb);
         col *= mix(1.0, 1.0 - 0.28 * exp(-max(dBot - inset, 0.0) / 0.3), tb);

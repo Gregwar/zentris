@@ -105,12 +105,6 @@ const VariantDef VARIANTS[] = {
      {0xc8642a, 0xe6b440, 0x8c6ab4}, {0xd06a2a, 0xe8b23c, 0x9a70c0, 0xf4ead8},
      0x96643c,
      -15.5f, 7.f, 1.4f, 0.f, 0.f, 0.16f},
-    // A night garden: a deep blue sky, the moon, white moonflowers and pale blue; the drop glows violet.
-    {"NIGHT GARDEN", 0x0a1024, 0x26304c, 0xe6ebf4, 0x6a4ab8, 0x15131a, 0x08070b, 0x3a3440, 0x3a5a4a, 0x2e6a52, 0x6a6a64,
-     0x2e4a3a, 0xdde3ee, 0xb8c8ff, 0xf4e0a0, 0x0a0a20,
-     {0xf2f5ff, 0xa4c0ff, 0xcaa8f4}, {0xf2f5ff, 0xa4c0ff, 0xd0a8f8, 0xf8e0a0},
-     0x8e7462,
-     15.5f, 6.f, 1.f, 1.f, 1.f, 0.07f},
     // A misty dawn: lavender grey over a pink horizon, sage grass, white and lilac flowers; the drop glows gold.
     {"MISTY DAWN", 0xb4b6d4, 0xf4d8cc, 0xfff2e6, 0xffc25a, 0x3e3232, 0x1e1818, 0x7a6464, 0x84a07e, 0x5e8c68, 0xbcae9c,
      0x5a7a5e, 0x3a3044, 0xb070c0, 0xf4d070, 0x2a2850,
@@ -119,7 +113,6 @@ const VariantDef VARIANTS[] = {
      -15.f, -3.5f, 1.5f, 0.f, 0.f, 0.16f},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
-constexpr int NIGHT = 3;
 
 using Palette = GardenUniverse::Palette;
 static_assert(sizeof(Palette) % sizeof(float) == 0, "a palette is floats only");
@@ -322,15 +315,14 @@ void GardenUniverse::buildGround() {
 // Song, level
 // =====================================================================================================
 
-// The garden from the song: dark minor songs walk in the night garden; bright major ones in spring or at a summer
-// dusk; other minor songs in autumn or at dawn; the key's hue picks among them.
+// The garden from the song: bright major songs in spring or at a summer dusk; minor songs in autumn or at dawn; the
+// key's hue picks among them.
 int GardenUniverse::pickVariant(const SongLook& t) const {
     float h = std::fmod(t.hue / TAU, 1.f);
     if (h < 0) h += 1.f;
     int v;
-    if (t.hasSong && t.minor && t.brightness < 0.42f) v = NIGHT;
-    else if (t.hasSong && !t.minor && t.brightness > 0.55f) v = h < 0.5f ? 0 : 1;
-    else if (t.hasSong && t.minor) v = h < 0.5f ? 2 : 4;
+    if (t.hasSong && !t.minor && t.brightness > 0.55f) v = h < 0.5f ? 0 : 1;
+    else if (t.hasSong && t.minor) v = h < 0.5f ? 2 : 3;
     else v = (int)(h * VARIANT_COUNT) % VARIANT_COUNT;
     if (v == t.avoidVariant) v = (v + 1 + (int)(t.seed % 3)) % VARIANT_COUNT;
     return v;
@@ -1060,13 +1052,14 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
             if (root) {
                 m |= (1 << 2) | (1 << 4) | (1 << 5); // (the gradient gives it the ground's color)
             }
-            cell(p.x, p.y, 1.f, m, pal_.piece[s.type], 1.f, s.nc, 0.f, false, (float)(s.id % 97), moss, blend,
+            // landed earth is textured in the world's frame, like the ground line: one continuous earth
+            cell(p.x, p.y, 1.f, m, pal_.piece[s.type], 1.f, v2(p.x, p.y), 0.f, false, 0.f, moss, blend,
                  root ? ROOT : 0.f);
         }
     // Cleared earth crumbling (at the real speed, even in slow motion).
     for (const Dying& d : dying_) {
         const float k = smoothstepf(0.f, 0.36f, d.t - d.delay);
-        cell(d.x, d.y - 0.12f * k * k, 1.f, d.mask, pal_.piece[d.type], 1.f, d.nc, std::max(0.001f, k), false, d.seed, 0.f);
+        cell(d.x, d.y - 0.12f * k * k, 1.f, d.mask, pal_.piece[d.type], 1.f, v2(d.x, d.y), std::max(0.001f, k), false, 0.f, 0.f);
     }
 }
 
