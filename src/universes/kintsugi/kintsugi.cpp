@@ -565,8 +565,9 @@ void KintsugiUniverse::growNet(Net& n, int kind, float speed, uint64_t seed) {
         walk(n, r, x, top ? H + 0.5f : -H - 0.5f, a, len, w, t0, speed, 0.f, depth, br, bd, bs);
     };
     if (kind == 0) {
-        // mid: two thin veins creeping into the stone, one on each side
-        for (int sgn = -1; sgn <= 1; sgn += 2) {
+        // mid: four thin veins creeping into the stone, two on each side
+        for (int k = 0; k < 4; k++) {
+            const int sgn = k % 2 == 0 ? -1 : 1;
             if (r.chance(0.5f)) fromEdge((float)sgn, r.range(-H * 0.7f, H * 0.7f), r.range(6.f, 10.f), r.range(0.04f, 0.055f),
                                          r.range(0.f, 3.f), 1, 0.02f, 3.f, speed * 0.8f);
             else fromFoot((float)sgn, r.chance(0.3f), r.range(6.f, 10.f), r.range(0.04f, 0.055f), r.range(0.f, 3.f), 1, 0.02f, 3.f,
@@ -575,19 +576,23 @@ void KintsugiUniverse::growNet(Net& n, int kind, float speed, uint64_t seed) {
         return;
     }
     if (kind == 1) {
-        // the peak: on each side a crack runs in from the edge of the slab and one rises from its foot (or falls from its
-        // top); branches leave them for many seconds after (up to 7 s after the gold passed, crawling at ~1.6 units/s)
+        // the peak: on each side two cracks run in from the edge of the slab (one high, one low), one rises from its
+        // foot and one falls from its top; branches leave them for many seconds after (up to 7 s after the gold passed,
+        // crawling at ~1.6 units/s)
         const float bd = 7.f, bs = 1.6f;
         for (int sgn = -1; sgn <= 1; sgn += 2) {
-            fromEdge((float)sgn, r.range(-H * 0.6f, H * 0.6f), r.range(14.f, 22.f), r.range(0.065f, 0.085f), r.range(0.f, 0.1f), 0,
-                     0.035f, bd, bs);
-            fromFoot((float)sgn, r.chance(0.35f), r.range(12.f, 20.f), r.range(0.055f, 0.075f), r.range(0.1f, 0.3f), 0, 0.035f, bd, bs);
+            fromEdge((float)sgn, r.range(H * 0.05f, H * 0.7f), r.range(14.f, 22.f), r.range(0.065f, 0.085f), r.range(0.f, 0.1f), 0,
+                     0.07f, bd, bs);
+            fromEdge((float)sgn, r.range(-H * 0.7f, -H * 0.05f), r.range(14.f, 22.f), r.range(0.06f, 0.08f), r.range(0.f, 0.15f), 0,
+                     0.07f, bd, bs);
+            fromFoot((float)sgn, false, r.range(12.f, 20.f), r.range(0.055f, 0.075f), r.range(0.1f, 0.3f), 0, 0.07f, bd, bs);
+            fromFoot((float)sgn, true, r.range(10.f, 18.f), r.range(0.05f, 0.07f), r.range(0.15f, 0.35f), 0, 0.07f, bd, bs);
         }
         return;
     }
     if (kind == 2) {
-        // a Tetris: four cracks burst in from the edges of the slab, molten, and cool off
-        for (int i = 0; i < 4; i++) {
+        // a Tetris: eight cracks burst in from the edges of the slab, molten, and cool off
+        for (int i = 0; i < 8; i++) {
             const float sgn = i % 2 == 0 ? -1.f : 1.f;
             fromEdge(sgn, r.range(-H * 0.8f, H * 0.5f), r.range(10.f, 16.f), r.range(0.06f, 0.08f), r.range(0.f, 0.15f), 1, 0.08f,
                      0.6f, 6.f);
