@@ -2,6 +2,8 @@
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 
+#include "headless.hpp"
+
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -99,6 +101,16 @@ private:
 
     Options opt_;
     GLFWwindow* win_ = nullptr;
+    // offline renders: an EGL context on the GPU, no window (win_ stays null)
+    bool headless_ = false;
+    int headW_ = 0, headH_ = 0;
+    void fbSize(int& w, int& h) {
+        if (headless_) { w = headW_; h = headH_; }
+        else glfwGetFramebufferSize(win_, &w, &h);
+    }
+    void swap() {
+        if (!headless_) swap();
+    }
     AudioEngine audio_;
     Library lib_;
     Game game_;
@@ -428,7 +440,7 @@ void App::autoplay(float dt) {
 std::vector<HudText> App::buildHud(float dt) {
     std::vector<HudText> hud;
     int w, h;
-    glfwGetFramebufferSize(win_, &w, &h);
+    fbSize(w, h);
     const float s = std::max(1.f, h / 900.f);
     auto upper = [](std::string x) { for (auto& c : x) c = (char)toupper((unsigned char)c); return x; };
 
@@ -585,6 +597,15 @@ int App::run() {
     FILE* clipPipe = nullptr;
     std::vector<unsigned char> clipPx;
 
+    // Offline renders (clips, shots, reviews) run headless on the GPU when they can (ZEN_HEADLESS=0: a window)
+    const bool wantHeadless = (shotMode || reviewMode || !opt_.transitionShots.empty()) && !opt_.fullscreen &&
+                              !(std::getenv("ZEN_HEADLESS") && std::strcmp(std::getenv("ZEN_HEADLESS"), "0") == 0);
+    if (wantHeadless && headless::init(opt_.width, opt_.height)) {
+        headless_ = true;
+        headW_ = opt_.width; headH_ = opt_.height;
+        if (!gladLoadGL((GLADloadfunc)headless::proc)) { std::fprintf(stderr, "could not load OpenGL functions\n"); return 1; }
+    } else {
+    if (wantHeadless) std::fprintf(stderr, "[gl] no headless GPU context, using a window\n");
     if (!glfwInit()) { std::fprintf(stderr, "glfwInit failed\n"); return 1; }
     Input::loadMappings();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -601,12 +622,13 @@ int App::run() {
     glfwMakeContextCurrent(win_);
     glfwSwapInterval(shotMode || opt_.hidden ? 0 : 1);
     if (!gladLoadGL(glfwGetProcAddress)) { std::fprintf(stderr, "could not load OpenGL functions\n"); return 1; }
+    }
     glGetError();
 
     int fbw, fbh;
-    glfwGetFramebufferSize(win_, &fbw, &fbh);
+    fbSize(fbw, fbh);
     if (!R_.init(fbw, fbh)) std::fprintf(stderr, "[gl] warning: renderer init reported a GL error\n");
-    input_.init(win_);
+    if (win_) input_.init(win_);
 
     if (!audio_.init()) std::fprintf(stderr, "[audio] continuing without sound\n");
     audio_.setMuted(opt_.mute || shotMode);
@@ -628,16 +650,16 @@ int App::run() {
         changeUniverse(songUniverse(&variant), variant, transitions::NEW_SCENE, true);
     }
 
-    double last = glfwGetTime();
+    double last = headless_ ? 0.0 : glfwGetTime();
     float fade = 0.f;
     int shotsTaken = 0;
     float shotSettle = 0;
-    while (!glfwWindowShouldClose(win_) && !quit_) {
-        double now = glfwGetTime();
+    while (!(win_ && glfwWindowShouldClose(win_)) && !quit_) {
+        double now = headless_ ? last + 1.0 / 60.0 : glfwGetTime();
         float dt = shotMode ? 1.f / 60.f : (float)std::min(0.1, now - last);
         last = now;
         runTime_ += dt;
-        glfwPollEvents();
+        if (win_) glfwPollEvents();
         if (!shotMode) input_.update(dt); // offline renders ignore the keyboard and gamepads: they must be reproducible
 
         // ---- Songs.
@@ -917,7 +939,7 @@ int App::run() {
         }
         universeAge_ += dt;
 
-        glfwGetFramebufferSize(win_, &fbw, &fbh);
+        fbSize(fbw, fbh);
         static int lastW = 0, lastH = 0;
         if ((fbw != lastW || fbh != lastH) && fbw > 0 && fbh > 0) {
             R_.resize(fbw, fbh);
@@ -1006,7 +1028,7 @@ int App::run() {
                         if (++tShots >= N || !R_.changing()) break;
                     }
                 }
-                glfwSwapBuffers(win_);
+                swap();
                 continue;
             }
             if (reviewMode && !reviewFilled_ && shotSettle > warmup() - 1.5) {
@@ -1026,7 +1048,7 @@ int App::run() {
                 if (shotsTaken >= opt_.shotCount) break;
                 if (opt_.phaseShots) {
                     if (shotsTaken >= (int)plan_.phases.size()) break;
-                    glfwSwapBuffers(win_);
+                    swap();
                     continue;
                 }
                 newScene(true);
@@ -1034,7 +1056,7 @@ int App::run() {
                 simSongTime_ = 0;
             }
         }
-        glfwSwapBuffers(win_);
+        swap();
         // Debug: ZEN_FPS=1 prints the average frame time every 2 s.
         static const bool showFps = std::getenv("ZEN_FPS") != nullptr;
         if (showFps) {
@@ -1051,8 +1073,11 @@ int App::run() {
         }
     }
     audio_.shutdown();
-    glfwDestroyWindow(win_);
-    glfwTerminate();
+    if (headless_) headless::shutdown();
+    else {
+        glfwDestroyWindow(win_);
+        glfwTerminate();
+    }
     return 0;
 }
 

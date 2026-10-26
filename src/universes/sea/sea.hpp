@@ -72,11 +72,7 @@ private:
     // A breaking cube (game over: the stack breaks row by row).
     struct Dying { float x, y, delay, t, lvl; int type; bool broken; };
     std::vector<Dying> dying_;
-    void breakCell(float x, float y, int type, float power, bool streams);
-
-    // Water pouring off a cleared row on both sides of the well.
-    struct Pour { float y, t, rate; vec3 col; };
-    std::vector<Pour> pours_;
+    void breakCell(float x, float y, int type, float power, float water);
 
     // Particles: shards of glass, droplets, the sea's splashes and spray.
     enum { P_SHARD = 0, P_DROP = 1, P_POUR = 2, P_SPLASH = 3, P_SPRAY = 4 };
@@ -87,6 +83,8 @@ private:
         vec3 col;
         bool real;   // ages at the real speed, even in slow motion
         bool front;  // drawn over the stack
+        float water = 0.f;  // lines of sea it carries (added when it reaches the sea)
+        float y0 = 0.f;     // where it burst from
     };
     std::vector<Particle> parts_;
     void splash(float x, float y, float power, const vec3& col);
