@@ -33,6 +33,7 @@ song, and songs change universe with a transition on the beat.
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/risograph.jpg"><br><b>RISOGRAPH</b>: a two-ink risograph print</td>
 </tr>
 <tr>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/white_room.jpg"><br><b>WHITE ROOM</b>: a seamless white studio, matte blocks and soft shadows</td>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/kintsugi.jpg"><br><b>KINTSUGI</b>: dark polished stone, ceramic mended with gold</td>
 </tr>
 </table>
