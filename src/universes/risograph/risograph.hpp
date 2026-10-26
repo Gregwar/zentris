@@ -95,6 +95,7 @@ private:
     float kickIn_ = 0.f, hitB_ = 0.f, hitC_ = 0.f, prevKick_ = 0.f;
     float slamT_ = 9.f, slamAmp_ = 0.f, slamCT_ = 9.f;
     float pulse_ = 0.f;
+    float flood_ = 0.f, floodT_ = 9.f; // the peak's flood of the third ink, the drop's slam of it
     vec2 offB_{0.f, 0.f}, offC_{0.f, 0.f};
 
     // ---- Board bookkeeping: which lock each cell came from (one piece = one shape) and how hard it landed.

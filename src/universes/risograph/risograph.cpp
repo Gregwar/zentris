@@ -1,11 +1,11 @@
 // RISOGRAPH: a two-ink risograph print.
 //
-// One world: the whole frame is a print of two spot inks on plain paper (a third ink joins at the peaks). Every
+// One world: the whole frame is a print of two spot inks on a paper stock (a third ink joins at the peaks). Every
 // mark is ink laid by one drum: flat shapes, halftone tints (dots at a fixed angle per drum, or a line screen),
 // overprints darkening where two inks cross, a riso grain in the ink. The drums are never quite in register, and
 // that registration is the music's signature: calm is an almost still print, slightly off; mid lets the second
-// drum breathe with the tempo while the screens drift; the peak brings the third ink overprinting a big flat
-// shape, the kicks knock the drums out of register and the shapes are re-printed elsewhere on the beats of a bar.
+// drum breathe with the tempo while the screens drift; the peak floods the sheet with the third ink from the
+// shapes' side (slammed in solid on the drop, settling) and overprints its big flat shape, the kicks knock the drums out of register and the shapes are re-printed elsewhere on the beats of a bar.
 // Lots of paper, little else: the world is one big halftone disc, a screened band and, at the peaks, the third
 // ink's shape; no scenery.
 //
@@ -72,14 +72,15 @@ struct VariantDef {
     bool dark, weakB;
 };
 const VariantDef VARIANTS[] = {
-    {"FLUO PINK & BLUE", 0xf4f4f1, 0x0078bf, 0xff48b0, 0xffe800, false, false},
-    {"TEAL & YELLOW", 0xf4f4f1, 0x00838a, 0xffe800, 0xff48b0, false, true},
-    {"RED & FEDERAL BLUE", 0xf4f4f1, 0x3d5588, 0xf15060, 0xffb511, false, false},
-    {"BLACK & FLUO PINK", 0xf4f4f1, 0x222222, 0xff48b0, 0x0078bf, false, false},
-    {"VIOLET & GREEN", 0xf4f4f1, 0x765ba7, 0x00a95c, 0xff7477, false, false},
-    {"BURGUNDY & MINT", 0xf4f4f1, 0x914e72, 0x82d8d5, 0xffb511, false, true},
-    {"YELLOW & PURPLE", 0x121214, 0xffe800, 0x9d7ad2, 0xff48b0, true, true},
-    {"AQUA & ORANGE", 0x121214, 0x5ec8e5, 0xff6c2f, 0xffe800, true, false},
+    // papers: neutral stocks, never cream (a cool white, light grey, pale blue, pink and mint, two blacks)
+    {"FLUO PINK & BLUE", 0xeef0f1, 0x0078bf, 0xff48b0, 0xffe800, false, false},
+    {"TEAL & YELLOW", 0xe9eaeb, 0x00838a, 0xffe800, 0xff48b0, false, true},
+    {"RED & FEDERAL BLUE", 0xe3eaf0, 0x3d5588, 0xf15060, 0xffb511, false, false},
+    {"BLACK & FLUO PINK", 0xf3e5ea, 0x222222, 0xff48b0, 0x0078bf, false, false},
+    {"VIOLET & GREEN", 0xe2eee8, 0x765ba7, 0x00a95c, 0xff7477, false, false},
+    {"BURGUNDY & MINT", 0xe6e6e9, 0x914e72, 0x82d8d5, 0xffb511, false, true},
+    {"YELLOW & PURPLE", 0x15161c, 0xffe800, 0x9d7ad2, 0xff48b0, true, true},
+    {"AQUA & ORANGE", 0x1a1a1a, 0x5ec8e5, 0xff6c2f, 0xffe800, true, false},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 
@@ -321,6 +322,7 @@ void RisographUniverse::drop(float strength) {
     slamT_ = 0.f;
     slamAmp_ = 0.6f + 0.4f * saturate(strength);
     lv_ = std::max(lv_, 1.6f);
+    floodT_ = 0.f;
 }
 
 void RisographUniverse::refresh(float strength) { hitB_ = std::max(hitB_, 0.5f * strength); }
@@ -480,6 +482,11 @@ void RisographUniverse::simulate(const Game& game, const MusicState& music, floa
     pres_[1] = approach(pres_[1], wm, 0.8f, dt);
     pres_[2] = approach(pres_[2], level_ >= 2 ? wp : 0.f, slamT_ < 0.5f ? 6.f : 1.2f, dt);
 
+    // The peak's flood: in with the peak (at once on the drop), out with it.
+    floodT_ += dt;
+    if (floodT_ < 2.f) flood_ = 1.f;
+    else flood_ = approach(flood_, level_ >= 2 ? wp : 0.f, 0.7f, dt);
+
     // Beats and bars.
     pulse_ = approach(pulse_, 0.f, 4.f, dt);
     if (music.hasSong) {
@@ -537,8 +544,8 @@ void RisographUniverse::simulate(const Game& game, const MusicState& music, floa
     const float slam = slamAmp_ * std::exp(-slamT_ * 4.5f) * std::cos(slamT_ * 15.f);
     const float slamC = std::exp(-slamCT_ * 4.f) * std::cos(slamCT_ * 13.f);
     const float lock = (1.f - slow_) * world;
-    const float mB = (0.028f + breathe + 0.085f * hitB_ + 0.3f * slam) * lock;
-    const float mC = (0.03f - breathe * 0.7f + 0.08f * hitC_ + 0.22f * slam + 0.3f * slamC) * lock;
+    const float mB = (0.028f + breathe + 0.17f * hitB_ + 0.3f * slam) * lock;
+    const float mC = (0.03f - breathe * 0.7f + 0.15f * hitC_ + 0.22f * slam + 0.3f * slamC) * lock;
     offB_ = v2(std::cos(dirB_) * mB, std::sin(dirB_) * mB);
     offC_ = v2(std::cos(dirC_) * mC, std::sin(dirC_) * mC);
 
@@ -939,7 +946,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     glDisable(GL_BLEND);
     {
         float A[16], B[16], C[16];
-        const float beat = 1.f + 0.14f * pulse_ * wp;
+        const float beat = 1.f + 0.22f * pulse_ * wp;
         const float dens[3] = {(0.42f + 0.16f * wm + 0.18f * wp) * pres_[0] * beat, 0.36f * pres_[1],
                                0.88f * pres_[2] * beat};
         const float drum[3] = {1.f, 0.f, 2.f};
@@ -948,7 +955,9 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
             const Shape& s = shape_[i];
             // a slow float of the shapes from mid on
             const float fy = std::sin(worldTime_ * 0.21f + i * 2.1f) * 0.35f * wm;
-            A[i * 4] = s.x; A[i * 4 + 1] = s.y + fy; A[i * 4 + 2] = s.sx; A[i * 4 + 3] = s.type == 1 ? s.sy : s.sx;
+            // the peak's shape beats with the music
+            const float sz = i == 2 ? 1.f + 0.06f * pulse_ * wp : 1.f;
+            A[i * 4] = s.x; A[i * 4 + 1] = s.y + fy; A[i * 4 + 2] = s.sx * sz; A[i * 4 + 3] = (s.type == 1 ? s.sy : s.sx) * sz;
             B[i * 4] = s.rot; B[i * 4 + 1] = s.type; B[i * 4 + 2] = drum[i];
             B[i * 4 + 3] = std::min(1.f, dens[i]) * reprint_[i] * world;
             // full density at the outer side, fading toward the well
@@ -968,6 +977,14 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         glUniform4fv(ugl::U(progWorld_, "uShapeC"), 4, C);
         set2f(progWorld_, "uDrift", drift_.x, drift_.y);
         set1f(progWorld_, "uPx", px_);
+        // the sheet's tints: B's faint wash away from the shapes; the peak's flood of C, slammed in solid on the
+        // drop and settling, its dots swelling on the kicks
+        const float slam = smoothstepf(0.f, 0.05f, floodT_) * std::exp(-floodT_ * 1.1f);
+        const float flood = (0.26f + 0.6f * slam) * (1.f - 0.3f * dark_) * flood_ * world * (1.f - 0.7f * slow_);
+        const float wash = (0.1f + 0.03f * wm) * world;
+        set1f(progWorld_, "uFloodSide", (float)side_);
+        set4f(progWorld_, "uWell", 0.f, 0.f, 5.f, 10.f);
+        set4f(progWorld_, "uFlood", flood, wash, std::atan2(-0.55f, -0.85f * side_), 1.f + 0.55f * hitB_ * wp);
         ugl::drawFullscreen();
     }
 
