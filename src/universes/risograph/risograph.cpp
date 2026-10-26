@@ -3,9 +3,10 @@
 // One world: the whole frame is a print of two spot inks on a paper stock (a third ink joins at the peaks). The
 // pieces are flat ink shapes and screened tints; the background is soft: big flat shapes and broad gradients of
 // ink density on the paper (a riso gradient, a fine grain, no visible screen), kept off the well and the text's
-// side. Calm is a pale gradient disc on the paper; mid deepens it and the second ink's gradient across the sheet;
-// the peak brings the third ink's shape and a broad bloom of it from the shapes' edge, which swells in on the drop
-// (a third of a second in, slow to settle) and breathes with the kicks, by density only. Only the background's
+// side. Calm is a pale gradient disc on the paper; mid deepens it and the second ink's gradient across the sheet,
+// and prints a half sun of the second ink; the peak brings the third ink's shape, a broad bloom of it from the
+// shapes' edge and the drop's print: cut-paper forms in a fourth, hot ink (see DROP_FORMS) that ink in on the drop,
+// stay for the peak and breathe with the kicks, by density only. Only the background's
 // drums are out of register, slightly and slowly: the stack, the pieces and the HUD never move with the music.
 // Lots of paper, little else; no scenery.
 //
@@ -67,22 +68,41 @@ vec3 hex(unsigned v) { return {((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255
 // of the peaks (C), on white paper or, for two, on black paper where the inks lie like light. weakB: B alone does
 // not stand out from the paper (yellow on white, purple on black), so the pieces always back it with A.
 // Inks after the riso ink library (blue, fluorescent pink, yellow, teal, bright red, federal blue, sunflower...).
+// D is the peak's hot ink: a fourth drum, fluorescent, that only prints the drop's forms in the background.
 struct VariantDef {
     const char* name;
-    unsigned paper, a, b, c;
+    unsigned paper, a, b, c, d;
     bool dark, weakB;
 };
 const VariantDef VARIANTS[] = {
     // papers: neutral stocks, never cream (a cool white, light grey, pale blue, pink and mint, two blacks)
-    {"FLUO PINK & BLUE", 0xeef0f1, 0x0078bf, 0xff48b0, 0xffe800, false, false},
-    {"TEAL & YELLOW", 0xe9eaeb, 0x00838a, 0xffe800, 0xff48b0, false, true},
-    {"RED & FEDERAL BLUE", 0xe3eaf0, 0x3d5588, 0xf15060, 0xffb511, false, false},
-    {"BLACK & FLUO PINK", 0xf3e5ea, 0x222222, 0xff48b0, 0x0078bf, false, false},
-    {"VIOLET & GREEN", 0xe2eee8, 0x765ba7, 0x00a95c, 0xff7477, false, false},
-    {"BURGUNDY & MINT", 0xe6e6e9, 0x914e72, 0x82d8d5, 0xffb511, false, true},
-    {"YELLOW & PURPLE", 0x15161c, 0xffe800, 0x9d7ad2, 0xff48b0, true, true},
-    {"AQUA & ORANGE", 0x1a1a1a, 0x5ec8e5, 0xff6c2f, 0xffe800, true, false},
+    {"FLUO PINK & BLUE", 0xeef0f1, 0x0078bf, 0xff48b0, 0xffe800, 0xff7477, false, false},
+    {"TEAL & YELLOW", 0xe9eaeb, 0x00838a, 0xffe800, 0xff48b0, 0xff6c2f, false, true},
+    {"RED & FEDERAL BLUE", 0xe3eaf0, 0x3d5588, 0xf15060, 0xffb511, 0xff48b0, false, false},
+    {"BLACK & FLUO PINK", 0xf3e5ea, 0x222222, 0xff48b0, 0x0078bf, 0xffe800, false, false},
+    {"VIOLET & GREEN", 0xe2eee8, 0x765ba7, 0x00a95c, 0xff7477, 0xff48b0, false, false},
+    {"BURGUNDY & MINT", 0xe6e6e9, 0x914e72, 0x82d8d5, 0xffb511, 0xff48b0, false, true},
+    {"YELLOW & PURPLE", 0x15161c, 0xffe800, 0x9d7ad2, 0xff48b0, 0xff6c2f, true, true},
+    {"AQUA & ORANGE", 0x1a1a1a, 0x5ec8e5, 0xff6c2f, 0xffe800, 0xff48b0, true, false},
 };
+
+// The drop's print: a new layer of big flat forms that inks in on the drop (each a beat-ish after the other,
+// growing a little as it inks, never sliding), stays for the whole peak and breathes with the kicks by density.
+// anchor: +1/-1 x is the distance from the shapes' / the free side's edge of the screen (board units).
+// drum: 0 A, 1 B, 2 C, 3 D (the hot ink); gradient angle and amount as the world's shapes; delay after the drop;
+// from / until: the levels it prints in (1 mid, 2 peak; until 2: lifted when the peak comes, 3: stays).
+struct DropForm { float anchor, x, y, sx, sy, rot, type, drum, dens, gang, gamt, delay; int from, until; };
+// Cut paper: a big circle of the hot ink and a tall block of the third ink on the free side of the sheet (between
+// the title and the bottom lines of text, clear of the score's column), a half
+// sun rising from the bottom edge on the shapes' side, overprinting the world's discs: printed in the second ink
+// from mid on, it turns to the hot ink on the drop.
+const DropForm DROP_FORMS[] = {
+    {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 1, 0.6f, PI * 0.5f, 0.5f, 0.f, 1, 2}, // mid: the half sun in the second ink
+    {-1, 2.5f, 1.f, 6.6f, 0, 0, 0, 3, 0.8f, -0.3f, 0.5f, 0.f, 2, 3},
+    {-1, 8.5f, 0.3f, 2.2f, 6.7f, 0.1f, 1, 2, 0.75f, PI * 0.5f, 0.5f, 0.12f, 2, 3},
+    {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 3, 0.8f, PI * 0.5f, 0.5f, 0.f, 2, 3}, // the peak: the half sun turns hot
+};
+constexpr int DROP_FORM_COUNT = (int)(sizeof(DROP_FORMS) / sizeof(DROP_FORMS[0]));
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 
 // The seven pieces (I O T S Z J L) as ink recipes: density of A, density of B, line screen (0 none, 1 on A, 2 on
@@ -493,6 +513,13 @@ void RisographUniverse::simulate(const Game& game, const MusicState& music, floa
     pres_[0] = approach(pres_[0], 1.f, 1.f, dt);
     pres_[1] = approach(pres_[1], wm, 0.8f, dt);
     pres_[2] = approach(pres_[2], level_ >= 2 ? wp : 0.f, dropT_ < 1.f ? 3.f : 0.8f, dt);
+
+    // The drop's print: inks in when the peak comes (fast on a drop), stays for the whole peak, lifts slowly after.
+    if (level_ >= 2 || dropT_ < 2.f) {
+        if (layer_ <= 0.001f) layerT_ = 0.f;
+        layer_ = approach(layer_, 1.f, 20.f, dt);
+    } else layer_ = approach(layer_, 0.f, 0.7f, dt);
+    layerT_ += dt;
 
     // The third ink's gradient: in with the peak (a fast but smooth bloom on the drop), out slowly with it.
     {
@@ -909,6 +936,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         inkA_ = lerp(inkA_, ugl::toLinear(hex(d.a)), k);
         inkB_ = lerp(inkB_, ugl::toLinear(hex(d.b)), k);
         inkC_ = lerp(inkC_, ugl::toLinear(hex(d.c)), k);
+        inkD_ = lerp(inkD_, ugl::toLinear(hex(d.d)), k);
         dark_ = k >= 1.f ? (d.dark ? 1.f : 0.f) : approach(dark_, d.dark ? 1.f : 0.f, 0.8f, dt);
     }
     slow_ = approach(slow_, slowOn_ ? 1.f : 0.f, 1.4f, dt);
@@ -925,7 +953,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
     {
-        float A[16], B[16], C[16];
+        float A[32] = {}, B[32] = {}, C[32] = {};
         const float breath = kickEnv_; // 0..1, smooth
         const float dropSwell = dropT_ < 9.f ? smoothstepf(0.f, 0.35f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.35f) * 0.45f) * dropAmp_ : 0.f;
         const float tame = 1.f - 0.25f * dark_; // inks laid like light on black paper glow more: keep them lower
@@ -953,11 +981,26 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         A[12] = 0.f; A[13] = 0.6f; A[14] = 12.5f; A[15] = 12.5f;
         B[12] = 0.f; B[13] = 0.f; B[14] = 2.f; B[15] = 0.4f * stamp * world * tame;
         C[12] = -PI * 0.5f; C[13] = 0.8f; C[14] = 0.f; C[15] = 0.f;
+        // the drop's print (slots 4..)
+        for (int i = 0; i < DROP_FORM_COUNT; i++) {
+            const DropForm& d = DROP_FORMS[i];
+            const int k = 4 + i;
+            const float peakIn = smoothstepf(d.delay, d.delay + 0.3f, layerT_) * layer_;
+            const float in = d.from == 1 ? wm * (d.until == 2 ? 1.f - peakIn : 1.f) : peakIn;
+            const float grow = d.from == 1 ? 1.f : 0.9f + 0.1f * smoothstepf(d.delay, d.delay + 0.45f, layerT_);
+            const float x = d.anchor * side_ * (viewH_.x - d.x);
+            A[k * 4] = viewC_.x + x; A[k * 4 + 1] = viewC_.y + d.y;
+            A[k * 4 + 2] = d.sx * (d.type == 1.f ? 1.f : grow);
+            A[k * 4 + 3] = d.type == 1.f ? d.sy * grow : d.sy;
+            B[k * 4] = d.rot * side_; B[k * 4 + 1] = d.type; B[k * 4 + 2] = d.drum;
+            B[k * 4 + 3] = std::min(1.f, d.dens * (0.82f + 0.18f * breath)) * in * world * tame * (1.f - 0.7f * slow_);
+            C[k * 4] = side_ > 0 ? d.gang : PI - d.gang; C[k * 4 + 1] = d.gamt;
+        }
         glUseProgram(progWorld_);
         set4f(progWorld_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
-        glUniform4fv(ugl::U(progWorld_, "uShapeA"), 4, A);
-        glUniform4fv(ugl::U(progWorld_, "uShapeB"), 4, B);
-        glUniform4fv(ugl::U(progWorld_, "uShapeC"), 4, C);
+        glUniform4fv(ugl::U(progWorld_, "uShapeA"), 8, A);
+        glUniform4fv(ugl::U(progWorld_, "uShapeB"), 8, B);
+        glUniform4fv(ugl::U(progWorld_, "uShapeC"), 8, C);
         set1f(progWorld_, "uPx", px_);
         // the sheet: B's faint gradient from the shapes' side (deeper from mid), and the peak's bloom of C, which
         // swells on the drop and breathes with the kicks (density only)
@@ -1014,6 +1057,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     set3f(progComp_, "uInkA", inkA_);
     set3f(progComp_, "uInkB", lerp(inkB_, monoB, slow_));
     set3f(progComp_, "uInkC", lerp(inkC_, monoC, slow_));
+    set3f(progComp_, "uInkD", lerp(inkD_, monoB, slow_));
     set1f(progComp_, "uDark", dark_);
     set4f(progComp_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
     set1f(progComp_, "uGrain", 1.f);

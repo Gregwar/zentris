@@ -65,7 +65,7 @@ private:
     // ---- Song, variant, inks (linear, easing toward the variant's).
     int variant_ = 0;
     bool palSet_ = false;
-    vec3 paper_{0.9f}, inkA_{0.f}, inkB_{0.f}, inkC_{0.f};
+    vec3 paper_{0.9f}, inkA_{0.f}, inkB_{0.f}, inkC_{0.f}, inkD_{0.f};
     float dark_ = 0.f;
     // the main shapes print on the right, where the sheet is free (the title, the section and the universe's name
     // are on the left)
@@ -94,6 +94,7 @@ private:
     int beatCount_ = 0;
     float kickIn_ = 0.f, prevKick_ = 0.f;
     float kickTgt_ = 0.f, kickEnv_ = 0.f; // the kicks, smoothed into a slow breath of ink density
+    float layer_ = 0.f, layerT_ = 9.f; // the drop's print: presence, time since it started inking in
     float bloom_ = 0.f, dropT_ = 9.f, dropAmp_ = 0.f; // the third ink's gradient (the peak), the drop's swell of it
     vec2 offB_{0.f, 0.f}, offC_{0.f, 0.f};       // the background's registration (never the stack's)
     vec2 blotPos_{0.f, 0.f};
