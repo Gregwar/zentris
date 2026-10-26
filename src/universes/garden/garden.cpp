@@ -541,18 +541,18 @@ void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
             d.keptBelow = d.clearedBelow = 0;
             for (int y = c.y + 1; y < Game::H; y++) (cleared[y] ? d.clearedBelow : d.keptBelow)++;
             dying_.push_back(d);
-            // soil bursts out of the crushed row: small sharp crumbs of dirt flung up and out to the sides while it
-            // collapses, harder as the earth above slams down (and the more rows go at once), falling over everything
-            // until they reach the ground or leave the picture
+            // soil spills out of the crushed row: small sharp crumbs of dirt pushed out to the sides while it
+            // collapses (barely up: they fall), harder as the earth above slams down and the more rows go at once,
+            // falling over everything until they reach the ground or leave the picture
             const float power = 1.f + 0.25f * (float)(std::min(ev.count, 4) - 1);
-            const int nSpill = 16 + 4 * std::min(ev.count, 4);
+            const int nSpill = 10 + 3 * std::min(ev.count, 4);
             for (int i = 0; i < nSpill; i++) {
                 Particle q{};
                 const float side = rng_.uniform() < 0.5f ? -1.f : 1.f;
                 const float when = rng_.uniform();   // 0: the start of the collapse, 1: the slam at its end
                 q.p = v2(p.x + rng_.range(-0.45f, 0.45f), p.y + rng_.range(-0.35f, 0.35f));
                 const float kick = (0.85f + 0.5f * when * when) * power;
-                q.v = v2(side * rng_.range(0.8f, 5.5f) * kick + p.x * 0.15f, rng_.range(3.5f, 9.f) * kick);
+                q.v = v2(side * rng_.range(0.6f, 3.2f) * kick + p.x * 0.1f, rng_.range(-0.5f, 2.2f) * kick);
                 q.age = -when * COLLAPSE;
                 q.life = 8.f;
                 const float big = rng_.uniform();
