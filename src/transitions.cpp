@@ -141,8 +141,9 @@ vec3 compose(vec2 px) {
     return front(bridgeMix(a, bb, m), frontAt(T, 0.012) * 0.8);
 }
 )"},
-    // RIPPLE: a refracting ring from the well; an echo ring on each beat.
-    {"RIPPLE", 1.0f, 0.5f, R"(
+    // RIPPLE: a refracting ring from the well; an echo ring on each beat. Never picked (weight 0): a glowing ring
+    // sweeping the screen reads as a shockwave on the drop; still available with --transition ripple.
+    {"RIPPLE", 0.0f, 0.5f, R"(
 vec3 compose(vec2 px) {
     vec2 c = boardCenter();
     vec2 d = (px - c) / uRes.y;
@@ -290,7 +291,7 @@ int pick(const TransitionHints& a, const TransitionHints& b, Reason why, uint64_
     w[LUMA] *= 1.f + 1.5f * gap;
     w[INK] *= 1.f + 1.f * gap;
     w[CURTAIN] *= 1.f - 0.4f * gap;
-    if (why == PHASE_PEAK) { w[RIPPLE] *= 2.5f; w[TILES] *= 1.5f; w[CURTAIN] *= 0.3f; w[LUMA] *= 0.5f; }
+    if (why == PHASE_PEAK) { w[TILES] *= 1.5f; w[CURTAIN] *= 0.3f; w[LUMA] *= 0.5f; }
     if (why == SONG_CHANGE) { w[REBUILD] *= 1.4f; w[CURTAIN] *= 1.3f; }
     if (last >= 0 && last < COUNT) w[last] = 0.f;
     Rng r(seed ^ 0x7A2517105ull);

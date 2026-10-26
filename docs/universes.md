@@ -87,7 +87,7 @@ change. The transitions, universe-agnostic and driven only by data each universe
 
 - **REBUILD**: the stack re-materializes row by row from the bottom under a scan beam, then the world follows,
   outward from the well.
-- **RIPPLE**: a refracting ring leaves the well's outline, with an echo ring a beat behind.
+- **RIPPLE**: a refracting ring leaves the well's outline, with an echo ring a beat behind. Never picked at random (it read as a shockwave on the drop); only with `--transition ripple`.
 - **INK**: an organic dissolve spreading from the well, with fibrous edges (inked toward a light universe,
   glowing toward a dark one).
 - **CURTAIN**: the old universe opens like curtains from the well's axis, gathered in folds at the edges.
