@@ -1425,7 +1425,7 @@ void DioramaUniverse::collect(const Game& g, const MusicState& music, double tim
                 if (gr.flash == c.flash) { gr.bottom = std::max(gr.bottom, (float)y); found = true; }
             if (!found) groups.push_back({c.flash, (float)y});
         }
-    const float breath = 1.f - 0.035f * music.beatPulse * (0.4f + 0.6f * music.energy);
+    const float breath = 1.f; // (the stack never moves with the beat)
     unsigned char occ[22][12] = {};
     for (int y = Game::HIDDEN; y < Game::H; y++)
         for (int x = 0; x < Game::W; x++) {

@@ -64,7 +64,11 @@ noticeable at a glance) matter far more than the slow motion bonus or the game o
 - Drops never move the stack, the pieces, the previews or the HUD (no registration offset, shake or jolt on them),
   and large background motion stays slow (no big shapes jumping, sliding or re-composing on beats): fast moving
   shapes on a drop cause nausea. Show the drop with color, density and slow envelopes instead.
-- Whole-scene pulses (the background brightening, the world surging) stay regular and slow: on the beat grid, never
+- Never pulse the light of the whole scene (its brightness, exposure, sky or water glow, ink density) with the beat or
+  the kicks: it is uncomfortable to watch. The scene glows instead: a steady level per section (brighter at a peak),
+  a single swell on the drop that settles over seconds. Beats and kicks may only move or light small, local things
+  (a creature blinking, a spark, a drop of ink), and the stack never moves with them.
+- Rhythmic motion of the scene (the world surging) stays regular and slow: on the beat grid, never
   on detected onsets (they fire on syncopations and miss beats: irregular pulses are dizzying), and every two beats
   or slower, never on every beat. The host's `kick` and `beatPulse` already follow this (every two beats, their
   strength from the music); a universe keeping its own beat clock pulses at half time (`music.beat / 2`).

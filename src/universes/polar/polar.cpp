@@ -664,20 +664,20 @@ void PolarUniverse::simulate(const Game& game, const MusicState& music, float dt
         ribbon_[k] = approach(ribbon_[k], pres, 1.2f, dt);
     }
 
-    // Kicks: a surge of light runs along a curtain.
+    // Kicks: a soft glow drifts along a curtain (local, fading slowly: never a flash of the sky).
     sinceKick_ += dt;
     const float kick = std::max(music.kick, kickIn_);
     kickIn_ = approach(kickIn_, 0.f, 6.f, dt);
     if (kick > 0.55f && prevKick_ <= 0.55f && sinceKick_ > 0.2f) {
         sinceKick_ = 0.f;
-        const float s = 0.25f * wm + 0.8f * wp;
+        const float s = 0.1f * wm + 0.35f * wp;
         if (s > 0.05f) {
             surge_ = std::max(surge_, s);
             surgeX_ = rng_.range(-70.f, 70.f);
         }
     }
     prevKick_ = kick;
-    surge_ = approach(surge_, 0.f, 2.2f, dt);
+    surge_ = approach(surge_, 0.f, 0.8f, dt);
     surgeX_ += wdt * 25.f * (wind_ > 0.f ? 1.f : -1.f);
 
     // Tetris: the substorm (a fast flare, the curtains dancing), easing over a few seconds.
@@ -1268,7 +1268,8 @@ void PolarUniverse::render(const Frame& f, GLuint fbo) {
             const vec3 c = lerp(cur_.aurA, cur_.aurB, cur_.lightMix);
             l = l + lerp(c, vec3(ugl::luma(c)) * vec3(0.8f, 0.95f, 1.2f), 0.15f) * b;
         }
-        l = l * (cur_.aurora * 0.035f * (1.f + surge_ * 0.4f + storm_ * 2.0f + pulse_ * 0.3f) * world * (1.f - 0.6f * overFade_));
+        // (the aurora's light on the scene never pulses with the beat or the kicks)
+        l = l * (cur_.aurora * 0.035f * (1.f + storm_ * 2.0f) * world * (1.f - 0.6f * overFade_));
         aurLight_ = l;
     }
 
@@ -1299,7 +1300,7 @@ void PolarUniverse::render(const Frame& f, GLuint fbo) {
         set4f(progComp_, "uWell", -WELL_X, -WELL_Y, WELL_X, WELL_Y);
         set4f(progComp_, "uColL", layout::LEFT_COLUMN[0], layout::LEFT_COLUMN[1] - 2.9f, layout::LEFT_COLUMN[2], layout::LEFT_COLUMN[3]);
         set4f(progComp_, "uColR", layout::RIGHT_COLUMN[0], layout::RIGHT_COLUMN[1] - 1.3f, layout::RIGHT_COLUMN[2], layout::RIGHT_COLUMN[3]);
-        set3f(progComp_, "uRim", lerp(cur_.frost, cur_.aurA, 0.35f) * (0.7f + 0.4f * beatGlow_ * wm) + aurLight_ * 2.f);
+        set3f(progComp_, "uRim", lerp(cur_.frost, cur_.aurA, 0.35f) * (0.7f + 0.2f * wm) + aurLight_ * 2.f);
         set3f(progComp_, "uIce", lerp(cur_.zenith, cur_.shade, 0.3f) * 0.45f + vec3(ugl::luma(aurLight_)) * 0.15f);
         set3f(progComp_, "uFrostCol", lerp(cur_.frost, cur_.snow, 0.3f) * 0.8f + aurLight_);
         set3f(progComp_, "uAurLight", aurLight_);

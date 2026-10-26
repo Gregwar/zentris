@@ -633,8 +633,8 @@ void VectorUniverse::buildWorld(const MusicState& music) {
         auto& H = H_;
         auto& IN = IN_;
         auto& ZK = ZK_;
-        // The whole grid throbs in place on the beat (nothing travels across it), gently.
-        const float pulseAmp = wGrid * (0.05f + 0.12f * E) * std::min(1.f, music.beatPulse * 1.5f) + 0.1f * drive_ * punch_;
+        // The grid glows with the section (steady: it never throbs on the beat).
+        const float pulseAmp = wGrid * 0.06f * E + 0.1f * drive_ * punch_;
         float HOT[NR];
         // Peak: the ridges change shape on each bar (a smooth morph from the last bar's range to the new one).
         const float morph = smoothstepf(0.f, 0.7f, barT_);
@@ -1045,13 +1045,10 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     {
         const float E = music.energy;
         drive_ = wPeak0 * (0.6f + 0.4f * E) * (0.8f + 0.2f * tempo);
-        // Beat-locked punch (from the beat grid: reliable), downbeats harder; the onset kick on top of it.
-        const float beatEnv = music.hasSong ? std::exp(-beatT_ * (7.f + 7.f * tempo)) * (downLast_ ? 1.f : 0.7f) : 0.f;
-        const float raw = std::min(1.2f, std::max(beatEnv, 1.3f * music.kick));
-        const float midDrive = 0.3f * wGrid0 * (1.f - wPeak0) * (0.4f + 0.6f * E);
-        const float target = std::max(0.5f * drive_ * raw, midDrive * beatEnv); // the peak: firm, not busy
-        // Smooth both ways: a quick swell, a slower settle (no hard flash on the beat).
-        punch_ = approach(punch_, target, target > punch_ ? 30.f : 6.f, dt);
+        // The glow of the section: steady, brighter at the peak (the light of the whole scene never pulses with the
+        // beat: uncomfortable to watch).
+        const float midDrive = 0.15f * wGrid0 * (1.f - wPeak0) * (0.4f + 0.6f * E);
+        punch_ = approach(punch_, 0.5f * drive_ + midDrive, 1.5f, dt);
     }
 
     sweepT_ += dt;
@@ -1062,7 +1059,7 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     overdrive_ = approach(overdrive_, 0.f, 3.f, dt);
     flashWell_ = approach(flashWell_, 0.f, 4.f, dt);
     kick_ = std::max(approach(kick_, 0.f, 6.f, dt), music.kick);
-    throb_ = approach(throb_, saturate(music.beatPulse), 12.f, dt);
+    throb_ = 0.f; // (no beat throb: see the section's glow)
     dimT_ = approach(dimT_, f.dim || paused ? 1.f : 0.f, 3.f, dt);
     if (overT_ >= 0.f) {
         if (!game.over()) overT_ = -1.f;

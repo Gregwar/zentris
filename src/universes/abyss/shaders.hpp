@@ -48,7 +48,6 @@ uniform float uPlankton;     // plankton clouds (mid, peak)
 uniform float uBloom;        // their flare on a kick
 uniform float uBio;          // peak: the bioluminescence blooms through the water
 uniform float uSurge;        // the drop's first seconds: it blooms brighter still
-uniform float uKick;         // the kick's envelope, at the peak (a brightness pulse)
 uniform float uDrive;        // 0 a chorus' peak .. 1 a drop's: denser, warmer, hit harder by the kicks
 uniform float uBeat;         // creatures' light pulse
 uniform float uFlash;
@@ -107,7 +106,7 @@ void main() {
         float fall = exp(-(top - p.y) * 0.13) * (0.6 + 0.4 * murk);
         col += uSurf * r * fall * uRays * 0.17;
     }
-    // Plankton clouds (mid, peak): faint luminous drifts that flare with the kicks.
+    // Plankton clouds (mid, peak): faint luminous drifts, glowing steadily (never pulsing as a whole).
     if (uPlankton > 0.001) {
         float pn = fbm(p * 0.11 + vec2(-uTime * 0.018, uTime * 0.011) + 13.0);
         float cloud = smoothstep(0.5, 0.82, pn);
@@ -119,12 +118,12 @@ void main() {
         float tw = 0.5 + 0.5 * sin(uTime * (1.0 + 3.0 * hs) + hs * 50.0);
         float spark = exp(-dd * dd / 0.0016) * step(0.6, hs) * tw;
         vec3 pc = mix(uGlow, uGlow2, smoothstep(0.55, 0.8, fbm3(p * 0.05 + 2.0)));
-        col += pc * cloud * uPlankton * (0.012 + 0.16 * uBloom + 0.02 * uBeat);
+        col += pc * cloud * uPlankton * (0.012 + 0.16 * uBloom);
         col += pc * spark * cloud * uPlankton * (0.15 + 1.6 * uBloom);
     }
     // Peak: the bioluminescence blooms. The water itself lights up in its accent color (a milky sea, in slow living
-    // patches, brighter higher up), and a dense field of plankton lights up all through it. The kicks and beats
-    // pulse its brightness, never its motion: everything still drifts as slowly as in the calm.
+    // patches, brighter higher up), and a dense field of plankton lights up all through it. It glows steadily (a
+    // drop glows brighter, swelling in on its first beat): the light of the whole sea never pulses with the beat.
     if (uBio > 0.001) {
         float sea = fbm(p * vec2(0.055, 0.085) + vec2(uTime * 0.011, uTime * 0.005) + 71.0);
         float patchy = smoothstep(0.3, 0.8, sea);
@@ -133,7 +132,7 @@ void main() {
         float lum = max(dot(warm, vec3(0.2126, 0.7152, 0.0722)), 0.05);
         vec3 haze = warm * (0.3 / lum);
         warm *= min(1.0, 0.55 / lum);
-        float pulse = 1.0 + (0.5 + 0.9 * uDrive) * uBloom + 0.45 * uBeat + (0.8 + 1.2 * uDrive) * uKick + 1.2 * uSurge;
+        float pulse = 1.0 + 0.7 * uDrive + 1.2 * uSurge;
         col += haze * uBio * (0.006 + 0.012 * uDrive + (0.05 + 0.03 * uDrive) * patchy * patchy) * pulse * (0.5 + 0.5 * t);
         float dens = (0.1 + 0.16 * uDrive + 0.25 * uSurge) * uBio;
         float sp = 0.0;
@@ -564,7 +563,7 @@ void main() {
         float din = max(-sd, 0.0) / s;
         vec2 q = vLocal / s;
         // the light: slow breathing in slow motion, the beat, the Tetris bloom
-        light *= 1.0 + 0.14 * uBeat + uSlow * 0.4 * sin(uTime * 0.8 + vWorld.y * 0.25 + vWorld.x * 0.1);
+        light *= 1.0 + uSlow * 0.4 * sin(uTime * 0.8 + vWorld.y * 0.25 + vWorld.x * 0.1);
         light += uWave * 0.6;
         float rim = exp(-din / 0.028);
         float rim2 = exp(-pow((din - 0.085) / 0.022, 2.0)) * 0.3;

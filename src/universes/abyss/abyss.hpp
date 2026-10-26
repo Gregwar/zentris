@@ -112,7 +112,7 @@ private:
     float worldTime_ = 0.f, beatGlow_ = 0.f, beatPh_ = 0.f, lastPh_ = 0.f;
     float prevKick_ = 0.f, kickIn_ = 0.f, sinceKick_ = 9.f, bloom_ = 0.f, flash_ = 0.f;
     float life_ = 0.f, peak_ = 0.f, rays_ = 1.f;
-    float surge_ = 0.f, drive_ = 0.f, kickEnv_ = 0.f; // the drop's surge of light (decays over a few seconds)
+    float surge_ = 0.f, drive_ = 0.f; // the drop's surge of light (decays over a few seconds)
 
     // ---- The deep's inhabitants.
     struct Flake { float x, y, z, phase, size; };       // marine snow (z: 0 far .. 1 near)

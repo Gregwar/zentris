@@ -135,7 +135,7 @@ vec3 aurora(vec3 rd, float jitter) {
         }
         acc += col * sum * fade;
     }
-    return acc * uAurGain * (1.0 + uPulse * 0.35 + uStorm * 1.5) * (1.5 / float(N));
+    return acc * uAurGain * (1.0 + uStorm * 1.5) * (1.5 / float(N));
 }
 
 // A ridge line (elevation in radians) from 1D noise along the azimuth.

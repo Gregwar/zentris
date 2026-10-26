@@ -637,8 +637,7 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
         const float side = rng_.chance(0.5f) ? -1.f : 1.f;
         const float cx = rng_.chance(0.3f) ? rng_.range(-3.f, 3.f) : side * rng_.range(9.f, viewH_.x - 2.f);
         const float cy = rng_.range(-6.f, 8.f);
-        bloom_ = std::max(bloom_, 0.45f + 0.35f * kick);
-        // a little cloud of plankton flaring where it hits
+        // a little cloud of plankton flaring in one spot (local: the sea's light as a whole never pulses)
         for (int i = 0; i < 10; i++) {
             Spark s;
             s.x = cx + rng_.range(-1.5f, 1.5f);
@@ -650,8 +649,6 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
         }
     }
     prevKick_ = kick;
-    // the pulse's envelope, from the beat phase itself (the same shape on every beat)
-    kickEnv_ = std::max(music.hasSong ? std::exp(-ph * 4.f) * accent : 0.f, kickIn_);
     bloom_ = approach(bloom_, 0.f, 1.2f, dt);
     surge_ = approach(surge_, 0.f, 0.45f, dt); // a few seconds
     // A drop's peak against a chorus' one (both the top level): the drop's sections drive harder (the song
@@ -1274,7 +1271,6 @@ void AbyssUniverse::drawWorld() {
     set1f(progWorld_, "uBloom", bloom_);
     set1f(progWorld_, "uBio", std::max(peak_ * (0.4f + 0.6f * drive_), 0.9f * surge_) * (1.f - slow_)); // the surge lights it at once
     set1f(progWorld_, "uDrive", drive_);
-    set1f(progWorld_, "uKick", kickEnv_ * peak_);
     set1f(progWorld_, "uSurge", surge_);
     set1f(progWorld_, "uBeat", beatGlow_);
     set1f(progWorld_, "uFlash", flash_);

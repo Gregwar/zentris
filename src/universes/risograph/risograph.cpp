@@ -1006,12 +1006,11 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         constexpr int NS = 16; // WORLD_FS's NSHAPES
         float A[NS * 4] = {}, B[NS * 4] = {}, C[NS * 4] = {};
         const float fl = flow_;
-        const float breath = kickEnv_; // 0..1, smooth
         const float dropSwell = dropT_ < 9.f ? smoothstepf(0.f, 0.35f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.35f) * 0.45f) * dropAmp_ : 0.f;
         const float tame = 1.f - 0.25f * dark_; // inks laid like light on black paper glow more: keep them lower
-        const float dens[3] = {(0.2f + 0.18f * wm + 0.14f * wp + 0.08f * breath + 0.1f * dropSwell) * pres_[0] * tame,
+        const float dens[3] = {(0.2f + 0.18f * wm + 0.14f * wp + 0.1f * dropSwell) * pres_[0] * tame,
                                0.f, // A's band: retired (it read as a grey bar); the key ink stays for the stack and the HUD
-                               (0.55f + 0.12f * breath + 0.15f * dropSwell) * pres_[2] * tame};
+                               (0.55f + 0.15f * dropSwell) * pres_[2] * tame};
         const float drum[3] = {1.f, 0.f, 2.f};
         const float grad[3] = {0.95f, 0.7f, 0.85f};
         for (int i = 0; i < 3; i++) {
@@ -1049,7 +1048,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
             A[k * 4 + 2] = d.sx * (d.type == 1.f ? 1.f + 0.06f * breathS_ * wp : sw);
             A[k * 4 + 3] = d.type == 1.f ? d.sy * sw : d.sy;
             B[k * 4] = (d.rot + d.rsw * std::sin(fl * d.wr + d.ph) + d.rs * fl) * side_; B[k * 4 + 1] = d.type; B[k * 4 + 2] = d.drum;
-            B[k * 4 + 3] = std::min(1.f, d.dens * (0.82f + 0.18f * breath)) * in * world * tame * (1.f - 0.7f * slow_);
+            B[k * 4 + 3] = std::min(1.f, d.dens * (0.82f)) * in * world * tame * (1.f - 0.7f * slow_);
             C[k * 4] = (side_ > 0 ? d.gang : PI - d.gang) + d.gs * fl * side_; C[k * 4 + 1] = d.gamt;
             C[k * 4 + 2] = 0.7f + 0.15f * dark_; // faint where it crosses the play area
         }
@@ -1073,7 +1072,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
             A[k * 4] = viewC_.x + pos.x; A[k * 4 + 1] = viewC_.y + pos.y;
             A[k * 4 + 2] = g.sx * sw; A[k * 4 + 3] = g.sy * (g.type == 1.f ? sw : 1.f);
             B[k * 4] = (g.rot0 + g.spin * fl + 0.25f * std::sin(fl * 0.3f + i)) * side_; B[k * 4 + 1] = g.type; B[k * 4 + 2] = g.drum;
-            B[k * 4 + 3] = std::min(1.f, g.dens * (0.85f + 0.15f * breath)) * glideIn_ * world * tame * (1.f - 0.7f * slow_);
+            B[k * 4 + 3] = std::min(1.f, g.dens * (0.85f)) * glideIn_ * world * tame * (1.f - 0.7f * slow_);
             C[k * 4] = (side_ > 0 ? g.gang : PI - g.gang) + 0.2f * fl; C[k * 4 + 1] = g.gamt;
             C[k * 4 + 2] = 0.9f + 0.06f * dark_; C[k * 4 + 3] = g.prm; // nearly gone behind the play area
         }
@@ -1085,8 +1084,8 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         set1f(progWorld_, "uPx", px_);
         // the sheet: B's faint gradient from the shapes' side (deeper from mid), and the peak's bloom of C, which
         // swells on the drop and breathes with the kicks (density only)
-        const float bloom = (0.20f + 0.10f * breath + 0.22f * dropSwell) * bloom_ * world * (1.f - 0.6f * slow_) * tame;
-        const float wash = (0.03f + 0.1f * wm + 0.03f * breath) * world * tame;
+        const float bloom = (0.20f + 0.22f * dropSwell) * bloom_ * world * (1.f - 0.6f * slow_) * tame;
+        const float wash = (0.03f + 0.1f * wm) * world * tame;
         set1f(progWorld_, "uSide", (float)side_);
         set4f(progWorld_, "uWell", 0.f, 0.f, 5.f, 10.f);
         set4f(progWorld_, "uCols", 0.f, 0.5f * (layout::LEFT_COLUMN[1] + layout::LEFT_COLUMN[3]), layout::RIGHT_COLUMN[2],

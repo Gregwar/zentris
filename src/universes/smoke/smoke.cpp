@@ -603,14 +603,13 @@ void SmokeUniverse::simulate(const Game& game, const MusicState& music, float dt
         flow_.x += (speed + calm) * 0.35f;
         flow_.z += (speed + calm) * 0.25f;
     }
-    // The bass swirls it (mid, peak); the kicks surge it (peak).
+    // The bass swirls it (mid, peak); the kicks stir it (peak: its swirl, never its light).
     {
         float b = music.hasSong ? (music.bandsFast[0] + music.bandsFast[1] + music.bandsFast[2]) / 3.f : 0.f;
         b = std::max(b, music.audio.bass);
         bass_ = approach(bass_, saturate(b) * (0.3f + 0.7f * wm), 3.f, dt);
         swirl_ += wdt * (0.03f + 0.25f * bass_ * (0.4f + 0.6f * wp));
     }
-    beatGlow_ = approach(beatGlow_, music.hasSong ? saturate(music.beatPulse) : 0.f, 10.f, dt);
     sinceKick_ += dt;
     const float kick = std::max(music.kick, kickIn_);
     kickIn_ = approach(kickIn_, 0.f, 6.f, dt);
@@ -994,7 +993,8 @@ void SmokeUniverse::drawSmoke() {
     const float blast = blastT_ < 4.f ? smoothstepf(0.f, 0.25f, blastT_) * (1.f - smoothstepf(1.f, 4.f, blastT_)) : 0.f;
     const vec3 ax = lampAxis();
     const float lightOn = 1.f - over_;
-    const float gain = cur_.gain * (0.95f + 0.15f * wm + 0.5f * wp + 0.6f * swell_ + 0.12f * surge_ + 0.05f * beatGlow_ * wm) *
+    // (the light never pulses with the beat or the kicks: the section and the drop's swell set it)
+    const float gain = cur_.gain * (0.95f + 0.15f * wm + 0.5f * wp + 0.6f * swell_) *
                        lightOn * (1.f - 0.6f * thick);
 
     glBindFramebuffer(GL_FRAMEBUFFER, smokeT_.fbo);
@@ -1011,9 +1011,9 @@ void SmokeUniverse::drawSmoke() {
     set3f(progSmoke_, "uFill", cur_.fill * (0.3f + 1.2f * thick));
     set1f(progSmoke_, "uGain", gain);
     set1f(progSmoke_, "uHaze", 0.009f * cur_.haze * (1.f + 0.2f * wm + 0.4f * wp));
-    set1f(progSmoke_, "uSmoke", 0.06f * cur_.smokeAmt * (1.f + 1.6f * wm + 3.0f * wp + 1.8f * surge_));
+    set1f(progSmoke_, "uSmoke", 0.06f * cur_.smokeAmt * (1.f + 1.6f * wm + 3.0f * wp));
     set1f(progSmoke_, "uWarp", 1.1f + 0.6f * bass_ + 0.4f * surge_);
-    set1f(progSmoke_, "uCov", 0.56f - 0.04f * wm - 0.06f * wp - 0.05f * surge_);
+    set1f(progSmoke_, "uCov", 0.56f - 0.04f * wm - 0.06f * wp);
     set1f(progSmoke_, "uExt", 1.0f);
     set1f(progSmoke_, "uShadowK", 1.6f);
     set3f(progSmoke_, "uFlow", flow_);
