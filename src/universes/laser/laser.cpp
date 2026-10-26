@@ -164,6 +164,7 @@ float bell(float t, float in, float hold, float out) {
 
 bool LaserUniverse::init(int width, int height) {
     progHaze_ = compile(ugl::FULLSCREEN_VS, shaders::HAZE_FS, "laser haze");
+    progCone_ = compile(shaders::CONE_VS, shaders::CONE_FS, "laser cone");
     progComp_ = compile(ugl::FULLSCREEN_VS, shaders::COMPOSITE_FS, "laser composite");
     progBeam_ = compile(shaders::BEAM_VS, shaders::BEAM_FS, "laser beam");
     progWell_ = compile(ugl::FULLSCREEN_VS, shaders::WELL_FS, "laser well");
@@ -194,6 +195,7 @@ bool LaserUniverse::init(int width, int height) {
         }
     };
     instanced(tileVao_, tileVbo_, 4, sizeof(Tile));
+    instanced(coneVao_, coneVbo_, 3, sizeof(ConeGpu));
     instanced(beamVao_, beamVbo_, 3, sizeof(BeamGpu));
     instanced(sparkVao_, sparkVbo_, 3, sizeof(Spark));
 
@@ -220,10 +222,6 @@ bool LaserUniverse::init(int width, int height) {
     buildFont(fontLight_, FONT_LIGHT);
     buildFont(fontMedium_, FONT_MEDIUM);
     pal_ = paletteOf(0);
-    // the projectors: low on each side below the frame, and one hidden behind the well
-    em_[0].origin = v2(-20.5f, -14.5f);
-    em_[1].origin = v2(20.5f, -14.5f);
-    em_[2].origin = v2(0.f, -3.f);
     resize(width, height);
     return glGetError() == GL_NO_ERROR;
 }
@@ -375,10 +373,10 @@ LaserUniverse::~LaserUniverse() {
     hazeT_.destroy();
     sceneT_.destroy();
     for (auto& t : bloomT_) t.destroy();
-    for (GLuint p : {progHaze_, progComp_, progBeam_, progWell_, progShape_, progTile_, progSpark_, progText_, progDown_, progUp_, progPost_})
+    for (GLuint p : {progCone_, progHaze_, progComp_, progBeam_, progWell_, progShape_, progTile_, progSpark_, progText_, progDown_, progUp_, progPost_})
         glDeleteProgram(p);
-    for (GLuint v : {tileVao_, beamVao_, sparkVao_, shapeVao_, textVao_}) glDeleteVertexArrays(1, &v);
-    for (GLuint b : {quadVbo_, tileVbo_, beamVbo_, sparkVbo_, shapeVbo_, textVbo_}) glDeleteBuffers(1, &b);
+    for (GLuint v : {coneVao_, tileVao_, beamVao_, sparkVao_, shapeVao_, textVao_}) glDeleteVertexArrays(1, &v);
+    for (GLuint b : {quadVbo_, coneVbo_, tileVbo_, beamVbo_, sparkVbo_, shapeVbo_, textVbo_}) glDeleteBuffers(1, &b);
     if (volTex_) glDeleteTextures(1, &volTex_);
     if (noiseTex_) glDeleteTextures(1, &noiseTex_);
     for (Font* f : {&fontLight_, &fontMedium_}) {
@@ -411,7 +409,6 @@ void LaserUniverse::setSong(const SongLook& look, float seconds) {
     seed_ = look.seed;
     seedF_ = (float)(look.seed % 1000) * 0.137f;
     rng_ = Rng(look.seed ^ 0x1A5Eull);
-    calmSide_ = (int)((look.seed >> 7) & 1);
     flow_ = vec3(rng_.range(0.f, 1.f), rng_.range(0.f, 1.f), rng_.range(0.f, 1.f));
     if (seconds <= 0.f) palSet_ = false; // snap on the first frame
 }
@@ -452,7 +449,6 @@ void LaserUniverse::drop(float strength) {
         dropT_ = 0.f;
         swell_ = std::max(swell_, 0.8f * s);
     } else {
-        chorusT_ = 0.f;
         swell_ = std::max(swell_, 0.35f * s);
     }
 }
@@ -488,6 +484,13 @@ void LaserUniverse::onEvent(const GameEvent& ev, const Game& game) {
         const int id = pieceCounter_++;
         for (auto& c : ev.cells)
             if (c.y >= 0 && c.y < Game::H && c.x >= 0 && c.x < Game::W) own_[c.y][c.x] = {id, c.type};
+        // the falling piece's projector stays with it in the stack
+        if (hasFall_) {
+            Proj pr = fall_;
+            pr.type = std::clamp(ev.cells[0].type, 0, 6);
+            projs_[id] = pr;
+            hasFall_ = false;
+        }
         // a point of light where it touched down: its resting cells' bottom edge
         auto inPiece = [&](int x, int y) {
             for (auto& o : ev.cells)
@@ -539,6 +542,31 @@ void LaserUniverse::onEvent(const GameEvent& ev, const Game& game) {
             });
             dying_.push_back(d);
         }
+        // the cleared parts' projectors get weak, blink and switch off (a piece cleared whole: its lens too)
+        {
+            std::map<int, std::vector<std::pair<int, int>>> part;
+            for (auto& c : ev.cells)
+                if (c.y >= 0 && c.y < Game::H && own_[c.y][c.x].id >= 0) part[own_[c.y][c.x].id].push_back({c.x, c.y});
+            for (auto& kv : part) {
+                auto it = projs_.find(kv.first);
+                if (it == projs_.end()) continue;
+                bool rest = false;
+                for (int y = 0; y < Game::H && !rest; y++)
+                    for (int x = 0; x < Game::W; x++)
+                        if (own_[y][x].id == kv.first && !inClear(x, y)) { rest = true; break; }
+                DyingCone dc;
+                dc.src = srcPos(it->second);
+                dc.corners = outline(kv.second, nullptr, 0.f, 0.f);
+                dc.type = it->second.type;
+                dc.t = 0.f;
+                dc.delay = 0.f;
+                dc.seed = it->second.seed;
+                dc.power = std::max(it->second.power, 0.45f);
+                dc.lens = !rest;
+                dyingCones_.push_back(dc);
+                if (!rest) projs_.erase(it);
+            }
+        }
         // the owners follow the rows down
         {
             bool cleared[Game::H] = {};
@@ -578,6 +606,28 @@ void LaserUniverse::onEvent(const GameEvent& ev, const Game& game) {
             });
             dying_.push_back(d);
         }
+        // the projectors switch off one after the other, the newest first
+        {
+            std::map<int, std::vector<std::pair<int, int>>> cells;
+            for (int y = 0; y < Game::H; y++)
+                for (int x = 0; x < Game::W; x++)
+                    if (own_[y][x].id >= 0 && game.cell(x, y).type >= 0) cells[own_[y][x].id].push_back({x, y});
+            int rank = 0;
+            for (auto it = projs_.rbegin(); it != projs_.rend(); ++it) {
+                auto c = cells.find(it->first);
+                if (c == cells.end() || it->second.power < 0.02f) continue;
+                DyingCone dc;
+                dc.src = srcPos(it->second);
+                dc.corners = outline(c->second, &game, 0.f, 0.f);
+                dc.type = it->second.type;
+                dc.t = 0.f;
+                dc.delay = 0.1f + 0.14f * rank++;
+                dc.seed = it->second.seed;
+                dc.power = it->second.power;
+                dc.lens = true;
+                dyingCones_.push_back(dc);
+            }
+        }
         overT_ = 0.f;
         break;
     }
@@ -589,10 +639,115 @@ void LaserUniverse::onEvent(const GameEvent& ev, const Game& game) {
 // Simulation
 // =====================================================================================================
 
-// The projectors follow the moment: which beams of each fan are on, how wide the fan is and where it points.
-void LaserUniverse::updateEmitters(const MusicState& music, float dt, float wdt) {
-    const float freeze = 1.f - 0.96f * slow_; // slow motion: the beams stand still
-    // the beat clock (slowed with the slow motion), and a breath every two beats
+// A spot for a projector: somewhere in the dark room, never on the well, the HUD's columns or the corners' text.
+vec2 LaserUniverse::randomSpot() {
+    const float xMax = std::max(8.f, viewH_.x - 1.2f), yMax = viewH_.y - 1.f;
+    vec2 best = v2(-xMax, 0.f);
+    for (int tries = 0; tries < 40; tries++) {
+        const vec2 p = v2(rng_.range(-xMax, xMax), viewC_.y + rng_.range(-yMax, yMax));
+        if (std::fabs(p.x) < WELL_X + 1.4f) continue;
+        if (p.x > layout::LEFT_COLUMN[0] - 0.8f && p.x < layout::LEFT_COLUMN[2] + 0.4f && p.y > layout::LEFT_COLUMN[1] - 0.8f) continue;
+        if (p.x > layout::RIGHT_COLUMN[0] - 0.4f && p.x < layout::RIGHT_COLUMN[2] + 0.8f && p.y > layout::RIGHT_COLUMN[1] - 0.8f) continue;
+        if (p.x < -12.f && (p.y > 8.f || p.y < -7.5f)) continue; // the title, the section and the universe's name
+        best = p;
+        break;
+    }
+    return best;
+}
+
+// Where a projector is this frame: it drifts slowly around its spot (more with the music, a slow sweep in a drop, a
+// small breath every two beats), frozen in slow motion.
+vec2 LaserUniverse::srcPos(const Proj& p) const {
+    const float amp = 0.25f * wCalm_ + 0.5f * wMid_ + 0.9f * wChorus_ + 2.2f * wDrop_;
+    const float bc = beatClock_;
+    const float sx = std::sin(bc * TAU / 32.f + p.seed * 6.28f), sy = std::cos(bc * TAU / 24.f + p.seed * 4.1f);
+    const float breath = 0.18f * stepShown_ * (wMid_ + wChorus_ + wDrop_);
+    return v2(p.home.x + sx * amp + breath * std::cos(p.seed * 9.f), p.home.y + sy * amp * 1.2f + breath * std::sin(p.seed * 9.f));
+}
+
+// A projector's light: the piece's own color, the drop's lasers while it lasts, ice white in slow motion.
+vec3 LaserUniverse::laserColor(int type) const {
+    const int t = std::clamp(type, 0, 6);
+    vec3 c = lerp(pal_.piece[t], pal_.dropLaser[t % 3], dropColor_);
+    c = lerp(c, lin(0xd6e6ff), smoothstepf(0.f, 1.f, slow_) * 0.75f);
+    c = lerp(c, vec3(1.f), bell(saluteT_, 0.3f, 0.5f, 1.2f) * 0.45f);
+    return c;
+}
+
+// The outline's corners of a set of cells: the grid points where the outline turns (one or three of the four cells
+// around it in the set, or two diagonal ones), each placed at its cell's drawn position.
+std::vector<vec2> LaserUniverse::outline(const std::vector<std::pair<int, int>>& cells, const Game* game, float dx, float dy) const {
+    auto in = [&](int x, int y) {
+        for (auto& c : cells)
+            if (c.first == x && c.second == y) return true;
+        return false;
+    };
+    std::vector<vec2> out;
+    std::vector<std::pair<int, int>> seen;
+    for (auto& c : cells) {
+        const float off = game ? game->rowOffset(std::clamp(c.second, 0, Game::H - 1)) : 0.f;
+        const vec3 pc = layout::cellPos(c.first + dx, c.second - off + dy);
+        for (int k = 0; k < 4; k++) {
+            const int sx = (k & 1) ? 1 : 0, sy = (k & 2) ? 1 : 0; // the grid point at the cell's corner (x + sx, y + sy)
+            const int gx = c.first + sx, gy = c.second + sy;
+            bool dup = false;
+            for (auto& q : seen)
+                if (q.first == gx && q.second == gy) dup = true;
+            if (dup) continue;
+            const bool a = in(gx - 1, gy - 1), b = in(gx, gy - 1), cc = in(gx - 1, gy), d = in(gx, gy);
+            const int n = (int)a + (int)b + (int)cc + (int)d;
+            if (n == 2 && !((a && d) || (b && cc))) continue; // a straight edge
+            if (n == 4) continue;
+            seen.push_back({gx, gy});
+            out.push_back(v2(pc.x + (sx ? 0.47f : -0.47f), pc.y + (sy ? -0.47f : 0.47f)));
+        }
+    }
+    return out;
+}
+
+// One projection: a soft cone from the lens to the piece (its two outermost corners as seen from the lens), drawn into
+// the haze at a reduced resolution, thin rays to every corner of the outline at full resolution, and the lens.
+void LaserUniverse::addProjection(vec2 src, const std::vector<vec2>& corners, const vec3& col, float power, float depth, bool lens) {
+    if (power < 0.004f || corners.empty()) return;
+    const float gain = (0.65f * wCalm_ + 0.8f * wMid_ + 1.0f * wChorus_ + 1.3f * wDrop_) * (1.f + 0.5f * swell_) *
+                       (1.f - smoothstepf(0.1f, 0.7f, bridge_.amount)) * (1.f + 0.4f * smoothstepf(0.f, 1.f, slow_));
+    // the cone: between the corners seen furthest apart from the lens
+    float a0 = 1e9f, a1 = -1e9f;
+    vec2 c0 = corners[0], c1 = corners[0];
+    const vec2 mid = [&] {
+        vec2 m = v2(0.f, 0.f);
+        for (auto& c : corners) { m.x += c.x; m.y += c.y; }
+        return v2(m.x / corners.size(), m.y / corners.size());
+    }();
+    const float base = std::atan2(mid.y - src.y, mid.x - src.x);
+    for (auto& c : corners) {
+        float a = std::atan2(c.y - src.y, c.x - src.x) - base;
+        while (a > PI) a -= TAU;
+        while (a < -PI) a += TAU;
+        if (a < a0) { a0 = a; c0 = c; }
+        if (a > a1) { a1 = a; c1 = c; }
+    }
+    const vec3 sheet = col * (0.05f * power * gain);
+    cones_.push_back({{src.x, src.y, c0.x, c0.y}, {c1.x, c1.y, depth, 0.f}, {sheet.x, sheet.y, sheet.z, 0.f}});
+    const vec3 ray = col * (0.5f * power * gain);
+    for (auto& c : corners) {
+        const float dx = c.x - src.x, dy = c.y - src.y, l = std::sqrt(dx * dx + dy * dy);
+        if (l < 0.1f) continue;
+        BeamGpu b;
+        b.a0[0] = src.x; b.a0[1] = src.y; b.a0[2] = dx / l; b.a0[3] = dy / l;
+        b.a1[0] = ray.x; b.a1[1] = ray.y; b.a1[2] = ray.z; b.a1[3] = depth;
+        b.a2[0] = 0.016f; b.a2[1] = l; b.a2[2] = 0.f; b.a2[3] = 0.f;
+        beams_.push_back(b);
+    }
+    if (lens) {
+        const vec3 lc = lerp(col, vec3(1.f), 0.35f) * (1.4f * power * std::min(1.f, gain));
+        lenses_.push_back({{src.x, src.y, 0.32f, 0.5f}, {lc.x, lc.y, lc.z, 1.f}, {1.f, 0.f, 0.f, 0.f}});
+    }
+}
+
+// The projectors follow the moment: how many are on (the newest pieces first), how bright, how far they drift.
+void LaserUniverse::updateProjectors(const Game& game, const MusicState& music, float dt) {
+    const float freeze = 1.f - 0.96f * slow_;
     {
         double d = music.beat - lastBeat_;
         if (lastBeat_ < 0.0 || d < 0.0 || d > 1.0) d = 0.0;
@@ -605,88 +760,32 @@ void LaserUniverse::updateEmitters(const MusicState& music, float dt, float wdt)
         }
         stepShown_ = approach(stepShown_, stepPhase_, 4.f, dt);
     }
-    // the bands: the bass leans the left fan, the highs the right one (slowly)
-    {
-        float lo = 0.f, hi = 0.f;
-        for (int b = 0; b < 4; b++) lo += music.bandsFast[b];
-        for (int b = NUM_BANDS - 6; b < NUM_BANDS; b++) hi += music.bandsFast[b];
-        lo = saturate(std::max(lo / 4.f, music.audio.bass));
-        hi = saturate(hi / 6.f * 1.6f);
-        bass_ = approach(bass_, lo, 0.8f * freeze, dt);
-        high_ = approach(high_, hi, 0.8f * freeze, dt);
+    // the falling piece always has its projector (a new one at each spawn)
+    if (game.hasPiece() && !hasFall_) {
+        fall_.home = randomSpot();
+        fall_.seed = rng_.uniform();
+        fall_.power = 0.f;
+        fall_.type = game.piece().type;
+        hasFall_ = true;
     }
-    const float bc = beatClock_;
-    const float sway8 = std::sin(bc * TAU / 32.f), sway8b = std::sin(bc * TAU / 32.f + 1.9f);
-    const float sway4 = std::sin(bc * TAU / 16.f + 0.7f);
-    const float calmDrift = std::sin(worldTime_ * 0.09f + seedF_);
-
-    // the drop's fans burst open from a bundle (fast, then slower and slower)
-    const float open = 0.08f + 0.92f * (1.f - std::exp(-dropT_ / 0.45f));
-    const float chorusOpen = 0.3f + 0.7f * (1.f - std::exp(-chorusT_ / 0.6f));
-    const float sal = bell(saluteT_, 0.35f, 0.6f, 1.4f);
-    const float salOpen = 1.f - std::exp(-saluteT_ / 0.4f);
-
-    for (int e = 0; e < EMITTERS; e++) {
-        Emitter& E = em_[e];
-        const bool side = e < 2;
-        const float mir = e == 1 ? -1.f : 1.f;
-        float target[SLOTS] = {};
-        float center = 0.f, spread = 0.f;
-        if (side) {
-            // calm: one beam (the other side a faint second one); mid: two a side; chorus: five; drop: all
-            const float lone = e == calmSide_ ? 1.f : 0.45f;
-            for (int i = 0; i < SLOTS; i++) {
-                const int k = e == 1 ? SLOTS - 1 - i : i;
-                float v = 0.f;
-                if (k == 7) v += wCalm_ * lone;
-                if (k == 4 || k == 10) v += wMid_;
-                if (k == 1 || k == 4 || k == 7 || k == 10 || k == 13) v += wChorus_;
-                if (k % 2 == 0) v += wDrop_ * 0.9f;
-                target[i] = std::min(1.f, v);
-            }
-            const float bandLean = (e == 0 ? bass_ : high_) - 0.35f;
-            const float cCalm = (15.f + 5.f * calmDrift * mir) * DEG;
-            const float cMid = (16.f + 4.f * sway8 + 12.f * bandLean) * DEG;
-            const float cChorus = (22.f + 9.f * (e == 0 ? sway8 : sway8b) + 8.f * bandLean) * DEG;
-            const float cDrop = (7.f + 7.f * (e == 0 ? sway8 : sway8b)) * DEG;
-            center = wCalm_ * cCalm + wMid_ * cMid + wChorus_ * cChorus + wDrop_ * cDrop;
-            const float sMid = (30.f + 2.f * stepShown_) * DEG;
-            const float sChorus = (58.f + 4.f * stepShown_) * DEG * chorusOpen;
-            const float sDrop = (56.f + 3.f * stepShown_ + 4.f * sway4) * DEG * open;
-            spread = wMid_ * sMid + wChorus_ * sChorus + wDrop_ * sDrop;
-            // a build gathers the beams toward one point above the well
-            if (tension_ > 0.001f) {
-                const float conv = std::atan2(std::fabs(E.origin.x), 11.5f - E.origin.y);
-                center = lerpf(center, conv, tension_ * 0.85f);
-                spread = lerpf(spread, 5.f * DEG, tension_ * 0.8f);
-            }
-            // a Tetris: every projector salutes with a full fan
-            if (sal > 0.001f) {
-                for (int i = 0; i < SLOTS; i++) target[i] = std::max(target[i], sal);
-                center = lerpf(center, (24.f + 30.f * (salOpen - 0.5f)) * DEG, sal);
-                spread = lerpf(spread, 100.f * DEG * salOpen, sal);
-            }
-        } else {
-            // the projector behind the well: only in a drop (and a salute), a fan rising out of the well
-            for (int i = 0; i < SLOTS; i++) target[i] = (i % 4 == 1 || i == 7) ? wDrop_ * 0.85f : 0.f;
-            center = 8.f * DEG * sway4 * wDrop_;
-            spread = (70.f + 4.f * stepShown_) * DEG * open * wDrop_;
-            if (sal > 0.001f) {
-                for (int i = 0; i < SLOTS; i++) target[i] = std::max(target[i], (i % 2 == 1) ? sal : 0.f);
-                center = lerpf(center, (40.f * (salOpen - 0.5f)) * DEG, sal);
-                spread = lerpf(spread, 110.f * DEG * salOpen, sal);
-            }
-        }
-        // the beams fade in and out over a second or so (a drop's open in a beat)
-        for (int i = 0; i < SLOTS; i++) {
-            const float rate = target[i] > E.vis[i] ? (dropT_ < 0.6f || saluteT_ < 0.5f ? 9.f : 1.6f) : 0.9f;
-            E.vis[i] = approach(E.vis[i], target[i], rate, dt);
-        }
-        // the fan's shape: eased (except the burst of a drop, which the weights carry)
-        const float k = 1.f - std::exp(-dt * 3.f * freeze);
-        E.center += (center - E.center) * k;
-        E.spread += (spread - E.spread) * (dropT_ < 1.5f || saluteT_ < 1.f ? 1.f - std::exp(-dt * 14.f * freeze) : k);
-        (void)wdt;
+    if (hasFall_) {
+        if (game.hasPiece()) fall_.type = game.piece().type;
+        fall_.power = approach(fall_.power, game.hasPiece() && !game.over() ? 1.f : 0.f, 6.f, dt);
+    }
+    // the stack's: the newest on, the older dimmer, the oldest off (how many: the moment's)
+    const float sal = bell(saluteT_, 0.3f, 0.5f, 1.2f);
+    const float cap = 1.f * wCalm_ + 4.f * wMid_ + 8.f * wChorus_ + 16.f * wDrop_ + 3.f * tension_ + 20.f * sal;
+    int rank = 0;
+    for (auto it = projs_.rbegin(); it != projs_.rend(); ++it, ++rank) {
+        Proj& p = it->second;
+        const float r = (float)rank;
+        float target = (1.f - smoothstepf(cap - 0.5f, cap + 0.5f, r)) * (0.3f + 0.7f * std::exp(-r / (0.5f + 0.5f * cap)));
+        if (wCalm_ > 0.5f) target *= 0.6f;
+        // a drop switches them on one after the other, quickly
+        if (dropT_ < 3.f && inDrop_ && dropT_ < r * 0.07f) target = std::min(target, p.power);
+        target = std::max(target, sal);
+        const float rate = target > p.power ? (dropT_ < 2.f ? 7.f : 1.5f) : 0.8f;
+        p.power = approach(p.power, target, rate, dt);
     }
 }
 
@@ -704,10 +803,9 @@ void LaserUniverse::simulate(const Game& game, const MusicState& music, float dt
             swell_ = std::max(swell_, 0.6f);
         } else if (inDrop_ && sig_ < 1.24f && dropT_ > 4.f) {
             inDrop_ = false; // the drop gave way to a chorus inside the same peak
-            chorusT_ = 0.f;
         }
     }
-    // the moment's shape: weights eased (rising quickly, falling slowly)
+    // the moment: weights eased (rising quickly, falling slowly)
     {
         const bool waiting = dropWait_ >= 0.f;
         const float tCalm = level_ == 0 ? 1.f : 0.f;
@@ -720,18 +818,17 @@ void LaserUniverse::simulate(const Game& game, const MusicState& music, float dt
         ease(wChorus_, tChorus, 2.0f, 0.7f);
         ease(wDrop_, tDrop, dropT_ < 1.f ? 7.f : 1.5f, 0.5f);
         dropColor_ = approach(dropColor_, tDrop, tDrop > dropColor_ ? 6.f : 0.6f, dt);
-        // a build: the pace rising toward the peak gathers the beams
+        // a build: more projectors switch on as the pace rises toward the peak
         const float tens = level_ == 1 ? smoothstepf(1.0f, 1.42f, music.speed) : 0.f;
         tension_ = approach(tension_, tens, tens > tension_ ? 0.8f : 3.f, dt);
     }
     dropT_ += dt;
-    chorusT_ += dt;
     saluteT_ += dt;
     swell_ = approach(swell_, 0.f, 0.45f, dt);
     flow_.x += wdt * 0.0035f;
     flow_.y += wdt * 0.0022f;
     flow_.z += wdt * 0.004f;
-    updateEmitters(music, dt, wdt);
+    updateProjectors(game, music, dt);
 
     // effects at the real speed (a line clear must not linger in slow motion)
     for (auto& s : sparkFx_) s.t += dt;
@@ -739,47 +836,73 @@ void LaserUniverse::simulate(const Game& game, const MusicState& music, float dt
     for (auto& d : dying_) d.t += dt;
     dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + (d.over ? 9.f : 0.45f); }),
                  dying_.end());
+    for (auto& d : dyingCones_) d.t += dt;
+    dyingCones_.erase(std::remove_if(dyingCones_.begin(), dyingCones_.end(),
+                                     [](const DyingCone& d) { return d.t > d.delay + 0.75f; }),
+                      dyingCones_.end());
     gaugeShown_ = approach(gaugeShown_, game.bonusGauge(), 3.f, dt);
 }
 
-// The beams of this frame, from the projectors' fans.
-void LaserUniverse::buildBeams() {
+// This frame's projections: every piece's projector, the falling piece's, and the dying ones.
+void LaserUniverse::buildProjection(const Game& g) {
     beams_.clear();
-    const float cold = smoothstepf(0.f, 1.f, slow_);
-    const float sal = bell(saluteT_, 0.35f, 0.6f, 1.4f);
-    const float off = 1.f - smoothstepf(0.1f, 0.7f, bridge_.amount);
-    // the beams' strength by moment (many beams in a drop: each a little less)
-    const float gain = (wCalm_ * 0.7f + wMid_ * 0.9f + wChorus_ * 1.0f + wDrop_ * 0.8f + 0.0001f) /
-                       (wCalm_ + wMid_ + wChorus_ + wDrop_ + 0.0001f);
-    const vec3 ice = lin(0xd6e6ff);
-    for (int e = 0; e < EMITTERS; e++) {
-        const Emitter& E = em_[e];
-        const float mir = e == 1 ? -1.f : 1.f;
-        for (int i = 0; i < SLOTS; i++) {
-            float v = E.vis[i];
-            if (v < 0.004f) continue;
-            // game over: the lasers switch off one by one
-            if (overT_ >= 0.f) {
-                const float at = 0.3f + 2.4f * std::fmod((float)(i * 7 + e * 5) * 0.618f, 1.f);
-                v *= 1.f - smoothstepf(at, at + 0.2f, overT_);
-                if (v < 0.004f) continue;
-            }
-            const float u = (float)i / (SLOTS - 1) - 0.5f;
-            const float a = E.center + E.spread * u;
-            const vec2 d = v2(std::sin(a) * mir, std::cos(a));
-            const int ci = (i + e) % 3;
-            vec3 c = lerp(pal_.laser[ci], pal_.dropLaser[ci], dropColor_);
-            c = lerp(c, vec3(1.f), sal * 0.4f);
-            c = lerp(c, ice * 0.8f, cold * 0.75f);
-            const float I = 1.5f * gain * v * off * (1.f + 0.35f * cold);
-            const float depth = std::fmod(i * 0.137f + e * 0.311f + 0.05f, 1.f);
-            const float width = 0.02f * (1.f + 0.6f * cold);
-            BeamGpu b;
-            b.a0[0] = E.origin.x; b.a0[1] = E.origin.y; b.a0[2] = d.x; b.a0[3] = d.y;
-            b.a1[0] = c.x * I; b.a1[1] = c.y * I; b.a1[2] = c.z * I; b.a1[3] = depth;
-            b.a2[0] = width; b.a2[1] = 90.f; b.a2[2] = 0.f; b.a2[3] = 0.f;
-            if ((int)beams_.size() < MAX_BEAMS) beams_.push_back(b);
+    cones_.clear();
+    lenses_.clear();
+    // the stack's pieces, from the owners (cells whose piece is unknown are grouped in buildBoard first)
+    std::map<int, std::vector<std::pair<int, int>>> cells;
+    for (int y = Game::HIDDEN; y < Game::H; y++)
+        for (int x = 0; x < Game::W; x++) {
+            const int t = g.cell(x, y).type;
+            if (t >= 0 && own_[y][x].type == t && own_[y][x].id >= 0) cells[own_[y][x].id].push_back({x, y});
         }
+    // projectors whose piece is gone switch off (a cleared piece's went out with its blink)
+    for (auto it = projs_.begin(); it != projs_.end();) {
+        if (cells.find(it->first) == cells.end()) it = projs_.erase(it);
+        else ++it;
+    }
+    // pieces without a projector (an inherited stack): one each, already on
+    for (auto& kv : cells)
+        if (projs_.find(kv.first) == projs_.end()) {
+            Proj p;
+            p.home = randomSpot();
+            p.seed = rng_.uniform();
+            p.power = 0.f;
+            p.type = g.cell(kv.second[0].first, kv.second[0].second).type;
+            projs_[kv.first] = p;
+        }
+    const float overK = overT_ >= 0.f ? 1.f : 0.f;
+    int i = 0;
+    for (auto& kv : projs_) {
+        const Proj& p = kv.second;
+        float power = p.power;
+        if (overK > 0.f) power = 0.f; // game over: the dying cones switch them off one by one
+        addProjection(srcPos(p), outline(cells[kv.first], &g, 0.f, 0.f), laserColor(p.type), power,
+                      std::fmod(p.seed * 7.3f + 0.1f, 1.f), true);
+        i++;
+    }
+    // the falling piece's, following it
+    if (hasFall_ && g.hasPiece()) {
+        const Piece& pc = g.piece();
+        int c4[4][2];
+        g.pieceCells(pc, c4);
+        std::vector<std::pair<int, int>> cs;
+        for (auto& c : c4)
+            if (c[1] >= Game::HIDDEN - 1) cs.push_back({c[0], c[1]});
+        const float dx = g.pieceVisualX() - pc.x, dy = g.pieceVisualY() - pc.y;
+        addProjection(srcPos(fall_), outline(cs, nullptr, dx, dy), laserColor(pc.type), fall_.power * 1.1f,
+                      std::fmod(fall_.seed * 7.3f + 0.1f, 1.f), true);
+    }
+    // the cleared parts: weak, blinking, off
+    for (const DyingCone& d : dyingCones_) {
+        const float t = d.t - d.delay;
+        float k = 1.f;
+        if (t >= 0.f) {
+            const float weak = 1.f - smoothstepf(0.f, 0.6f, t);
+            const float h = std::fmod(std::sin((std::floor(t * 13.f) + d.seed * 37.f) * 12.9898f) * 43758.5453f, 1.f);
+            const float blink = std::fabs(h) > 0.4f ? 1.f : 0.12f;
+            k = weak * lerpf(1.f, blink, smoothstepf(0.04f, 0.12f, t)) * 0.75f;
+        }
+        addProjection(d.src, d.corners, laserColor(d.type), d.power * k, std::fmod(d.seed * 3.1f, 1.f), d.lens);
     }
 }
 
@@ -1147,20 +1270,6 @@ void LaserUniverse::setHazeUniforms(GLuint prog) {
     glActiveTexture(GL_TEXTURE0);
 }
 
-void LaserUniverse::setBeamUniforms(GLuint prog) {
-    float a[MAX_BEAMS * 4], b[MAX_BEAMS * 4];
-    const int n = (int)beams_.size();
-    for (int i = 0; i < n; i++) {
-        std::memcpy(&a[i * 4], beams_[i].a0, sizeof(float) * 4);
-        std::memcpy(&b[i * 4], beams_[i].a1, sizeof(float) * 4);
-    }
-    glUniform1i(ugl::U(prog, "uNB"), n);
-    if (n > 0) {
-        glUniform4fv(ugl::U(prog, "uBA"), n, a);
-        glUniform4fv(ugl::U(prog, "uBB"), n, b);
-    }
-}
-
 void LaserUniverse::render(const Frame& f, GLuint fbo) {
     const Game& game = f.game;
     const MusicState& music = f.music;
@@ -1181,7 +1290,9 @@ void LaserUniverse::render(const Frame& f, GLuint fbo) {
     if (!f.paused) simulate(game, music, dt, wdt);
     const float world = 1.f - saturate(bridge_.amount);
     buildMasks(f.hud);
-    buildBeams();
+    tiles_.clear();
+    buildBoard(game); // (groups an inherited stack into pieces before the projectors look at it)
+    buildProjection(game);
 
     // ---- The haze (reduced resolution).
     {
@@ -1190,7 +1301,7 @@ void LaserUniverse::render(const Frame& f, GLuint fbo) {
         glDisable(GL_BLEND);
         glUseProgram(progHaze_);
         setHazeUniforms(progHaze_);
-        setBeamUniforms(progHaze_);
+        glUniform1i(ugl::U(progHaze_, "uNB"), 0);
         set4f(progHaze_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
         set1f(progHaze_, "uGlowW", 0.03f * (1.f + 2.5f * cold));
         set1f(progHaze_, "uHaloW", 1.6f + 1.5f * cold);
@@ -1204,6 +1315,20 @@ void LaserUniverse::render(const Frame& f, GLuint fbo) {
         set1f(progHaze_, "uAmbient", amb);
         set1f(progHaze_, "uThick", cold);
         ugl::drawFullscreen();
+        // the projectors' cones, in the haze
+        if (!cones_.empty()) {
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_ONE, GL_ONE);
+            glUseProgram(progCone_);
+            setHazeUniforms(progCone_);
+            setMat(progCone_, "uVP", vp_);
+            set2f(progCone_, "uWellH", WELL_X, WELL_Y);
+            glBindVertexArray(coneVao_);
+            glBindBuffer(GL_ARRAY_BUFFER, coneVbo_);
+            glBufferData(GL_ARRAY_BUFFER, cones_.size() * sizeof(ConeGpu), cones_.data(), GL_STREAM_DRAW);
+            glDrawArraysInstanced(GL_TRIANGLES, 0, 3, (GLsizei)cones_.size());
+            glDisable(GL_BLEND);
+        }
     }
 
     // ---- The room at full resolution.
@@ -1232,7 +1357,23 @@ void LaserUniverse::render(const Frame& f, GLuint fbo) {
         glActiveTexture(GL_TEXTURE0);
     }
     glEnable(GL_BLEND);
-    // the beams' cores
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    // the well: black glass in front of the beams, its rim catching them
+    {
+        glUseProgram(progWell_);
+        glUniform1i(ugl::U(progWell_, "uNB"), 0);
+        set4f(progWell_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
+        set1f(progWell_, "uPx", px_);
+        set4f(progWell_, "uWell", -WELL_X, -WELL_Y, WELL_X, WELL_Y);
+        set3f(progWell_, "uGlass", pal_.haze * 0.25f + vec3(0.004f, 0.004f, 0.005f));
+        set3f(progWell_, "uRim", lerp(pal_.rim, pal_.dropLaser[0], dropColor_ * 0.6f));
+        set1f(progWell_, "uGlassAlpha", lerpf(0.975f, 0.0f, saturate(bridge_.amount)));
+        set1f(progWell_, "uRimBase", 0.10f * (1.f - over_ * 0.7f));
+        set1f(progWell_, "uBridge", saturate(bridge_.amount));
+        ugl::drawFullscreen();
+    }
+
+    // the rays, over the glass (fainter on it), under the blocks; the lenses
     if (!beams_.empty()) {
         glBlendFunc(GL_ONE, GL_ONE);
         glUseProgram(progBeam_);
@@ -1246,25 +1387,19 @@ void LaserUniverse::render(const Frame& f, GLuint fbo) {
         glBufferData(GL_ARRAY_BUFFER, beams_.size() * sizeof(BeamGpu), beams_.data(), GL_STREAM_DRAW);
         glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)beams_.size());
     }
-    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-    // the well: black glass in front of the beams, its rim catching them
-    {
-        glUseProgram(progWell_);
-        setBeamUniforms(progWell_);
-        set4f(progWell_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
-        set1f(progWell_, "uPx", px_);
-        set4f(progWell_, "uWell", -WELL_X, -WELL_Y, WELL_X, WELL_Y);
-        set3f(progWell_, "uGlass", pal_.haze * 0.25f + vec3(0.004f, 0.004f, 0.005f));
-        set3f(progWell_, "uRim", lerp(pal_.rim, pal_.dropLaser[0], dropColor_ * 0.6f));
-        set1f(progWell_, "uGlassAlpha", lerpf(0.975f, 0.0f, saturate(bridge_.amount)));
-        set1f(progWell_, "uRimBase", 0.10f * (1.f - over_ * 0.7f));
-        set1f(progWell_, "uBridge", saturate(bridge_.amount));
-        ugl::drawFullscreen();
+    if (!lenses_.empty()) {
+        glBlendFunc(GL_ONE, GL_ONE);
+        glUseProgram(progSpark_);
+        setMat(progSpark_, "uVP", vp_);
+        set1f(progSpark_, "uBridge", saturate(bridge_.amount));
+        glBindVertexArray(sparkVao_);
+        glBindBuffer(GL_ARRAY_BUFFER, sparkVbo_);
+        glBufferData(GL_ARRAY_BUFFER, lenses_.size() * sizeof(Spark), lenses_.data(), GL_STREAM_DRAW);
+        glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)lenses_.size());
     }
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
     // ---- The stack, the pieces, the previews, the gauge.
-    tiles_.clear();
-    buildBoard(game);
     if (!tiles_.empty()) {
         glUseProgram(progTile_);
         glActiveTexture(GL_TEXTURE0);

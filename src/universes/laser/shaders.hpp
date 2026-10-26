@@ -118,6 +118,47 @@ void main() {
 }
 )";
 
+// ---------------------------------------------------------------- a projector's cone (reduced resolution, additive)
+
+// One instance per projection: a sheet of light from the lens to the piece, between the two outermost corners of its
+// outline. a0: lens xy, first corner xy; a1: second corner xy, depth in the haze; a2: color (intensity in it).
+inline const char* CONE_VS = R"(#version 330 core
+layout(location = 1) in vec4 a0;
+layout(location = 2) in vec4 a1;
+layout(location = 3) in vec4 a2;
+uniform mat4 uVP;
+out vec2 vWorld;
+out vec3 vBary;
+flat out vec4 v0, v1, v2;
+void main() {
+    int i = gl_VertexID;
+    vec2 p = i == 0 ? a0.xy : (i == 1 ? a0.zw : a1.xy);
+    vBary = vec3(i == 0 ? 1.0 : 0.0, i == 1 ? 1.0 : 0.0, i == 2 ? 1.0 : 0.0);
+    vWorld = p;
+    v0 = a0; v1 = a1; v2 = a2;
+    gl_Position = uVP * vec4(p, 0.0, 1.0);
+}
+)";
+inline const char* CONE_FS = R"(#version 330 core
+in vec2 vWorld;
+in vec3 vBary;
+flat in vec4 v0, v1, v2;
+out vec4 frag;
+uniform float uThick;
+void main() {
+    // across the sheet (0 on one edge, 1 on the other): the edges catch more of the haze
+    float u = vBary.z / max(vBary.y + vBary.z, 1e-4);
+    float edge = 0.55 + 0.9 * (exp(-u * 10.0) + exp(-(1.0 - u) * 10.0));
+    float s = length(vWorld - v0.xy);
+    float h = hazeAt(vWorld, v1.z);
+    // brighter near the lens, the sheet opening softly from it
+    float fall = (1.0 / (1.0 + s * 0.09)) * smoothstep(0.0, 1.2, s);
+    vec3 c = v2.rgb * edge * h * fall * hudQuiet(vWorld);
+    c *= 1.0 + uThick * 0.8 * (hazeAt(vWorld * 0.6, 0.31) - 0.4);
+    frag = vec4(max(c, 0.0), 0.0);
+}
+)";
+
 // ---------------------------------------------------------------- the beams' cores (full resolution, additive)
 
 // One instance per beam: a long thin quad from the projector. a0: origin xy, direction xy; a1: color (intensity in
@@ -154,12 +195,13 @@ uniform vec2 uWellH;
 void main() {
     float w = max(v2.x, uPx * 0.6);
     float x = vAcross / w;
-    float core = exp(-x * x);
+    float core = exp(-x * x) + 0.1 * exp(-abs(x) * 1.2);
     float s = dot(vWorld - v0.xy, v0.zw);
     float h = hazeAt(vWorld, v1.w);
     // a narrow core, thinner than a pixel at most: keep its energy (a sub-pixel beam is dimmer, not wider)
     float k = min(1.0, v2.x / (uPx * 0.6));
-    float behind = 1.0 - 0.985 * (1.0 - smoothstep(-0.05, 0.05, sdBox(vWorld, uWellH)));
+    // over the well's glass the rays are fainter (the glass is dark, the haze thinner in front of it)
+    float behind = 1.0 - 0.65 * (1.0 - smoothstep(-0.05, 0.05, sdBox(vWorld, uWellH)));
     vec3 c = v1.rgb * core * h * k * hudQuiet(vWorld) * behind / (1.0 + s * 0.035);
     frag = vec4(c * (1.0 - uBridge), 0.0);
 }
