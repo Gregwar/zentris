@@ -731,7 +731,30 @@ void PolarUniverse::tile(float x, float y, float hw, float hh, const vec3& c, fl
 }
 
 void PolarUniverse::buildBoard(const Game& g) {
-    // Which piece a locked cell belongs to (-1: unknown, e.g. a stack inherited from another universe: never joined).
+    // Cells whose piece is unknown (a stack inherited from another universe, a prefilled board): grouped into bodies
+    // of ice by kind, at most four cells each (a piece's size), so they read as pieces rather than loose tiles.
+    for (int y = 0; y < Game::H; y++)
+        for (int x = 0; x < Game::W; x++) {
+            const int t = g.cell(x, y).type;
+            if (t < 0 || ice_[y][x].type == t) continue;
+            const int id = pieceCounter_++;
+            int qx[4], qy[4], n = 0, head = 0;
+            ice_[y][x] = {id, t};
+            qx[n] = x; qy[n] = y; n++;
+            while (head < n && n < 4) {
+                const int cx = qx[head], cy = qy[head];
+                head++;
+                const int dx[4] = {-1, 1, 0, 0}, dy[4] = {0, 0, -1, 1};
+                for (int k = 0; k < 4 && n < 4; k++) {
+                    const int nx = cx + dx[k], ny = cy + dy[k];
+                    if (nx < 0 || nx >= Game::W || ny < 0 || ny >= Game::H) continue;
+                    if (g.cell(nx, ny).type != t || ice_[ny][nx].type == t) continue;
+                    ice_[ny][nx] = {id, t};
+                    qx[n] = nx; qy[n] = ny; n++;
+                }
+            }
+        }
+    // Which piece a locked cell belongs to (-1: none).
     auto idAt = [&](int x, int y) {
         if (x < 0 || x >= Game::W || y < Game::HIDDEN || y >= Game::H) return -1;
         const int t = g.cell(x, y).type;
