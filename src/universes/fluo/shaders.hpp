@@ -174,6 +174,7 @@ uniform float uLight;          // the room's light (calm .. chorus)
 uniform float uDark;           // the blacklight (0 room light .. 1 lights off, UV on)
 uniform float uGlow;           // the paint's fluorescence (0..~1.3)
 uniform float uIgnite;         // the stains lighting up one region after another (0..1)
+uniform vec2 uSweep;           // the drop's two sweeping beams: x (the other at -x), strength
 uniform float uSlow;          // slow motion: the paint drained of its color, the wall cooler
 uniform vec4 uWell;            // center xy, half extents xy
 uniform vec4 uColL, uColR;     // the HUD columns (x0 y0 x1 y1)
@@ -208,6 +209,10 @@ void main() {
     wall *= 1.0 - 0.22 * well;
     vec3 lit = wall * uLight * wash * vign;
     vec3 uvWall = (wall * 0.35 + uUvTint * (0.6 + 0.4 * tone)) * vign;
+    {
+        float bx = (p.x - uSweep.x) / 6.5, bx2 = (p.x + uSweep.x) / 6.5;
+        uvWall *= 1.0 + uSweep.y * (0.75 * max(exp(-bx * bx), exp(-bx2 * bx2)) - 0.15);
+    }
     vec3 col = mix(lit, uvWall, uDark);
 
     // the paint (the wet layer over the persistent one)
@@ -244,10 +249,15 @@ void main() {
         // under the blacklight: the stains light up one region after another and glow, saturated
         float n = vnoise(p * 0.16 + 4.0) * 0.75 + 0.25 * vnoise(p * 0.6);
         float ign = smoothstep(n * 0.8, n * 0.8 + 0.25, uIgnite);
-        float g = clamp(uGlow * ign, 0.0, 1.3);
+        // the beams: the stains blaze where they pass, fall back toward plain paint between them
+        float bx = (p.x - uSweep.x) / 6.5, bx2 = (p.x + uSweep.x) / 6.5;
+        float beam = max(exp(-bx * bx), exp(-bx2 * bx2));
+        float g = clamp(uGlow * ign * mix(1.0, 0.18 + 1.12 * beam, uSweep.y), 0.0, 1.3);
         vec3 fluo = max(mix(vec3(lum), base, 1.18), 0.0) * (1.05 + 0.25 * g) * relief * (0.85 + 0.2 * ndl);
         // the tube's reflection: a faint violet glint, still sliding with the light
         fluo += (uUvTint * 3.0 + vec3(0.06, 0.05, 0.12)) * spec;
+        // between the beams the stains are plain paint again, in the beams' dim spill
+        room = mix(room, dull * (0.45 + 0.35 * ndl) + vec3(spec) * 0.25, uSweep.y * (1.0 - beam) * 0.8);
         vec3 paint = mix(room, fluo, clamp(g, 0.0, 1.0));
         // held back: the paint sinks into the wall (only a faint, colorless trace of it)
         paint = mix(col * (1.0 - 0.3 * pt.a), paint, sub);

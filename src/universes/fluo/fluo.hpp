@@ -117,6 +117,7 @@ private:
     bool inDrop_ = false;
     float dropWait_ = 0.f;
     float uv_ = 0.f;          // the blacklight: 0 room light .. 1 lights off (eased)
+    float sweepX_ = 0.f, sweepA_ = 0.f;  // the drop's sweeping beams: position (x), strength
     float ignite_ = 0.f;      // the stains lighting up after the lights went off
     float dropT_ = 99.f, dropAmp_ = 0.f; // time since drop(), its strength
     float lampT_ = 0.f;       // the moving light's clock

@@ -1118,6 +1118,13 @@ void FluoUniverse::render(const Frame& f, GLuint fbo) {
     const float dropSwell = dropT_ < 12.f ? smoothstepf(0.f, 0.6f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.6f) / 2.2f) * dropAmp_ : 0.f;
     const float uvE = smoothstepf(0.f, 1.f, uv_) * (1.f - bridge);
     const float glow = uvE * (1.f + 0.3f * dropSwell * (inDrop_ ? 1.f : 0.f));
+    // the drop's blacklight: two strong beams sweeping slowly left and right across the wall (crossing at the
+    // well), the stains blazing where they pass and sinking back to paint between them; one sweep per two bars
+    {
+        const double ph = f.music.hasSong ? f.music.beat * (3.14159265 / 8.0) : time_ * 0.55;
+        sweepX_ = viewH_.x * 0.95f * (float)std::sin(ph);
+        sweepA_ = uvE * ignite_;
+    }
     // the light moving slowly over the wall (its reflections slide along the paint's relief)
     if (!f.paused) lampT_ += dt;
     const vec3 lamp(viewC_.x + viewH_.x * 0.8f * std::sin(lampT_ * 0.07f + 1.3f),
@@ -1148,6 +1155,7 @@ void FluoUniverse::render(const Frame& f, GLuint fbo) {
     set1f(progComp_, "uDark", uvE);
     set1f(progComp_, "uGlow", glow);
     set1f(progComp_, "uIgnite", ignite_);
+    set2f(progComp_, "uSweep", sweepX_, sweepA_);
     set1f(progComp_, "uSlow", slow_ * (1.f - uvE));
     set4f(progComp_, "uWell", 0.f, 0.f, 5.f, 10.f);
     set4f(progComp_, "uColL", layout::LEFT_COLUMN[0], layout::LEFT_COLUMN[1], layout::LEFT_COLUMN[2], layout::LEFT_COLUMN[3]);
