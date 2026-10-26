@@ -85,9 +85,9 @@ const VariantDef VARIANTS[] = {
     // celadon glazes and tenmoku browns, ash, one kaki; gels of gold and jade
     {"CERAMIC", 0xefebe2, 0xf5f1e9, 0x2c2520, 0xf5f0e6, 0xb0602e, 0xfffaf0, 0xffe4c0, 0xf6f0e6, 0xffc45a, 0x5ad6a8, 0xf5f1e9,
      {0x8fb3a0, 0x9a7a5a, 0x2a4038, 0x4f8070, 0xb0602e, 0x3e2a20, 0x8c8a82}, 1.f},
-    // a dim evening room: light warm blocks (ivory, sand, apricot, rose clay), sage and sea grey, one saffron;
+    // a dim evening room, a charcoal pane: light warm blocks (ivory, sand, apricot, rose clay), sage and sea grey, one saffron;
     // gels of amber and teal
-    {"GREY ROOM", 0x8e8f8f, 0x9a9b9a, 0xf2ede2, 0xf2ede2, 0xe0a33a, 0xffe2c4, 0xffd4a8, 0xc4d0e8, 0xffa040, 0x46c8c0, 0xd8d6d0,
+    {"GREY ROOM", 0x8e8f8f, 0x3a3b3c, 0xf2ede2, 0xf2ede2, 0xe0a33a, 0xffe2c4, 0xffd4a8, 0xc4d0e8, 0xffa040, 0x46c8c0, 0xd8d6d0,
      {0xefe6d2, 0xe0a33a, 0xb87a70, 0xb5c4a0, 0xd98a5e, 0x7fa8a4, 0xcdb48c}, 0.9f},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));

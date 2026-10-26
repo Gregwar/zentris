@@ -242,10 +242,9 @@ void main() {
     vec3 pp = ro + rd * tp;
     float sd = sdBox(pp.xy - PANEL_C.xy, PANEL_H.xy);
     if (sd < uPx * 1.5) {
-        // lit as one flat surface (as at its center): an even, calm ground behind the blocks
-        // and in the panel's own color, whatever the gels (only their brightness reaches it)
-        vec3 lit = light(vec3(PANEL_C.xy, PANE_Z), vec3(0.0, 0.0, 1.0), vec3(1.0), 1.0, -1, true);
-        vec3 paneCol = uPanel * dot(lit, vec3(0.2126, 0.7152, 0.0722));
+        // an even, calm ground behind the blocks: no shadow, no gradient
+        // in the panel's own color at one steady level, whatever the lamps and the gels do
+        vec3 paneCol = uPanel;
         float inside = 1.0 - smoothstep(-uPx * 0.5, uPx * 0.5, sd);
         col = mix(col, paneCol, inside);
         float line = 1.0 - smoothstep(0.0, uPx * 1.2, abs(sd));
