@@ -1,24 +1,24 @@
 // WHITE ROOM: a seamless white studio, matte blocks and soft shadows.
 //
 // One world: an endless white cyclorama (the floor curving up into the back wall, no corner, no horizon). The well
-// is an opaque matte pane standing on a low white plinth; the blocks are matte, soft-cornered tiles (soft
-// plastic, unglazed ceramic) standing just in front of it. A lamp in front of the well throws the stack's shadow
-// onto the wall behind, enlarged and soft, a shadow play: the tetrominoes themselves, in shade, beside the well (the
-// pane casts nothing and no shadow falls on it: it hides what lies behind it, so the real stack always reads on a calm, even ground). Nothing else
-// but a few small matte balls on the floor and the lettering set on the wall like a gallery's. Each room is one
-// color story (a family of related hues in spaced values, one accent, two gels that belong to it).
+// is a frosted matte pane standing on a low white plinth; the blocks are matte cubes (soft plastic, unglazed
+// ceramic) standing just in front of it. A lamp in front of the well throws the stack's shadow onto the wall behind,
+// enlarged and soft, a shadow play: the tetrominoes themselves, in shade, beside the well (the pane casts nothing and
+// no shadow falls on it: it hides what lies behind it, so the real stack always reads on a calm, even ground).
+// Nothing else but the cleared blocks lying on the floor and the lettering set on the wall like a gallery's. Each
+// room is one color story (a family of related hues in spaced values, one accent, two gels that belong to it).
 //
 // The song moves the lamp: calm is a soft light high in front, the shadows hidden behind the pane; mid brings the
 // lamp lower and to the side and the stack's shadow starts to climb the wall beside the well; a chorus is a warm lamp
-// low on the side, the shadow large and crisp, a few white balls hopping on the kicks. A drop changes the room for
-// its whole length: the key turns into a colored gel low on one side and a second gel comes in low from the other,
-// so the stack throws two enlarged colored copies of itself up the wall, one on each side, each lit by the other
-// gel; a rain of white balls falls on the floor on the drop's downbeat, bounces and settles, then hops with the
-// kicks while the two gels slowly circle, the shadow copies sweeping. A new section swings the lamp across to the
-// other side. Beats only press the balls (never the stack, never the light). Slow motion is evening: the room goes blue-grey and a single warm lamp hangs over the well. A lock
-// presses the piece into the panel; a cleared block sinks into the white (it shrinks and turns to plaster in a
-// third of a second); a Tetris rolls balls of the cleared colors out onto the floor; game over turns the stack to
-// white plaster row by row as the light sets.
+// low on the side, the shadow large and crisp. A drop changes the room for its whole length: on its downbeat two
+// colored gels swing in low from far out on either side, so two enlarged colored copies of the stack's shadow sweep
+// in across the wall and settle, one on each side, each lit by the other gel; then the gels slowly circle, the
+// shadow copies sweeping. A new section swings the lamp across to the other side. The light never pulses. Slow
+// motion is evening: the room goes blue-grey and a single warm lamp hangs over the well. A lock presses the piece
+// into the panel; a cleared row vacates at once and its blocks are thrown out from behind the pane as real cubes, to
+// the left, the right or back toward the wall: they fly, tumble, bounce and settle on the floor (or the plinth),
+// casting their shadows, lie there several seconds and fade away; game over turns the stack to white plaster row by
+// row as the light sets.
 //
 // Layout contract: the layout's own camera (the well's plane z = 0 is exactly where the layout puts it).
 #include "universes/white_room/white_room.hpp"
@@ -343,11 +343,12 @@ void WhiteRoomUniverse::setLevel(int level, float energy, float seconds, float i
     lvDur_ = std::clamp(seconds * 1.3f, rising ? 2.0f : 4.0f, 7.f);
 }
 
-// The drop's downbeat: the gels flare in (one swell, settling over seconds) and the rain of balls starts.
+// The drop's downbeat: the gels flare in (one swell, settling over seconds) and swing in from far out on either side
+// (the stack's two colored shadows sweep in across the wall and settle).
 void WhiteRoomUniverse::drop(float strength) {
     swell_ = std::max(swell_, saturate(strength));
     sinceDrop_ = 0.f;
-    rainT_ = 0.f;
+    dropSwing_ = 1.f;
     if (level_ >= 2) {
         // the light goes straight to the peak, without waiting for the end of the swing
         lvFrom_ = lv_;
@@ -364,10 +365,6 @@ void WhiteRoomUniverse::refresh(float strength) {
 
 void WhiteRoomUniverse::setBonus(bool on) { slowOn_ = on; }
 
-void WhiteRoomUniverse::levelUp() {
-    for (int i = 0; i < 3; i++) spawnBall(true, 8, 0.f, 0.f);
-}
-
 vec2 WhiteRoomUniverse::project(const vec3& p) const { return layout::project(vp_, p, width_, height_); }
 
 TransitionHints WhiteRoomUniverse::hints() const {
@@ -383,44 +380,113 @@ TransitionHints WhiteRoomUniverse::hints() const {
 }
 
 // =====================================================================================================
-// Balls
+// Ejected cubes
 // =====================================================================================================
 
-int WhiteRoomUniverse::wantedBalls() const {
-    const float wm = smoothstepf(0.4f, 1.f, lv_), wp = smoothstepf(1.3f, 2.f, lv_);
-    if (overT_ >= 0.f) return (int)balls_.size();
-    int n = (int)std::lround(3.f * wm + 3.f * wp + 10.f * wp * drive_);
-    if (level_ < 1 && lv_ < 0.6f) n = 0;
-    return n;
-}
+namespace {
+constexpr float PLINTH_TOP = -10.05f, PLINTH_HX = 5.5f, PLINTH_HZ = 1.3f;
+constexpr float EJECT_Z = -1.25f; // thrown out from behind the pane (z = -0.62): nothing is drawn over the well
+constexpr float FADE = 1.2f;
+} // namespace
 
-void WhiteRoomUniverse::spawnBall(bool fromAbove, int color, float hFrom, float vyFrom) {
-    if (balls_.size() >= 32) return;
-    Ball b{};
-    b.r = rng_.range(0.26f, 0.5f);
-    // a free place on the floor, in the front corners beside the plinth
-    float bestX = 0, bestZ = 0, bestD = -1;
-    for (int k = 0; k < 10; k++) {
-        const float s = rng_.chance(0.5f) ? -1.f : 1.f;
-        const float x = s < 0.f ? -rng_.range(6.6f, 11.f) : rng_.range(6.6f, 19.f);
-        const float z = rng_.range(-4.2f, -1.7f);
-        float d = 99.f;
-        for (const Ball& o : balls_) d = std::min(d, std::hypot(o.x - x, o.z - z) - o.r);
-        if (d > bestD) { bestD = d; bestX = x; bestZ = z; }
+// A cleared block thrown out: left, right (mostly toward its own side of the well) or back toward the wall, with an
+// upward kick and a spin; power grows with the lines cleared.
+void WhiteRoomUniverse::eject(float x, float y, int color, float power) {
+    Ejected e{};
+    e.h = 0.42f;
+    e.p = vec3(x, y, EJECT_Z);
+    const float side = x + rng_.range(-3.5f, 3.5f) < 0.f ? -1.f : 1.f;
+    if (rng_.chance(0.3f)) {
+        // back toward the wall, spreading sideways
+        e.v = vec3(side * rng_.range(0.5f, 5.f), rng_.range(3.f, 7.f), -rng_.range(2.f, 4.5f));
+    } else {
+        e.v = vec3(side * rng_.range(7.f, 13.f), rng_.range(3.f, 8.f), rng_.range(-2.f, 1.2f));
     }
-    b.x = bestX;
-    b.z = bestZ;
-    b.h = fromAbove ? hFrom : 0.f;
-    b.vy = vyFrom;
-    b.vx = 0.f;
-    b.color = color;
-    balls_.push_back(b);
+    e.v = e.v * power;
+    e.yaw = std::atan2(e.v.x, e.v.z) + rng_.range(-0.35f, 0.35f);
+    e.th = rng_.range(-0.4f, 0.4f);
+    e.w = rng_.range(4.f, 11.f) * (rng_.chance(0.8f) ? 1.f : -1.f);
+    e.color = color;
+    e.life = rng_.range(6.f, 10.f);
+    ejected_.push_back(e);
+    // over the cap: the oldest start fading now
+    int alive = 0;
+    for (const Ejected& o : ejected_) alive += o.life - o.age > FADE ? 1 : 0;
+    for (Ejected& o : ejected_) {
+        if (alive <= EJECT_MAX - 4) break;
+        if (o.life - o.age > FADE) { o.life = o.age + FADE; alive--; }
+    }
 }
 
-vec3 WhiteRoomUniverse::ballColor(const Ball& b) const {
-    if (b.color >= 0 && b.color < 7) return pal_.piece[b.color];
-    if (b.color == 8) return pal_.accent;
-    return pal_.plaster * 0.95f;
+// Gravity, the floor (or the plinth's top), the back of the room, a little bounce with damping and friction; the
+// tumble settles flat on a face. Cubes push each other apart sideways (no stacking).
+void WhiteRoomUniverse::stepEjected(float dt) {
+    const float G = 30.f;
+    const int steps = 3;
+    const float h = dt / steps;
+    for (int k = 0; k < steps; k++) {
+        for (Ejected& e : ejected_) {
+            e.v.y -= G * h;
+            e.p = e.p + e.v * h;
+            e.th += e.w * h;
+            const float hy = e.h * (std::fabs(std::cos(e.th)) + std::fabs(std::sin(e.th)));
+            const bool overPlinth = std::fabs(e.p.x) < PLINTH_HX && std::fabs(e.p.z) < PLINTH_HZ;
+            // the plinth's sides (a cube below its top, beside it, is pushed out)
+            if (!overPlinth && e.p.y - hy < PLINTH_TOP - 0.05f && std::fabs(e.p.x) < PLINTH_HX + e.h &&
+                std::fabs(e.p.z) < PLINTH_HZ + e.h) {
+                const float ox = PLINTH_HX + e.h - std::fabs(e.p.x), oz = PLINTH_HZ + e.h - std::fabs(e.p.z);
+                if (ox < oz) { e.p.x += (e.p.x < 0.f ? -ox : ox); e.v.x = -e.v.x * 0.3f; }
+                else { e.p.z += (e.p.z < 0.f ? -oz : oz); e.v.z = -e.v.z * 0.3f; }
+            }
+            const float ground = overPlinth ? PLINTH_TOP : FLOOR;
+            bool contact = false;
+            if (e.p.y - hy <= ground) {
+                e.p.y = ground + hy;
+                contact = true;
+                if (e.v.y < -2.f) {
+                    e.v.y = -e.v.y * 0.3f;
+                    e.v.x *= 0.65f;
+                    e.v.z *= 0.65f;
+                    e.w = e.w * 0.55f + rng_.range(-2.f, 2.f);
+                } else e.v.y = std::max(e.v.y, 0.f);
+            }
+            // the back of the room (the cove starts at z = -4) and its far sides
+            const float zMin = WALL_Z + COVE + e.h * 1.3f;
+            if (e.p.z < zMin) { e.p.z = zMin; e.v.z = std::fabs(e.v.z) * 0.3f; }
+            if (std::fabs(e.p.x) > 20.f) { e.p.x = std::copysign(20.f, e.p.x); e.v.x = -e.v.x * 0.3f; }
+            if (contact) {
+                const float f = std::exp(-3.5f * h);
+                e.v.x *= f;
+                e.v.z *= f;
+                // the tumble settles flat on a face (a cube on an edge falls onto the nearer face)
+                const float q = 0.5f * PI;
+                const float target = std::round(e.th / q) * q;
+                e.w += -(e.th - target) * 90.f * h;
+                e.w *= std::exp(-5.f * h);
+            }
+        }
+        for (size_t i = 0; i < ejected_.size(); i++)
+            for (size_t j = i + 1; j < ejected_.size(); j++) {
+                Ejected &a = ejected_[i], &b = ejected_[j];
+                const float r = (a.h + b.h) * 1.1f;
+                if (std::fabs(a.p.y - b.p.y) > r) continue;
+                const float dx = b.p.x - a.p.x, dz = b.p.z - a.p.z;
+                const float d = std::sqrt(dx * dx + dz * dz);
+                if (d >= r) continue;
+                const float nx = d > 1e-4f ? dx / d : 1.f, nz = d > 1e-4f ? dz / d : 0.f;
+                const float push = (r - d) * 0.5f;
+                a.p.x -= nx * push; a.p.z -= nz * push;
+                b.p.x += nx * push; b.p.z += nz * push;
+                const float rel = (b.v.x - a.v.x) * nx + (b.v.z - a.v.z) * nz;
+                if (rel < 0.f) {
+                    a.v.x += nx * rel * 0.5f; a.v.z += nz * rel * 0.5f;
+                    b.v.x -= nx * rel * 0.5f; b.v.z -= nz * rel * 0.5f;
+                }
+            }
+    }
+    for (Ejected& e : ejected_) e.age += dt;
+    ejected_.erase(std::remove_if(ejected_.begin(), ejected_.end(), [](const Ejected& e) { return e.age >= e.life; }),
+                   ejected_.end());
 }
 
 // =====================================================================================================
@@ -438,24 +504,11 @@ void WhiteRoomUniverse::onEvent(const GameEvent& ev, const Game&) {
         lastDrop_ = ev.count;
         break;
     case GameEvent::Clear: {
-        // the blocks sink into the white: they shrink and turn to plaster, from the middle of the row outward
+        // the row vacates at once: its blocks are thrown out from behind the pane as cubes (harder for more lines)
+        const float power = 1.f + 0.08f * std::max(0, ev.count - 1);
         for (auto& c : ev.cells) {
             const vec3 p = layout::cellPos((float)c.x, (float)c.y);
-            dying_.push_back({p.x, p.y, 0.f, std::fabs(c.x - 4.5f) * 0.012f, std::clamp(c.type, 0, 6), false});
-        }
-        if (ev.count >= 4) {
-            // a Tetris rolls balls of the cleared colors out from behind the plinth onto the floor
-            for (int i = 0; i < 10 && balls_.size() < 32; i++) {
-                const int type = std::clamp(ev.cells[(size_t)rng_.irange(0, (int)ev.cells.size() - 1)].type, 0, 6);
-                spawnBall(false, type, 0.f, 0.f);
-                Ball& b = balls_.back();
-                const float s = b.x < 0.f ? -1.f : 1.f;
-                const float land = b.x;
-                b.x = s * rng_.range(5.6f, 6.2f);
-                b.h = rng_.range(0.3f, 1.2f);
-                b.vy = rng_.range(5.f, 9.f);
-                b.vx = (land - b.x) * rng_.range(0.6f, 0.9f);
-            }
+            eject(p.x, p.y, std::clamp(c.type, 0, 6), power * rng_.range(0.9f, 1.1f));
         }
         break;
     }
@@ -465,7 +518,7 @@ void WhiteRoomUniverse::onEvent(const GameEvent& ev, const Game&) {
         for (auto& c : ev.cells) top = std::min(top, c.y);
         for (auto& c : ev.cells) {
             const vec3 p = layout::cellPos((float)c.x, (float)c.y);
-            dying_.push_back({p.x, p.y, 0.f, (c.y - top) * 0.11f + rng_.range(0.f, 0.06f), std::clamp(c.type, 0, 6), true});
+            dying_.push_back({p.x, p.y, 0.f, (c.y - top) * 0.11f + rng_.range(0.f, 0.06f), std::clamp(c.type, 0, 6)});
         }
         overT_ = 0.f;
         break;
@@ -493,78 +546,12 @@ void WhiteRoomUniverse::simulate(const Game& game, const MusicState& music, floa
     sinceDrop_ += dt;
     beat_ = music.beat;
 
-    // Kicks (every two beats from the host): the balls hop or press, never the stack, never the light.
-    sinceKick_ += dt;
-    const float kick = std::max(music.kick, kickIn_);
-    kickIn_ = approach(kickIn_, 0.f, 6.f, dt);
-    const bool kicked = kick > 0.5f && prevKick_ <= 0.5f && sinceKick_ > 0.3f;
-    prevKick_ = kick;
-    if (kicked) {
-        sinceKick_ = 0.f;
-        const float wm = smoothstepf(0.4f, 1.f, lv_);
-        for (Ball& b : balls_) {
-            if (b.leaving || b.h > 0.02f || std::fabs(b.vy) > 0.1f) continue;
-            if (wp > 0.5f && rng_.chance(0.35f + 0.35f * drive_)) b.vy = rng_.range(2.4f, 3.4f + 2.0f * drive_);
-            else b.sqv -= (1.2f + 1.5f * wp) * wm; // a gentle press
-        }
-    }
-
-    // The balls: the drop's rain, the others coming and going with the sections.
-    rainT_ += dt;
-    const int want = wantedBalls();
-    int present = 0;
-    for (const Ball& b : balls_) present += b.leaving ? 0 : 1;
-    if (rainT_ < 3.f && level_ >= 2) {
-        // the rain: fast at first, the balls bounce lower and lower and settle
-        spawnAcc_ += dt * 14.f;
-        while (spawnAcc_ >= 1.f && present < std::max(want, 6 + (int)(10.f * driveTarget_))) {
-            spawnAcc_ -= 1.f;
-            spawnBall(true, 7, rng_.range(3.f, 8.f), -rng_.range(2.f, 8.f));
-            present++;
-        }
-        if (spawnAcc_ >= 1.f) spawnAcc_ = 0.f;
-    } else if (present < want) {
-        spawnAcc_ += dt * 2.f;
-        if (spawnAcc_ >= 1.f) {
-            spawnAcc_ = 0.f;
-            spawnBall(true, 7, rng_.range(4.f, 7.f), 0.f);
-        }
-    } else if (present > want) {
-        // the oldest ones roll out of the room
-        for (Ball& b : balls_)
-            if (!b.leaving && b.h < 0.05f) {
-                b.leaving = true;
-                b.vx = (b.x < 0.f ? -1.f : 1.f) * rng_.range(2.5f, 4.5f);
-                break;
-            }
-    }
-    const float g = 30.f;
-    for (Ball& b : balls_) {
-        b.age += wdt;
-        b.vy -= g * wdt;
-        b.h += b.vy * wdt;
-        b.x += b.vx * wdt;
-        if (!b.leaving) b.vx *= std::exp(-1.5f * wdt);
-        if (b.h <= 0.f) {
-            b.h = 0.f;
-            if (b.vy < -1.2f) {
-                b.sqv -= std::min(-b.vy * 0.9f, 6.f); // the impact squashes it a little
-                b.vy = -b.vy * 0.5f;
-            } else b.vy = 0.f;
-        }
-        // squash spring
-        const float acc = -320.f * (b.sq - 1.f) - 16.f * b.sqv;
-        b.sqv += acc * wdt;
-        b.sq += b.sqv * wdt;
-        b.sq = std::clamp(b.sq, 0.75f, 1.12f);
-    }
-    balls_.erase(std::remove_if(balls_.begin(), balls_.end(), [](const Ball& b) { return std::fabs(b.x) > 26.f; }), balls_.end());
+    dropSwing_ = approach(dropSwing_, 0.f, 0.55f, dt);
 
     press_ = approach(press_, 0.f, 9.f, dt);
     // a line clear runs at the real speed, even in slow motion
     for (auto& d : dying_) d.t += dt;
-    dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return !d.over && d.t > d.delay + 0.5f; }),
-                 dying_.end());
+    stepEjected(dt);
     gaugeShown_ = approach(gaugeShown_, game.bonusGauge(), 3.f, dt);
 }
 
@@ -589,7 +576,10 @@ void WhiteRoomUniverse::computeLights(const MusicState& music) {
     vec3 keyCol = lerp(pal_.key, pal_.warm, warm) * key;
     // the drop: the key turns into the first gel and goes low to the side, the second gel comes in from the other
     // side: two colored copies of the stack's shadow climb the wall, each lit by the other gel
-    const vec3 ga = GEL_A + vec3(2.5f * orbit, 1.2f * orbit2, 0.f), gb = GEL_B + vec3(2.5f * orbit, -1.2f * orbit2, 0.f);
+    // on the drop's downbeat they swing in from far out (the shadow copies sweep in across the wall and settle)
+    const float sw = dropSwing_ * dropSwing_ * (3.f - 2.f * dropSwing_);
+    const vec3 ga = GEL_A + vec3(2.5f * orbit - 30.f * sw, 1.2f * orbit2 + 4.f * sw, 0.f),
+               gb = GEL_B + vec3(2.5f * orbit + 30.f * sw, -1.2f * orbit2 + 4.f * sw, 0.f);
     p0 = lerp(p0, ga, d);
     vec3 p1 = gb;
     radius = lerpf(radius, 1.0f, d);
@@ -662,22 +652,9 @@ void WhiteRoomUniverse::buildBoard(const Game& g) {
             const float pr = age < 0.4f ? press_ * 0.07f * std::exp(-age * 6.f) : 0.f;
             block(p.x, p.y, 1.f - pr, pal_.piece[c.type], 1.f, 0.f);
         }
-    // Cleared blocks sinking into the white; a topped-out stack turning to plaster.
-    for (const Dying& d : dying_) {
-        const float t = d.t - d.delay;
-        if (d.over) {
-            block(d.x, d.y, 1.f, pal_.piece[d.type], 1.f, 0.85f * smoothstepf(0.f, 0.8f, t));
-            continue;
-        }
-        if (t < 0.f) {
-            block(d.x, d.y, 1.f, pal_.piece[d.type], 1.f, 0.f);
-            continue;
-        }
-        const float k = saturate(t / 0.32f);
-        if (k >= 1.f) continue;
-        const float s = 1.f - k * k * (3.f - 2.f * k) * 0.85f;
-        block(d.x, d.y, s, pal_.piece[d.type], 1.f - smoothstepf(0.6f, 1.f, k), smoothstepf(0.f, 0.7f, k));
-    }
+    // A topped-out stack turning to plaster.
+    for (const Dying& d : dying_)
+        block(d.x, d.y, 1.f, pal_.piece[d.type], 1.f, 0.85f * smoothstepf(0.f, 0.8f, d.t - d.delay));
     // The falling piece and its ghost.
     if (g.hasPiece()) {
         const Piece& p = g.piece();
@@ -955,7 +932,7 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
     if (overT_ >= 0.f) {
         if (!game.over()) {
             overT_ = -1.f;
-            dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.over; }), dying_.end());
+            dying_.clear();
         } else overT_ += dt;
     }
     over_ = overT_ >= 0.f ? smoothstepf(0.3f, 4.f, overT_) : approach(over_, 0.f, 1.5f, dt);
@@ -1013,18 +990,26 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
         set1f(progRoom_, "uWallZ", WALL_Z);
         set1f(progRoom_, "uCove", COVE);
         set4f(progRoom_, "uPool", pool_.x, pool_.y, pool_.z, pool_.w);
-        float bp[32 * 4], bc[32 * 4];
-        const int nb = std::min(32, (int)balls_.size());
-        for (int i = 0; i < nb; i++) {
-            const Ball& b = balls_[i];
-            const vec3 c = ballColor(b);
-            bp[i * 4 + 0] = b.x; bp[i * 4 + 1] = FLOOR + b.h + b.r * b.sq; bp[i * 4 + 2] = b.z; bp[i * 4 + 3] = b.r;
-            bc[i * 4 + 0] = c.x; bc[i * 4 + 1] = c.y; bc[i * 4 + 2] = c.z; bc[i * 4 + 3] = b.sq;
+        // the cubes thrown out: center and half size, their axes (x; alpha, y), albedo
+        float cp[EJECT_MAX * 4], cx[EJECT_MAX * 4], cy[EJECT_MAX * 4], cc[EJECT_MAX * 4];
+        int nc = 0;
+        for (const Ejected& e : ejected_) {
+            if (nc >= EJECT_MAX) break;
+            const float a = saturate((e.life - e.age) / FADE);
+            if (a <= 0.f) continue;
+            const float cyw = std::cos(e.yaw), syw = std::sin(e.yaw), ct = std::cos(e.th), st = std::sin(e.th);
+            const vec3 c = pal_.piece[e.color];
+            const float v[4][4] = {{e.p.x, e.p.y, e.p.z, e.h}, {cyw, 0.f, -syw, a}, {st * syw, ct, st * cyw, 0.f}, {c.x, c.y, c.z, 0.f}};
+            float* dst[4] = {cp, cx, cy, cc};
+            for (int r = 0; r < 4; r++) std::memcpy(dst[r] + nc * 4, v[r], sizeof(float) * 4);
+            nc++;
         }
-        set1i(progRoom_, "uBalls", nb);
-        if (nb > 0) {
-            glUniform4fv(ugl::U(progRoom_, "uBallP"), nb, bp);
-            glUniform4fv(ugl::U(progRoom_, "uBallC"), nb, bc);
+        set1i(progRoom_, "uCubes", nc);
+        if (nc > 0) {
+            glUniform4fv(ugl::U(progRoom_, "uCubeP"), nc, cp);
+            glUniform4fv(ugl::U(progRoom_, "uCubeX"), nc, cx);
+            glUniform4fv(ugl::U(progRoom_, "uCubeY"), nc, cy);
+            glUniform4fv(ugl::U(progRoom_, "uCubeC"), nc, cc);
         }
         set1f(progRoom_, "uBridge", smoothstepf(0.05f, 0.9f, bridge));
         set3f(progRoom_, "uBridgeCol", bridge_.color);

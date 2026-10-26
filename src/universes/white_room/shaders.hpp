@@ -3,11 +3,11 @@
 // tone-mapped in the post.
 //
 // ROOM_FS ray-traces the room through the layout camera: a seamless white cyclorama (floor, a cove, the back wall),
-// a low plinth, the opaque matte pane of the well, and a few matte balls on the floor; it lights them with two soft
+// a low plinth, the frosted pane of the well, and the cleared blocks thrown out as cubes; it lights them with two soft
 // lamps in front of the well (the key, and a colored gel) and a soft ambient. The blocks are the shadow casters:
 // seen from a lamp, the board's occupancy map (blurred by its mip levels as the shadow travels) throws the stack and
 // the falling piece onto the wall and the floor behind, enlarged and soft, a shadow play. The pane casts nothing and
-// receives nothing (an evenly lit ground behind the blocks); the plinth and the balls cast their own small shadows.
+// receives nothing (an evenly lit ground behind the blocks); the plinth and the thrown cubes cast their own shadows.
 
 namespace white_room_shaders {
 
@@ -39,9 +39,11 @@ uniform vec4 uPool;           // the light pool on the wall: center xy, radius, 
 uniform sampler2D uOcc;       // the board's occupancy (blocks, piece, previews): r
 uniform vec4 uOccRect;        // x0, y0, size (board units), texels per unit
 uniform float uOccLod;        // the map's last mip level
-uniform int uBalls;
-uniform vec4 uBallP[32];      // center, radius
-uniform vec4 uBallC[32];      // albedo, squash (y scale)
+uniform int uCubes;          // the cleared blocks thrown out (oriented cubes)
+uniform vec4 uCubeP[40];      // center, half size
+uniform vec4 uCubeX[40];      // its x axis, alpha (fading)
+uniform vec4 uCubeY[40];      // its y axis
+uniform vec4 uCubeC[40];      // albedo
 uniform float uBridge;
 uniform vec3 uBridgeCol;
 uniform float uShadowK;       // 1: shadows, 0: none (bridge)
@@ -90,22 +92,48 @@ float roomHit(vec3 ro, vec3 rd, out vec3 n) {
     return t;
 }
 
-float ballHit(vec3 ro, vec3 rd, int i, out vec3 n) {
-    vec4 b = uBallP[i];
-    float sq = uBallC[i].w;
-    // an ellipsoid squashed toward the floor: scale y around its bottom
-    vec3 base = vec3(b.x, b.y - b.w * sq, b.z);
-    vec3 s = vec3(1.0, 1.0 / sq, 1.0);
-    vec3 o = (ro - base) * s - vec3(0, b.w, 0);
-    vec3 d = rd * s;
-    float A = dot(d, d), B = dot(o, d), C = dot(o, o) - b.w * b.w;
-    float disc = B * B - A * C;
-    if (disc < 0.0) return -1.0;
-    float t = (-B - sqrt(disc)) / A;
-    if (t < 0.0) return -1.0;
-    vec3 q = o + d * t;
-    n = normalize(q * s);
-    return t;
+// a thrown cube: world <-> its own frame
+vec3 cubeLocal(int i, vec3 v) {
+    vec3 X = uCubeX[i].xyz, Y = uCubeY[i].xyz;
+    return vec3(dot(v, X), dot(v, Y), dot(v, cross(X, Y)));
+}
+vec3 cubeWorld(int i, vec3 v) {
+    vec3 X = uCubeX[i].xyz, Y = uCubeY[i].xyz;
+    return X * v.x + Y * v.y + cross(X, Y) * v.z;
+}
+float sdBox3(vec3 p, vec3 b) { vec3 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0); }
+
+// ray / cube: t of entry (or -1)
+float cubeHit(vec3 ro, vec3 rd, int i) {
+    vec3 o = cubeLocal(i, ro - uCubeP[i].xyz), d = cubeLocal(i, rd);
+    vec3 h = vec3(uCubeP[i].w);
+    vec3 inv = 1.0 / d;
+    vec3 t0 = (-h - o) * inv, t1 = (h - o) * inv;
+    vec3 tmin = min(t0, t1), tmax = max(t0, t1);
+    float tn = max(max(tmin.x, tmin.y), tmin.z), tf = min(min(tmax.x, tmax.y), tmax.z);
+    if (tf < max(tn, 0.0)) return -1.0;
+    return tn > 0.0 ? tn : -1.0;
+}
+
+// the smallest distance from a ray to a cube (its edge, for the antialiasing and the soft shadows): the box's
+// distance along a line is convex, a ternary search finds its minimum. 1e3 when far.
+float cubeNear(vec3 ro, vec3 rd, int i, float margin, int iters, out float tBest) {
+    vec3 c = uCubeP[i].xyz;
+    float h = uCubeP[i].w;
+    vec3 oc = c - ro;
+    float tca = dot(oc, rd);
+    float R = 1.74 * h;
+    tBest = tca;
+    if (tca + R < 0.0 || length(oc - rd * tca) > R + margin) return 1e3;
+    float a = max(tca - R, 0.0), b = tca + R;
+    for (int k = 0; k < iters; k++) {
+        float m1 = a + (b - a) * 0.382, m2 = a + (b - a) * 0.618;
+        float d1 = sdBox3(cubeLocal(i, ro + rd * m1 - c), vec3(h));
+        float d2 = sdBox3(cubeLocal(i, ro + rd * m2 - c), vec3(h));
+        if (d1 < d2) b = m2; else a = m1;
+    }
+    tBest = 0.5 * (a + b);
+    return sdBox3(cubeLocal(i, ro + rd * tBest - c), vec3(h));
 }
 
 float occAt(vec2 p, float blur) {
@@ -141,36 +169,38 @@ float plinthShadow(vec3 p, int i, float radius) {
     return 1.0 - smoothstep(-pen, pen, sd);
 }
 
-float ballShadow(vec3 p, vec3 l, float soft, int self) {
+// the thrown cubes' soft shadows: how far the ray toward the lamp passes from each cube, the penumbra growing with
+// the distance to it
+float cubeShadow(vec3 p, vec3 l, float soft, int self) {
     float vis = 1.0;
-    for (int i = 0; i < uBalls; i++) {
+    for (int i = 0; i < uCubes; i++) {
         if (i == self) continue;
-        vec4 b = uBallP[i];
-        vec3 oc = b.xyz - p;
-        float tca = dot(oc, l);
+        float tca = dot(uCubeP[i].xyz - p, l);
         if (tca <= 0.0) continue;
-        float d = length(oc - l * tca);
-        float r = b.w * mix(1.0, uBallC[i].w, 0.5);
         float pen = tca * soft + 0.04;
-        vis *= smoothstep(r - pen, r + pen, d);
+        float t;
+        float d = cubeNear(p, l, i, pen, 6, t);
+        if (d > pen) continue;
+        vis *= 1.0 - (1.0 - smoothstep(-pen, pen, d)) * uCubeX[i].w;
     }
     return vis;
 }
 
-float ballAO(vec3 p, vec3 n, int self) {
+// the floor darkened under and around the cubes (contact)
+float cubeAO(vec3 p, vec3 n, int self) {
     float ao = 1.0;
-    for (int i = 0; i < uBalls; i++) {
+    for (int i = 0; i < uCubes; i++) {
         if (i == self) continue;
-        vec4 b = uBallP[i];
-        vec3 oc = b.xyz - p;
+        vec3 oc = uCubeP[i].xyz - p;
         float d2 = dot(oc, oc);
         float d = sqrt(d2);
-        ao *= 1.0 - clamp(dot(n, oc / d) * b.w * b.w / d2, 0.0, 1.0) * 0.9;
+        float r = uCubeP[i].w * 1.4;
+        ao *= 1.0 - clamp(dot(n, oc / d) * r * r / d2, 0.0, 1.0) * 0.85 * uCubeX[i].w;
     }
     return ao;
 }
 
-// pane: a point on the pane (never shadowed); else a point of the room, the plinth or a ball
+// pane: a point on the pane (never shadowed); else a point of the room, the plinth or a cube
 vec3 light(vec3 p, vec3 n, vec3 alb, float ao, int self, bool pane) {
     vec3 col = alb * uAmb * (0.7 + 0.3 * (n.y * 0.5 + 0.5)) * ao;
     for (int i = 0; i < 2; i++) {
@@ -184,39 +214,44 @@ vec3 light(vec3 p, vec3 n, vec3 alb, float ao, int self, bool pane) {
         if (!pane) {
             float sh = max(stackShadow(p, i, radius) * uShadowAmt, plinthShadow(p, i, radius) * 0.8);
             vis = 1.0 - sh * uShadowK;
-            vis *= mix(1.0, ballShadow(p + n * 0.01, l, radius / length(lampPos(i) - p), self), uShadowK);
+            vis *= mix(1.0, cubeShadow(p + n * 0.01, l, radius / length(lampPos(i) - p), self), uShadowK);
         }
         col += alb * c * ndl * vis * sideK(i == 0 ? uSide0 : uSide1, lampPos(i), p.x) * lampFall(i, p);
     }
     return col;
 }
 
-// the room, the plinth and the balls (everything but the pane)
-vec3 trace(vec3 ro, vec3 rd) {
+// a thrown cube, lit like the blocks: matte, its edges softly rounded toward the light, a faint sheen, light bounced
+// off the white room (never a black face)
+vec3 shadeCube(int i, vec3 p, vec3 rd) {
+    vec3 q = cubeLocal(i, p - uCubeP[i].xyz) / uCubeP[i].w;
+    vec3 nl = sign(q) * pow(min(abs(q), 1.0), vec3(14.0));
+    vec3 n = normalize(cubeWorld(i, nl));
+    vec3 alb = uCubeC[i].rgb;
+    float ao = 0.8 + 0.2 * (n.y * 0.5 + 0.5);
+    vec3 col = light(p, n, alb, ao, i, false);
+    vec3 h = normalize(dirTo(0, p) - rd);
+    col += uC0 * pow(max(dot(n, h), 0.0), 18.0) * 0.05;
+    col += alb * (0.1 + 0.06 * n.y); // light bounced off the room, like the blocks' sides
+    return col;
+}
+
+// the room and the plinth (bg), then the thrown cubes over them (col)
+vec3 trace(vec3 ro, vec3 rd, out vec3 bg) {
     vec3 n, nb;
     float t = roomHit(ro, rd, n);
-    int what = 0; // 0 room, 2 plinth, 3 ball
-    int ball = -1;
+    int what = 0; // 0 room, 2 plinth
     float tb = boxHit(ro, rd, vec3(0.0, 0.5 * (uFloor + PLINTH_TOP), 0.0), vec3(PLINTH_HX.x, 0.5 * (PLINTH_TOP - uFloor), PLINTH_HX.y), nb);
     if (tb > 0.0 && tb < t) { t = tb; n = nb; what = 2; }
-    for (int i = 0; i < uBalls; i++) {
-        float tt = ballHit(ro, rd, i, nb);
-        if (tt > 0.0 && tt < t) { t = tt; n = nb; what = 3; ball = i; }
-    }
     vec3 p = ro + rd * t;
     vec3 col;
-    if (what == 3) {
-        vec3 alb = uBallC[ball].rgb;
-        float ao = 0.75 + 0.25 * (n.y * 0.5 + 0.5);
-        col = light(p, n, alb, ao, ball, false);
-        vec3 h = normalize(dirTo(0, p) - rd);
-        col += uC0 * pow(max(dot(n, h), 0.0), 24.0) * 0.06; // a soft sheen (matte plastic)
-    } else if (what == 2) {
+    if (what == 2) {
         float ao = 1.0 - 0.28 * occAt(vec2(p.x, -9.6), 0.8) * smoothstep(0.6, -0.6, p.z) * uShadowK;
+        ao *= mix(1.0, cubeAO(p, n, -1), uShadowK);
         col = light(p, n, uWall * 0.98, ao, -1, false);
     } else {
-        // the room: a soft pool of light on the wall, the floor darkened around the plinth and under the balls
-        float ao = ballAO(p, n, -1);
+        // the room: a soft pool of light on the wall, the floor darkened around the plinth and under the cubes
+        float ao = cubeAO(p, n, -1);
         if (n.y > 0.9) {
             vec2 d = abs(vec2(p.x, p.z)) - PLINTH_HX;
             float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
@@ -228,6 +263,34 @@ vec3 trace(vec3 ro, vec3 rd) {
         col *= 1.0 + uPool.w * (exp(-dot(pd, pd)) - 0.35);
         col *= 1.0 - 0.1 * smoothstep(4.0, 16.0, p.y); // the far top fades a touch (an endless space)
     }
+    bg = col;
+    if (uCubes == 0) return col;
+    // the nearest cube the ray hits
+    float tc = t;
+    int ic = -1;
+    for (int i = 0; i < uCubes; i++) {
+        float tt = cubeHit(ro, rd, i);
+        if (tt > 0.0 && tt < tc) { tc = tt; ic = i; }
+    }
+    if (ic >= 0) col = mix(col, shadeCube(ic, ro + rd * tc, rd), uCubeX[ic].w);
+    // the edge of a cube in front, missed by a hair: blended over a pixel (antialiasing)
+    float pxK = uPx / max(uEye.z, 1.0);
+    int ja = -1;
+    float ta = tc, da = 0.0;
+    for (int i = 0; i < uCubes; i++) {
+        if (i == ic) continue;
+        float tt;
+        float d = cubeNear(ro, rd, i, pxK * tc, 8, tt);
+        if (d > 0.0 && d < pxK * tt && tt < ta) { ta = tt; ja = i; da = d / (pxK * tt); }
+    }
+    if (ja >= 0) {
+        // shaded at the nearest point of its surface
+        vec3 c = uCubeP[ja].xyz;
+        float h = uCubeP[ja].w;
+        vec3 q = clamp(cubeLocal(ja, ro + rd * ta - c), -h, h);
+        vec3 ps = c + cubeWorld(ja, q);
+        col = mix(col, shadeCube(ja, ps, rd), (1.0 - da) * uCubeX[ja].w);
+    }
     return col;
 }
 
@@ -235,7 +298,8 @@ void main() {
     vec2 ndc = vUv * 2.0 - 1.0;
     vec3 ro = uEye;
     vec3 rd = normalize(vec3(ndc.x * uTan.x, ndc.y * uTan.y, -1.0));
-    vec3 col = trace(ro, rd);
+    vec3 bg;
+    vec3 col = trace(ro, rd, bg);
     // the well: a pane of frosted glass standing on the plinth; it veils the shadows behind it (the stack reads on a
     // calm ground) and catches the blocks' own short contact shadows; a hairline marks its edge
     float tp = (PANE_Z - ro.z) / rd.z;
@@ -246,6 +310,7 @@ void main() {
         // in the panel's own color at one steady level, whatever the lamps and the gels do
         vec3 paneCol = uPanel;
         float inside = 1.0 - smoothstep(-uPx * 0.5, uPx * 0.5, sd);
+        col = mix(col, bg, inside); // the thrown cubes never show over the well (only their shadows, veiled)
         col = mix(col, paneCol, 0.8 * inside); // the room shows faintly through it
         float line = 1.0 - smoothstep(0.0, uPx * 1.2, abs(sd));
         col *= 1.0 - 0.22 * line;
