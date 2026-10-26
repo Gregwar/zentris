@@ -41,6 +41,13 @@ struct Options {
     int width = 1600, height = 900;
 };
 
+// Test hook: ZEN_WARMUP=S plays S seconds (default 12) before a shot or a clip, so that the board fills and a
+// universe that accumulates (FLUO's paint) has time to build up.
+static double warmup() {
+    static const double w = std::getenv("ZEN_WARMUP") ? std::max(0.0, std::atof(std::getenv("ZEN_WARMUP"))) : 12.0;
+    return w;
+}
+
 static void usage() {
     std::printf(
         "usage: zentris [options] [songs or folders...]\n"
@@ -125,6 +132,12 @@ private:
     bool tetrisB2B_ = false;
     bool paused_ = false, wantSkip_ = false, showHelp_ = true, quit_ = false;
     double songTime_ = 0, simSongTime_ = 0;
+    bool offline_ = false; // shots and clips: the song runs on simSongTime_, not on the audio's clock
+    // The song reached its end: by the audio's clock when playing, by the simulated song time offline (a slow
+    // offline render must not run past the song's real length and start the next one).
+    bool songFinished() const {
+        return offline_ ? (!track_ || simSongTime_ >= track_->duration()) : audio_.finished();
+    }
     float trackAge_ = 0, helpTimer_ = 14.f, sceneNameTimer_ = 0, runTime_ = 0;
     // Gravity bookkeeping.
     // Slow-motion bonus: gravity runs at BONUS_GAME_SPEED (real time) while the music keeps its speed (only a
@@ -352,7 +365,7 @@ void App::updateGravity(double songTime, float dt) {
     const float diff = game_.difficulty();
     gameRate_ = approach(gameRate_, game_.bonusActive() ? BONUS_GAME_SPEED : 1.f, 3.f, dt);
     if (gameRate_ > 0.999f) gameRate_ = 1.f;
-    if (!track_ || audio_.finished()) {
+    if (!track_ || songFinished()) {
         fallbackTimer_ += dt * gameRate_;
         if (fallbackTimer_ > 0.9f * (1.f - 0.45f * diff)) { fallbackTimer_ = 0; game_.gravityStep(); }
         return;
@@ -567,6 +580,7 @@ int App::run() {
     const bool clipMode = !opt_.clipPath.empty();
     const bool shotMode = !opt_.shotPrefix.empty() || clipMode; // offline: fixed time step, no sound
     const bool reviewMode = !opt_.reviewPath.empty();
+    offline_ = shotMode;
     if (clipMode || reviewMode || !opt_.transitionShots.empty()) { showHelp_ = false; helpTimer_ = 0; }
     FILE* clipPipe = nullptr;
     std::vector<unsigned char> clipPx;
@@ -641,7 +655,7 @@ int App::run() {
             if (!nextTrack_ && !lib_.loading() && !lib_.empty()) lib_.prefetch(runSeed_ + (uint64_t)(runTime_ * 1000));
         }
         if (!track_ && nextTrack_) startTrack(std::move(nextTrack_));
-        if (track_ && nextTrack_ && (audio_.finished() || wantSkip_)) {
+        if (track_ && nextTrack_ && (songFinished() || wantSkip_)) {
             wantSkip_ = false;
             skipToast_ = 0;
             startTrack(std::move(nextTrack_));
@@ -650,7 +664,7 @@ int App::run() {
             if (clipStart_ < 0) {
                 const double drop = firstDropTime();
                 clipStart_ = std::max(0.0, drop - opt_.clipBefore);
-                simSongTime_ = std::max(0.0, clipStart_ - 12.0); // warm-up: the board fills, the scene settles
+                simSongTime_ = std::max(0.0, clipStart_ - warmup()); // warm-up: the board fills, the scene settles
                 std::printf("[clip] first drop at %.1f s: recording %.1f s .. %.1f s\n", drop, clipStart_,
                             clipStart_ + opt_.clipBefore + opt_.clipAfter);
             }
@@ -664,7 +678,7 @@ int App::run() {
                 if (simSongTime_ < end - 14.0) simSongTime_ = std::max(plan_.phases[k].start, end - 14.0);
             } else {
                 if (reviewMode && reviewPhase_ < 0) pickReviewTime();
-                if (simSongTime_ < opt_.shotTime - 12.0) simSongTime_ = opt_.shotTime - 12.0;
+                if (simSongTime_ < opt_.shotTime - warmup()) simSongTime_ = std::max(0.0, opt_.shotTime - warmup());
             }
             simSongTime_ += dt * audio_.currentSpeed();
             songTime_ = simSongTime_;
@@ -781,7 +795,7 @@ int App::run() {
             music_.beatPhase = (float)(bp - std::floor(bp));
             music_.beat = bp;
             music_.bpm = an.fp.bpm;
-            music_.hasSong = !audio_.finished();
+            music_.hasSong = !songFinished();
             float breath = 0.5f - 0.5f * std::cos(TAU * (float)std::fmod(bp / 8.0, 1.0));
             // Beat pulses only inside rare accent windows, as a soft swell (no hard hits).
             // Half time: whole-scene pulses come every two beats (on every beat they are tiring to watch).
@@ -833,7 +847,7 @@ int App::run() {
                 music_.glow = approach(music_.glow, prof.glow, ease, dt);
                 music_.saturation = approach(music_.saturation, prof.saturation, ease, dt);
             }
-            if (audio_.finished()) {
+            if (songFinished()) {
                 music_.beatPulse = 0;
                 music_.intensity = approach(music_.intensity, 0.2f, 0.5f, dt);
             }
@@ -995,12 +1009,12 @@ int App::run() {
                 glfwSwapBuffers(win_);
                 continue;
             }
-            if (reviewMode && !reviewFilled_ && shotSettle > 10.5f) {
+            if (reviewMode && !reviewFilled_ && shotSettle > warmup() - 1.5) {
                 game_.debugFillBoard(runSeed_);
                 reviewFilled_ = true;
             }
             shotSettle += dt;
-            if (shotSettle > 12.f) {
+            if (shotSettle > warmup()) {
                 char name[512];
                 std::snprintf(name, sizeof(name), "%s%02d.png", opt_.shotPrefix.c_str(), shotsTaken);
                 if (reviewMode) std::snprintf(name, sizeof(name), "%s", opt_.reviewPath.c_str());
