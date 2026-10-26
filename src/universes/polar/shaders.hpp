@@ -478,11 +478,11 @@ vec4 iceCube(vec2 wl, float d, vec3 pc, float k, float seed) {
     vec3 bg = behind(wl);
     vec2 wv = wl + seed * 3.7;
     float lum = dot(pc, vec3(0.2126, 0.7152, 0.0722));
-    // water: clear and saturated, the night through it (a faint caustic drifting while it falls, still once it has
-    // landed: a landed piece always has a seed > 0)
-    float ca = texture(uNoise, wl * 0.07 + vec2(uTime * 0.03, uTime * 0.05)).r;
-    float cb = texture(uNoise, wl * 0.09 - vec2(uTime * 0.04, -uTime * 0.02)).b;
-    float caus = smoothstep(0.9, 1.0, 1.0 - abs(ca - cb) * 3.0) * (seed > 0.0 ? 0.0 : 1.0);
+    // water: clear and saturated, the night through it, a caustic drifting in it (in world space, so nothing jumps
+    // when the piece lands; it fades out as the water sets)
+    float ca = texture(uNoise, vWorld * 0.07 + vec2(uTime * 0.03, uTime * 0.05)).r;
+    float cb = texture(uNoise, vWorld * 0.09 - vec2(uTime * 0.04, -uTime * 0.02)).b;
+    float caus = smoothstep(0.9, 1.0, 1.0 - abs(ca - cb) * 3.0) * (1.0 - smoothstep(0.0, 0.5, k));
     float glow = 0.75 + 0.25 * smoothstep(0.0, 0.45, d);
     vec3 vivid = clamp(mix(vec3(lum), pc, 1.3), 0.0, 1.0);
     float wet = exp(-d / 0.035);
@@ -498,11 +498,11 @@ vec4 iceCube(vec2 wl, float d, vec3 pc, float k, float seed) {
     float frosted = max(band, needles * 0.9) * step(0.001, k);
     // the cloudy core: the body clouds over to milk as it freezes, densest in the middle
     float milk = smoothstep(0.2, 0.9, k) * (0.5 + 0.5 * smoothstep(0.05, 0.4, d));
-    vec3 pastel = mix(pc, vec3(lum) * 0.5 + 0.5, 0.12);
+    vec3 pastel = mix(pc, vec3(lum) * 0.5 + 0.5, 0.3);
     float core = smoothstep(0.08, 0.5, d + (n - 0.5) * 0.15);
-    vec3 cloudy = mix(water, mix(pastel * (0.8 + 0.1 * n), mix(pastel, vec3(1.0), 0.15) * 0.95, core), milk);
+    vec3 cloudy = mix(water, mix(pastel * (0.8 + 0.1 * n), mix(pastel, vec3(1.0), 0.35) * 0.95, core), milk);
     // frosted surface: whitish, tinted, a crystalline grain
-    vec3 frost = pastel * (0.8 + 0.1 * n2 + 0.08 * fe) + vec3(0.1) * smoothstep(0.55, 0.85, grain);
+    vec3 frost = mix(pastel, vec3(1.0), 0.25) * (0.82 + 0.1 * n2 + 0.08 * fe) + vec3(0.1) * smoothstep(0.55, 0.85, grain);
     vec3 col = mix(cloudy, frost, frosted * mix(0.95, 0.55 * (1.0 - core * 0.6), smoothstep(0.75, 1.0, k)));
     float a = mix(0.9, 0.97, max(frosted, milk));
     return vec4(col, a);
