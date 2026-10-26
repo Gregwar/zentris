@@ -529,7 +529,7 @@ vec3 ice(vec2 w, float d, vec2 g, float s, vec3 pc, float frozen, float frost) {
     {
         float cl = texture(uNoise, w * 0.23 + 1.7).r * 0.6 + texture(uNoise, w * 0.61 + 0.4).b * 0.4;
         float heart = smoothstep(0.2, 0.5, d) * smoothstep(0.35, 0.75, cl);
-        solid += mix(pc, vec3(1.0), 0.4) * heart * 0.1;
+        solid += mix(pc, vec3(1.0), 0.4) * heart * 0.2;
     }
 
     // liquid: tinted water glowing from within, caustics drifting through it
@@ -605,16 +605,16 @@ void main() {
         float frozen = kind == 0 ? 1.0 : 0.0;
         float rime = 0.0;
         if (kind == 0 && age >= 0.0) {
-            // freezing: a front of frost crystallising from the contact across the piece, the water turning to ice
-            // behind it, the frost clearing as it goes
+            // freezing, slowly (FREEZE s): the piece locks as clear water, ice crystallises from the contact across it
+            // behind a feathered front of frost, then hardens, so the fresh pieces read apart from the old ice
+            const float FREEZE = 7.0;
             vec2 contact = v0.xy + v3.yz;
             float cr = fern(vWorld * 0.9);
-            float dist = length(vWorld - contact) + (texture(uNoise, vWorld * 0.5).r - 0.5) * 0.6 - cr * 0.25;
-            float k = clamp(age / 0.4, 0.0, 1.0);
-            float front = 4.8 * (1.0 - (1.0 - k) * (1.0 - k)) - 0.2 - dist;
-            frozen = smoothstep(-0.03, 0.12, front);
-            rime = frozen * exp(-max(front, 0.0) / 0.6) * (1.0 - smoothstep(0.35, 0.8, age)) * (0.45 + 0.55 * cr);
-            rime = max(rime, exp(-pow(front / 0.07, 2.0)) * (1.0 - smoothstep(0.3, 0.45, age)));
+            float dist = length(vWorld - contact) + (texture(uNoise, vWorld * 0.5).r - 0.5) * 0.6 - cr * 0.35;
+            float k = clamp(age / FREEZE, 0.0, 1.0);
+            float front = 6.5 * pow(k, 0.75) - 0.3 - dist;
+            frozen = smoothstep(0.0, 1.4, front);
+            rime = exp(-pow((front - 0.1) / 0.14, 2.0)) * (0.25 + 0.75 * cr) * (1.0 - smoothstep(0.8, 1.0, k)) * 0.6;
         }
         vec3 col = ice(vWorld, max(d - SEAM, 0.0), g, s, pc, frozen, frost);
         col = mix(col, mix(uFrostCol, pc, 0.2) * 1.15 + uAurLight, rime * 0.85);

@@ -65,6 +65,7 @@ constexpr float TAN_H = 0.4452f;                 // the world camera's half fiel
 constexpr float EYE = 1.7f;                      // standing in the snow
 constexpr float WELL_X = 5.2f, WELL_Y = 10.2f;   // the well's sheet of ice (half extents, board)
 constexpr int FLAKES = 320;
+constexpr float FREEZE_SECONDS = 7.f;            // a locked piece's water turning to ice (shaders.hpp: FREEZE)
 
 vec2 v2(float x, float y) { return vec2{x, y}; }
 vec2 operator+(vec2 a, vec2 b) { return {a.x + b.x, a.y + b.y}; }
@@ -761,7 +762,7 @@ void PolarUniverse::buildBoard(const Game& g) {
             const int id = idAt(x, y);
             // freezing: seconds since it locked (-1: ice long since), the contact relative to the cell (board units)
             float age = -1.f, cdx = 0.f, cdy = 0.f;
-            if (id >= 0 && iceClock_ - ice_[y][x].t0 < 1.f) {
+            if (id >= 0 && iceClock_ - ice_[y][x].t0 < FREEZE_SECONDS) {
                 age = iceClock_ - ice_[y][x].t0;
                 cdx = ice_[y][x].cx - x;
                 cdy = y - ice_[y][x].cy;
