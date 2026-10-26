@@ -176,7 +176,6 @@ const Variant VARIANTS[] = {
      0x4AA0B4, 0x10305A, {{0x061A24, 0x184A4C}, {0x081E2C, 0x1E5A58}, {0x0A2032, 0x2E6A62}}, P_PINE, P_PINE, P_BUSH, 1},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
-const char* TOD_NAMES[4] = {"DAWN", "DAY", "GOLDEN HOUR", "DUSK"};
 
 // The song's variant: its key (the hue follows the circle of fifths), its mode and the seed.
 int variantOf(const SongLook& l) {
@@ -214,14 +213,9 @@ const TodKey TOD[4] = {
     {0x3C4586, 0xF0957A, 0xFF8E62, 1.9f, 0x8A80B8, 0.52f, 0xC99488, 0.3f, 0x9E8ACB, 0xFF7E55,
      0.0028f, 0.12f, 1.f, 0.7f, 0.4f, 0.6f, 0.6f, 1.f, 0.98f, 0.15f, {0.7f, 0.2f, 0.68f}, {0.6f, 0.012f, -0.8f}},
 };
-// night: the light of the night places, and the slow-motion bonus elsewhere (moonlight, the blocks become lanterns)
+// night: the light of every place (moonlight, the tower's lanterns lit); the slow-motion bonus brings the day
 const TodKey NIGHT = {0x0A1030, 0x1E2A52, 0x9DB4FF, 0.62f, 0x41528E, 0.36f, 0x262840, 0.2f, 0x7078B8, 0x7F98D8,
                       0.005f, 0.3f, 0.5f, 0.4f, 0.15f, 0.2f, 0.18f, 1.f, 1.0f, 1.f, {-0.45f, 0.62f, 0.62f}, {-0.35f, 0.3f, -0.88f}};
-// still night: the slow-motion bonus in a night place (time stands still: a pale silver moon, a green glow on the
-// horizon, every star out, the water glassy, the blocks become lanterns)
-const TodKey STILL = {0x080E30, 0x1F6470, 0xCFE4FF, 0.66f, 0x5470B0, 0.4f, 0x2E3450, 0.22f, 0x8A9ADA, 0x8FF0D8,
-                      0.004f, 0.22f, 0.9f, 0.55f, 0.f, 0.03f, 0.04f, 0.35f, 0.88f, 1.f, {0.1f, 0.7f, 0.7f}, {0.05f, 0.42f, -0.9f}};
-const float TOD_AT[4] = {0.f, 1.f, 2.f, 2.6f};
 const char* NIGHT_NAMES[4] = {"MOONRISE", "MIDNIGHT", "STARLIGHT", "LANTERN HOUR"};
 
 // A light (one key, or a blend of keys) in linear values.
@@ -1019,7 +1013,7 @@ TransitionHints DioramaUniverse::hints() const {
     h.ink = hex(0x4D3B3E);
     h.accent = hex(V.piece[2]);
     h.light = true;
-    if (inverted_ || V.night) { // night (a night place, or the slow motion)
+    if (!inverted_) { // night (always, but for the slow motion's day)
         h.background = V.night ? lerp(hex(V.sky[1][1]), hex(V.sky[1][0]), 0.4f) : hex(NIGHT.horizon);
         h.ink = hex(0xFFF9EF);
         h.light = false;
@@ -1199,40 +1193,36 @@ void DioramaUniverse::computeEnv(float dt, const MusicState& music) {
     night_ = approach(night_, inverted_ ? 1.f : 0.f, 2.2f, dt);
     for (int i = 0; i < MAX_VARIANTS; i++) propGrow_[i] = approach(propGrow_[i], i == worldTo_ ? 1.f : 0.f, wm > 0.5f ? 2.5f : 0.6f, dt);
 
-    // Interpolate the two keys around tod_.
-    int k = 0;
-    while (k < 2 && tod_ > TOD_AT[k + 1]) k++;
-    const float f = smoothstepf(0.f, 1.f, saturate((tod_ - TOD_AT[k]) / (TOD_AT[k + 1] - TOD_AT[k])));
     const Variant &VA = VARIANTS[worldFrom_], &VB = VARIANTS[worldTo_];
-    // Night places (blended across a song change) and the bonus night.
-    nightV_ = lerpf((float)VA.night, (float)VB.night, wm);
+    // Always night (the moon crossing the sky with the phases); the slow-motion bonus turns it to day.
     const float n = smoothstepf(0.f, 1.f, night_);
-    nightAll_ = std::max(nightV_, n);
-    Light L = mixLight(lightOf(TOD[k]), lightOf(TOD[k + 1]), f);
-    if (nightV_ > 0.f) {
-        // A night place: the moon crosses the sky with the phases (rising on the left, high, low on the right),
-        // brighter toward the peak.
-        Light N = lightOf(NIGHT);
+    nightV_ = 1.f - n;
+    nightAll_ = nightV_;
+    Light N = lightOf(NIGHT);
+    {
+        // the moon rises on the left, stands high, sets on the right, brighter toward the peak
         const float u = saturate(tod_ / 2.6f);
         N.sunDir = normalize(vec3(lerpf(-0.6f, 0.6f, u), 0.45f + 0.3f * std::sin(u * PI), 0.62f));
         N.skySun = normalize(vec3(lerpf(-0.5f, 0.5f, u), 0.05f + 0.1f * std::sin(u * PI), -0.86f));
         N.sunI *= 0.9f + 0.25f * u;
         N.stars *= 1.f - 0.3f * u;
         N.cloud = 0.25f;
-        L = mixLight(L, N, nightV_);
     }
-    // The bonus: night (in a day place) or the still night (in a night place).
-    L = mixLight(L, mixLight(lightOf(NIGHT), lightOf(STILL), nightV_), n);
+    Light L = mixLight(N, lightOf(TOD[1]), n);
     Env& e = env_;
-    // Sky: the variant's own gradients (dawn / day / golden hour, or its three nights); dusk is shared by the day
-    // places, a night place keeps its peak night.
-    auto skyKey = [&](int key, int which) {
-        auto one = [&](const Variant& V) { return key >= 3 && !V.night ? hex(which ? TOD[3].horizon : TOD[3].zenith) : hex(V.sky[std::min(key, 2)][which]); };
+    // Sky: a night place's own three nights (calm / mid / peak), the shared night elsewhere; by day (the bonus)
+    // the place's own day sky (the shared one for a night place).
+    const int nk = tod_ < 0.5f ? 0 : tod_ < 1.5f ? 1 : 2;
+    auto skyOf = [&](int which) {
+        auto one = [&](const Variant& V) {
+            const vec3 ni = V.night ? hex(V.sky[nk][which]) : hex(which ? NIGHT.horizon : NIGHT.zenith);
+            const vec3 dy = V.night ? hex(which ? TOD[1].horizon : TOD[1].zenith) : hex(V.sky[1][which]);
+            return lerp(ni, dy, n);
+        };
         return lerp(one(VA), one(VB), wm);
     };
-    const Light B = mixLight(lightOf(NIGHT), lightOf(STILL), nightV_);
-    e.zenith = lerp(lerp(skyKey(k, 0), skyKey(k + 1, 0), f), B.zenith, n);
-    e.horizon = lerp(lerp(skyKey(k, 1), skyKey(k + 1, 1), f), B.horizon, n);
+    e.zenith = skyOf(0);
+    e.horizon = skyOf(1);
     e.sunCol = L.sun * L.sunI;
     e.skyCol = L.sky * L.skyI;
     e.groundCol = L.ground * L.groundI;
@@ -1256,7 +1246,9 @@ void DioramaUniverse::computeEnv(float dt, const MusicState& music) {
     e.wave = L.wave * (0.5f + 0.9f * E) + 0.25f * gust_;
     e.glint = (1.f + 0.6f * music.bandsFast[NUM_BANDS - 3] * E) * (1.f - 0.4f * nightAll_);
     // Landscape palette (blended across a song change).
-    for (int i = 0; i < 16; i++) e.pal[i] = lerp(hex(VA.c[i]), hex(VB.c[i]), wm);
+    // (a day place's clay is pale: by night it is toned down to the night places' values; the lantern slot stays)
+    auto clay = [&](const Variant& V, int i) { return hex(V.c[i]) * (V.night || i == 15 ? 1.f : lerpf(0.74f, 1.f, n)); };
+    for (int i = 0; i < 16; i++) e.pal[i] = lerp(clay(VA, i), clay(VB, i), wm);
     e.shallow = lerp(hex(VA.shallow), hex(VB.shallow), wm);
     e.deep = lerp(hex(VA.deep), hex(VB.deep), wm);
     for (int i = 0; i < 7; i++) e.piece[i] = lerp(hex(VA.piece[i]), hex(VB.piece[i]), wm);
@@ -1664,7 +1656,7 @@ void DioramaUniverse::drawScene(bool depthOnly, bool mirror) {
     setMat(pb, "uVP", VP);
     setMat(pb, "uMirror", M);
     set1f(pb, "uClipY", clipY);
-    if (!depthOnly) set1f(pb, "uLanternGlow", lerpf(0.3f * nightV_, 0.85f, smoothstepf(0.f, 1.f, night_)));
+    if (!depthOnly) set1f(pb, "uLanternGlow", 0.3f * nightV_);
     drawInstances(cube_, solid_, pb);
     drawInstances(sphere_, beads_, pb);
 }
@@ -2015,8 +2007,7 @@ void DioramaUniverse::layoutHud(const std::vector<HudText>& in, std::vector<HudT
     out.clear();
     const float tod = tod_;
     const int mi = tod < 0.5f ? 0 : tod < 1.5f ? 1 : tod < 2.3f ? 2 : 3;
-    const bool nightPlace = VARIANTS[worldTo_].night != 0;
-    const char* moment = night_ > 0.5f ? (nightPlace ? "STILL NIGHT" : "NIGHT") : nightPlace ? NIGHT_NAMES[mi] : TOD_NAMES[mi];
+    const char* moment = night_ > 0.5f ? "DAY" : NIGHT_NAMES[mi];
 
     for (size_t i = 0; i < in.size(); i++) {
         HudText t = in[i];
