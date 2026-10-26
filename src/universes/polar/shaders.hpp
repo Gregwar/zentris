@@ -509,7 +509,7 @@ vec3 ice(vec2 w, float d, vec2 g, float s, vec3 pc, float frozen, float frost) {
     vec3 solid = bg * trans * 1.4 + deepTint * (0.12 + 0.7 * pow(core, 1.3)) * (0.85 + 0.3 * n) + pc * 0.03;
     // the light caught inside: a bright line along the inner faces away from the light (total reflection)
     {
-        vec2 gn = normalize(g + 1e-5);
+        vec2 gn = g / max(length(g), 1e-4);
         float away = smoothstep(-0.2, 0.7, dot(gn, normalize(vec2(-0.55, 0.85))));
         float inner = exp(-pow((d - 0.11) / 0.022, 2.0));
         solid += mix(pc, vec3(1.0), 0.45) * inner * away * 0.32;
@@ -613,10 +613,11 @@ void main() {
             float k = clamp(age / 0.4, 0.0, 1.0);
             float front = 4.8 * (1.0 - (1.0 - k) * (1.0 - k)) - 0.2 - dist;
             frozen = smoothstep(-0.03, 0.12, front);
-            rime = frozen * exp(-max(front, 0.0) / 0.35) * (1.0 - smoothstep(0.3, 0.75, age)) * (0.35 + 0.65 * cr);
+            rime = frozen * exp(-max(front, 0.0) / 0.6) * (1.0 - smoothstep(0.35, 0.8, age)) * (0.45 + 0.55 * cr);
+            rime = max(rime, exp(-pow(front / 0.07, 2.0)) * (1.0 - smoothstep(0.3, 0.45, age)));
         }
         vec3 col = ice(vWorld, max(d - SEAM, 0.0), g, s, pc, frozen, frost);
-        col = mix(col, mix(uFrostCol, pc, 0.25) * 1.1 + uAurLight, rime * 0.75);
+        col = mix(col, mix(uFrostCol, pc, 0.2) * 1.15 + uAurLight, rime * 0.85);
         col = mix(col, uBridgeInk, bridgeK);
         float a = cov * alpha * mix(0.92, 0.97, frozen);
         frag = vec4(col * a, a);
@@ -663,20 +664,22 @@ void main() {
                 edge = e;
                 tr = tt;
             }
-        if (!found) discard;
+        if (!found || w.y < -10.15) discard;
         float up;
         float d = iceDepth(q0 - cc, mask, up);
-        vec2 g = vec2(dFdx(d), dFdy(d)) / px;
+        // the depth's gradient by finite differences (the neighbouring pixels may belong to another shard)
+        const float E = 0.01;
+        vec2 g = vec2(iceDepth(q0 - cc + vec2(E, 0.0), mask, up) - d, iceDepth(q0 - cc + vec2(0.0, E), mask, up) - d) / E;
         float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, SEAM - d);
         if (cov <= 0.0) discard;
         vec3 col = ice(q0, max(d - SEAM, 0.0), g, 1.0, pc, 1.0, 0.0);
-        vec3 crackCol = mix(uFrostCol, pc, 0.2) * 1.4 + uAurLight * 2.0;
+        vec3 crackCol = mix(uFrostCol, pc, 0.3) * 1.05 + uAurLight * 1.5;
         // the crack lines (before it breaks), then the broken faces catching the light
         float reached = step(abs(q0.x - ox) * 0.012, t);
-        float line = 1.0 - smoothstep(px * 0.5, px * 1.5, edge);
+        float line = (1.0 - smoothstep(px * 0.3, px * 1.1, edge)) * 0.8;
         col = mix(col, crackCol, line * reached * (1.0 - step(0.001, tr)));
-        col += crackCol * exp(-edge / 0.05) * 0.5 * step(0.001, tr);
-        col += crackCol * 0.25 * reached * exp(-t * 12.0);
+        col += crackCol * exp(-edge / 0.04) * 0.35 * step(0.001, tr);
+        if (any(isnan(col))) col = vec3(0.0);
         float a = cov * alpha * (1.0 - smoothstep(0.1, 0.32, tr)) * (1.0 - uBridge);
         frag = vec4(col * a, a);
         return;
