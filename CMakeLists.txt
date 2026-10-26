@@ -124,7 +124,16 @@ add_executable(zentris
   src/main.cpp
   src/game.cpp
   src/input.cpp
+  src/headless.cpp
 )
+# Offline renders run headless on the GPU through EGL where it exists (Linux).
+if(UNIX AND NOT APPLE)
+  find_package(OpenGL QUIET COMPONENTS EGL)
+  if(OpenGL_EGL_FOUND)
+    target_link_libraries(zentris PRIVATE OpenGL::EGL)
+    target_compile_definitions(zentris PRIVATE ZEN_HAVE_EGL)
+  endif()
+endif()
 target_link_libraries(zentris PRIVATE zenrender zencore glfw glad)
 # Gamepad mappings (SDL_GameControllerDB): looked up next to the executable, then in the sources.
 target_compile_definitions(zentris PRIVATE ZEN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
