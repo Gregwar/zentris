@@ -80,7 +80,7 @@ const VariantDef VARIANTS[] = {
      {0x5f9e80, 0xd2952e, 0x23283a, 0x5b3a22, 0x9a2c2c, 0x2a54a6, 0x878b88}, 1.f},
     {"SIGNAL", 0xf0f0f0, 0xf6f6f6, 0x161616, 0xf4f4f4, 0xe8322a, 0xffffff, 0xfff0e4, 0xf3f4f6, 0xff2010, 0x00a8ff, 0xf6f6f6,
      {0x1c1c1e, 0xe8322a, 0x5a5d63, 0x8f1a20, 0xf27a56, 0x949aa3, 0xd8487c}, 1.f},
-    {"GREY ROOM", 0x8e8f8f, 0x989998, 0xf2ede2, 0xf2ede2, 0xf0b23a, 0xffd2a0, 0xffc282, 0xb8c4dc, 0xff9a20, 0x10b8ff, 0xd8d6d0,
+    {"GREY ROOM", 0x8e8f8f, 0x989998, 0xf2ede2, 0xf2ede2, 0xf0b23a, 0xffe2c4, 0xffd4a8, 0xc4d0e8, 0xff9a20, 0x10b8ff, 0xd8d6d0,
      {0xf2ead8, 0xf0b23a, 0xc070b0, 0x2fb3a8, 0xf06f55, 0x8a9cf0, 0x9cc48a}, 0.9f},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
@@ -575,8 +575,8 @@ void WhiteRoomUniverse::computeLights(const MusicState& music) {
     const float orbit2 = (float)std::cos(TAU * std::fmod(music.beat / 32.0, 1.0));
     vec3 keyCol = lerp(pal_.key, pal_.warm, warm) * key;
     // the drop: the key turns into the first gel and swings low, the second gel comes in from the other side
-    const float gx0 = -1.6f + 0.25f * orbit, gy0 = 0.28f + 0.08f * orbit2;
-    const float gx1 = 1.6f + 0.25f * orbit, gy1 = 0.22f - 0.08f * orbit2;
+    const float gx0 = -1.6f + 0.45f * orbit, gy0 = 0.28f + 0.12f * orbit2;
+    const float gx1 = 1.6f + 0.45f * orbit, gy1 = 0.22f - 0.12f * orbit2;
     sx = lerpf(sx + 0.16f * orbit * wp, gx0, d);
     sy = lerpf(sy, gy0, d);
     soft = lerpf(soft, 0.06f, d);
@@ -845,8 +845,8 @@ void WhiteRoomUniverse::drawHud(const std::vector<HudText>& hud, const std::vect
             drawText(fontMedium_, q, ink, a, 0.f);
             if (!var.empty()) {
                 q.clear();
-                textQuads(fontLight_, var, x + wName + gap, h.y + base * 0.2f, vsz, vtr, q);
-                drawText(fontLight_, q, dim, a, 0.04f);
+                textQuads(fontMedium_, var, x + wName + gap, h.y + base * 0.2f, vsz, vtr, q);
+                drawText(fontMedium_, q, ink, a * 0.8f, 0.f);
             }
             continue;
         }
