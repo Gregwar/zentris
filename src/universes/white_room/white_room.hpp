@@ -31,7 +31,7 @@ public:
     struct Palette {
         vec3 wall, panel, ink, inkLight, accent, key, warm, amb, gelA, gelB, plaster;
         vec3 piece[7];
-        float exposure; // the grey room is a dimmer room
+        float exposure; // the dark room is lit harder
     };
 
 private:

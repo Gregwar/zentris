@@ -85,10 +85,11 @@ const VariantDef VARIANTS[] = {
     // celadon glazes and tenmoku browns, ash, one kaki; gels of gold and jade
     {"CERAMIC", 0xefebe2, 0xf5f1e9, 0x2c2520, 0xf5f0e6, 0xb0602e, 0xfffaf0, 0xffe4c0, 0xf6f0e6, 0xffc45a, 0x5ad6a8, 0xf5f1e9,
      {0x8fb3a0, 0x9a7a5a, 0x2a4038, 0x4f8070, 0xb0602e, 0x3e2a20, 0x8c8a82}, 1.f},
-    // a dim evening room, a charcoal pane: light warm blocks (ivory, sand, apricot, rose clay), sage and sea grey, one saffron;
-    // gels of amber and teal
-    {"GREY ROOM", 0x8e8f8f, 0x3a3b3c, 0xf2ede2, 0xf2ede2, 0xe0a33a, 0xffe2c4, 0xffd4a8, 0xc4d0e8, 0xffa040, 0x46c8c0, 0xd8d6d0,
-     {0xefe6d2, 0xe0a33a, 0xb87a70, 0xb5c4a0, 0xd98a5e, 0x7fa8a4, 0xcdb48c}, 0.9f},
+    // a dark room: a black studio, a black pane, flashy blocks (electric cyan, lemon, hot pink, acid lime,
+    // tangerine, ultraviolet, white) and hard light, the shadow play clear on the lit black wall; gels of hot pink
+    // and cyan
+    {"DARK ROOM", 0x404046, 0x0c0c0e, 0xf0f0f2, 0xf0f0f2, 0xff3ea5, 0xffffff, 0xfff0e0, 0x161a24, 0xff3e9a, 0x2ad8ff, 0x2a2a2e,
+     {0x22e4ff, 0xfff04a, 0xff3ea5, 0x7dff5a, 0xff6a2a, 0x8a5cff, 0xf4f4f4}, 1.35f},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 
@@ -296,7 +297,7 @@ WhiteRoomUniverse::~WhiteRoomUniverse() {
 // =====================================================================================================
 
 // The room from the song: bright major songs get the clean whites (GALLERY, NORDIC), warm ones the linen and the
-// ceramics, dark minor ones the grey room or the cold sea; the key's hue picks among them.
+// ceramics, dark minor ones the dark room or the cold sea; the key's hue picks among them.
 int WhiteRoomUniverse::pickVariant(const SongLook& t) const {
     float h = std::fmod(t.hue / TAU, 1.f);
     if (h < 0) h += 1.f;
@@ -593,11 +594,14 @@ void WhiteRoomUniverse::computeLights(const MusicState& music) {
     vec3 p1 = gb;
     radius = lerpf(radius, 1.0f, d);
     shadow = lerpf(shadow, 1.0f, d);
-    const float flare = 1.f + 0.18f * swell_ * d;
+    // a dark room (no ambient to speak of): the key is a spotlight, a hard pool of light on the black wall with the
+    // shadow play inside it; its gels stay narrower beams on the black
+    const float dark = 1.f - smoothstepf(0.05f, 0.3f, ugl::luma(pal_.amb));
+    const float flare = (1.f + 0.18f * swell_ * d) * lerpf(1.f, 0.85f, dark);
     vec3 c0 = lerp(keyCol, pal_.gelA * 1.3f * flare, d);
     vec3 c1 = pal_.gelB * 1.3f * flare * d;
     vec3 ambC = pal_.amb * lerpf(amb, 0.14f, d);
-    ambC = lerp(ambC, (pal_.gelA + pal_.gelB) * 0.12f, d * 0.3f);
+    ambC = lerp(ambC, (pal_.gelA + pal_.gelB) * 0.12f, d * 0.3f * (1.f - dark));
     p0.x *= side_;
     p1.x *= side_;
     // slow motion: evening, one warm lamp hanging over the well
@@ -619,7 +623,7 @@ void WhiteRoomUniverse::computeLights(const MusicState& music) {
     amb_ = ambC * e;
     ambB_ = amb_ * 0.95f;
     shadowAmt_ = shadow;
-    pool_ = vec4(p0.x * 0.4f, 2.f + p0.y * 0.2f, 15.f, pool * (1.f - d) * (1.f - s));
+    pool_ = vec4(p0.x * 0.4f, 2.f + p0.y * 0.2f, lerpf(15.f, 10.f, dark), lerpf(pool, 2.2f, dark) * (1.f - d) * (1.f - s));
     // how lit the wall is (for the lettering's ink)
     const vec3 d0 = normalize(p0), d1 = normalize(p1);
     wallLum_ = ugl::luma(pal_.wall * (amb_ + l0_.col * std::max(0.f, d0.z) + l1_.col * std::max(0.f, d1.z)));
