@@ -109,19 +109,25 @@ layout(location = 1) in vec4 a0;   // x, y, size, neighbour mask (L R D U LD RD 
 layout(location = 2) in vec4 a1;   // linear rgb, alpha
 layout(location = 3) in vec4 a2;   // grain origin x, y, crumble 0..1, ghost
 layout(location = 4) in vec4 a3;   // seed, moss on the top edge, -, -
+layout(location = 5) in vec4 a4;   // the soils joined on the L R D U sides (packed, -1: none)
 uniform mat4 uVP;
 out vec2 vP;
-flat out vec4 v0, v1, v2, v3;
+flat out vec4 v0, v1, v2, v3, v4;
 void main() {
     vP = aQ * 0.5;
-    v0 = a0; v1 = a1; v2 = a2; v3 = a3;
+    v0 = a0; v1 = a1; v2 = a2; v3 = a3; v4 = a4;
     gl_Position = uVP * vec4(a0.xy + aQ * 0.5 * a0.z, 0.0, 1.0);
 }
 )";
 inline const char* CELL_FS = R"(#version 330 core
 in vec2 vP;
-flat in vec4 v0, v1, v2, v3;
+flat in vec4 v0, v1, v2, v3, v4;
 out vec4 frag;
+vec3 unpackSoil(float f) {
+    float v = floor(f + 0.5);
+    vec3 c = vec3(floor(v / 65536.0), mod(floor(v / 256.0), 256.0), mod(v, 256.0)) / 255.0;
+    return c * c;
+}
 uniform float uPx, uBridge;
 uniform vec3 uBridgeInk, uMoss;
 float boxD(vec2 p, vec2 o) {
@@ -165,6 +171,23 @@ void main() {
         a = max(a, band * step(0.72, cr) * smoothstep(0.2, 0.12, length(cq)));
     }
     vec3 base = v1.rgb;
+    // the earth is one mass: next to a joined clod the two soils mix over a ragged band (half and half right at
+    // the join, so both cells meet on the same color)
+    if (!ghost) {
+        // the distance to each side (L R D U, as the mask)
+        vec4 sideD = vec4(0.5 + vP.x, 0.5 - vP.x, 0.5 + vP.y, 0.5 - vP.y);
+        vec3 sum = vec3(0.0);
+        float wsum = 0.0;
+        for (int i = 0; i < 4; i++) {
+            float f = v4[i];
+            if (f < 0.0) continue;
+            float t = sideD[i];
+            float w = 0.5 * (1.0 - smoothstep(0.0, 0.32, t + (fbm((v0.xy + vP * size) * 4.0 + 5.0) - 0.5) * 0.22));
+            sum += unpackSoil(f) * w;
+            wsum += w;
+        }
+        if (wsum > 0.0) base = mix(base, sum / wsum, min(wsum, 0.5));
+    }
     vec3 col = base;
     if (!ghost) {
         float tb = 1.0 - uBridge;
