@@ -63,6 +63,10 @@ noticeable at a glance) matter far more than the slow motion bonus or the game o
 - Drops never move the stack, the pieces, the previews or the HUD (no registration offset, shake or jolt on them),
   and large background motion stays slow (no big shapes jumping, sliding or re-composing on beats): fast moving
   shapes on a drop cause nausea. Show the drop with color, density and slow envelopes instead.
+- Whole-scene pulses (the background brightening, the world surging) stay regular and slow: on the beat grid, never
+  on detected onsets (they fire on syncopations and miss beats: irregular pulses are dizzying), and every two beats
+  or slower, never on every beat. The host's `kick` and `beatPulse` already follow this (every two beats, their
+  strength from the music); a universe keeping its own beat clock pulses at half time (`music.beat / 2`).
 - Merging cells into one shape is fine when it is the universe's design (one brush stroke per piece in SUMI),
   never by accident (different pieces of the same color fusing).
 

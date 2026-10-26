@@ -584,9 +584,11 @@ void SmokeUniverse::simulate(const Game& game, const MusicState& music, float dt
     }
     const float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 2.f, lv_);
 
-    // The smoke rises and rolls: a slow glide on each beat (mid, peak), barely drifting when calm.
+    // The smoke rises and rolls: a slow glide every two beats (mid, peak; on every beat it is tiring to watch),
+    // barely drifting when calm.
     {
-        const float ph = music.beatPhase;
+        const double b2 = music.beat / 2.0;
+        const float ph = (float)(b2 - std::floor(b2));
         if (ph < lastBeatPhase_ - 0.5f) beats_ += 1.f;
         lastBeatPhase_ = ph;
         const float e = 1.f - std::pow(1.f - ph, 2.4f);
@@ -594,7 +596,7 @@ void SmokeUniverse::simulate(const Game& game, const MusicState& music, float dt
         float d = lastEased_ < 0.f ? 0.f : eased - lastEased_;
         if (d < 0.f || d > 2.f) d = 0.f;
         lastEased_ = eased;
-        const float perBeat = 0.004f + 0.007f * wm + 0.007f * wp; // noise units per beat
+        const float perBeat = 2.f * (0.004f + 0.007f * wm + 0.007f * wp); // noise units per two beats
         const float speed = music.hasSong ? d * perBeat * (wdt / std::max(dt, 1e-4f)) : wdt * 0.008f;
         const float calm = wdt * 0.003f;
         flow_.y -= speed + calm;

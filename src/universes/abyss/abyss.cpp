@@ -614,7 +614,9 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
     rays_ = approach(rays_, 1.f - 0.8f * wm, 0.3f, dt);
 
     // The beat: creatures contract and flash on each beat (mid, peak); a slow breath without a song.
-    float ph = music.hasSong ? music.beatPhase : std::fmod(worldTime_ * 0.5f, 1.f);
+    // half time: the scene's pulses come every two beats (on every beat they are tiring to watch)
+    const double b2 = music.beat / 2.0;
+    float ph = music.hasSong ? (float)(b2 - std::floor(b2)) : std::fmod(worldTime_ * 0.25f, 1.f);
     beatPh_ = ph;
     const float beatW = music.hasSong ? (0.35f + 0.65f * wm) : 0.4f;
     beatGlow_ = std::exp(-ph * 4.5f) * beatW * (0.6f + 0.4f * wp) + 0.3f * saturate(music.beatPulse) * wp;
@@ -624,7 +626,8 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
     const bool downbeat = music.hasSong && ((long long)std::floor(music.beat + 0.5) % 4 + 4) % 4 == 0;
     const float accent = downbeat ? 1.f : 0.7f;
 
-    // The peak pulses on the beat grid (steady, every beat, the downbeat stronger; the detected kicks are irregular):
+    // The peak pulses on the beat grid (steady, every two beats, the downbeat stronger; the detected kicks are
+    // irregular):
     // the plankton flares (no ring of light: nothing expanding).
     sinceKick_ += dt;
     const float kick = std::max(beatHit ? accent : 0.f, kickIn_);
@@ -648,7 +651,7 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
     }
     prevKick_ = kick;
     // the pulse's envelope, from the beat phase itself (the same shape on every beat)
-    kickEnv_ = std::max(music.hasSong ? std::exp(-ph * 5.f) * accent : 0.f, kickIn_);
+    kickEnv_ = std::max(music.hasSong ? std::exp(-ph * 4.f) * accent : 0.f, kickIn_);
     bloom_ = approach(bloom_, 0.f, 1.2f, dt);
     surge_ = approach(surge_, 0.f, 0.45f, dt); // a few seconds
     // A drop's peak against a chorus' one (both the top level): the drop's sections drive harder (the song

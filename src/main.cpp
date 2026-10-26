@@ -110,6 +110,7 @@ private:
     double dropAt_ = -1; // song time of the next drop hit (the first downbeat of a peak), -1 none
     float skipToast_ = 0;
     float hit_ = 0;
+    float kickLevel_ = 0; // how much kick the music has right now (slow: over a few beats)
     int lastSeg_ = 0;          // for soft refreshes between same-level sections
     float seekToast_ = 0;
     std::string failedTitle_;
@@ -788,12 +789,18 @@ int App::run() {
             music_.hasSong = !audio_.finished();
             float breath = 0.5f - 0.5f * std::cos(TAU * (float)std::fmod(bp / 8.0, 1.0));
             // Beat pulses only inside rare accent windows, as a soft swell (no hard hits).
-            float swell = 0.5f + 0.5f * std::cos(TAU * music_.beatPhase);
+            // Half time: whole-scene pulses come every two beats (on every beat they are tiring to watch).
+            const double bp2 = bp / 2.0;
+            const float phase2 = (float)(bp2 - std::floor(bp2));
+            float swell = 0.5f + 0.5f * std::cos(TAU * phase2);
             // Pulses only inside pulse zones (peak sections, drops); stronger for faster songs.
             const float tempoAmp = pulseTempoAmp(an.fp.bpm);
             const float zone = plan_.pulseEnvelope(t);
-            float accent = zone * tempoAmp * swell * swell * (0.4f + 0.6f * std::max(f.bass, f.onset));
-            // Soft hits on strong transients, for faster songs, still only inside pulse zones.
+            // Every pulse sits on the beat grid: the bass and the detected onsets only set how strong the pulses
+            // are, smoothed over a few beats. (Onsets fire on syncopations, miss beats and double up: driving the
+            // pulses from them directly made them irregular, which is unsettling to watch.)
+            const float bassSlow = music_.audio.bass;
+            float accent = zone * tempoAmp * swell * swell * (0.4f + 0.6f * bassSlow);
             // Overall energy: faster songs, intense sections and higher levels all push it up.
             const int lvl = plan_.phases[plan_.phaseAt(t)].level;
             music_.energy = approach(music_.energy,
@@ -803,15 +810,21 @@ int App::run() {
             const float E = music_.energy;
             // Outside pulse zones, energetic songs still pulse on the beat in mid/peak parts.
             float base = (lvl >= 1 ? 0.5f : 0.15f) * E * smoothstepf(95.f, 130.f, an.fp.bpm);
-            float groove = base * swell * swell * swell * (0.5f + 0.5f * f.bass);
-            float hitTarget = std::max(zone, lvl >= 1 ? 0.5f * E : 0.f) * smoothstepf(92.f, 120.f, an.fp.bpm) *
-                              smoothstepf(0.45f, 0.9f, f.onset);
-            hit_ = hitTarget > hit_ ? approach(hit_, hitTarget, 30.f, dt) : approach(hit_, hitTarget, 3.f, dt);
-            music_.beatPulse = 0.25f * breath + accent + groove + 0.7f * hit_;
-            // Bass kick envelope (pushes the particle field) and fast band levels (equalizer).
-            float kickTarget = E * smoothstepf(0.45f, 0.85f, f.onset) * (0.4f + 0.6f * f.bass);
-            music_.kick = kickTarget > music_.kick ? approach(music_.kick, kickTarget, 30.f, dt)
-                                                   : approach(music_.kick, kickTarget, 4.f, dt);
+            float groove = base * swell * swell * swell * (0.5f + 0.5f * bassSlow);
+            // The hit: a quick swell every two beats, decaying (~0.35 s), the bar's downbeat a little stronger.
+            const float beatDur = 60.f / std::max(40.f, (float)an.fp.bpm);
+            const float sinceBeat = phase2 * 2.f * beatDur;
+            const bool downbeat = (((long long)std::floor(bp)) % 4 + 4) % 4 < 2;
+            const float beatHit = std::exp(-sinceBeat * 3.f) * (downbeat ? 1.f : 0.8f);
+            const float onsetK = smoothstepf(0.45f, 0.85f, f.onset);
+            float hitTarget = std::max(zone, lvl >= 1 ? 0.5f * E : 0.f) * smoothstepf(92.f, 120.f, an.fp.bpm) * onsetK;
+            hit_ = std::max(approach(hit_, 0.f, 0.25f, dt), hitTarget);
+            music_.beatPulse = 0.25f * breath + accent + groove + 0.7f * hit_ * beatHit;
+            // The kick envelope: every two beats while the music has kicks (pushes the particle fields, surges).
+            // (a peak held over a few beats: the onsets come and go within each beat)
+            kickLevel_ = std::max(approach(kickLevel_, 0.f, 0.25f, dt), E * onsetK * (0.4f + 0.6f * f.bass));
+            const float kickTarget = kickLevel_ * beatHit;
+            music_.kick = kickTarget > music_.kick ? approach(music_.kick, kickTarget, 30.f, dt) : kickTarget;
             for (int b = 0; b < NUM_BANDS; b++)
                 music_.bandsFast[b] = f.bands[b] > music_.bandsFast[b] ? approach(music_.bandsFast[b], f.bands[b], 25.f, dt)
                                                                        : approach(music_.bandsFast[b], f.bands[b], 6.f, dt);

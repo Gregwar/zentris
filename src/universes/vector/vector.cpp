@@ -1007,12 +1007,13 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     }
     lastBeatPhase_ = music.beatPhase;
     {
-        // The surge: inside each beat the floor rushes forward on the beat and coasts after it (the same rows per
-        // beat, front-loaded). Mid parts get a light push, peaks a full one.
-        const float p = saturate(music.beatPhase), q = 1.f - p;
+        // The surge: every two beats the floor rushes forward and coasts after it (the same rows per beat,
+        // front-loaded; on every beat it is tiring to watch). Mid parts get a light push, peaks a full one.
+        const double b2 = music.beat / 2.0;
+        const float p = saturate((float)(b2 - std::floor(b2))), q = 1.f - p;
         const float ease = 1.f - q * q * q * q;
         const float surge = std::min(1.f, 0.3f * wGrid0 + 0.3f * wPeak0) * worldRate;
-        scrollShown_ = scroll_ + rowsPerBeat * surge * (ease - p);
+        scrollShown_ = scroll_ + 2.f * rowsPerBeat * surge * (ease - p);
     }
 
     // ---- Beats and bars of the song's grid.
@@ -1022,7 +1023,7 @@ void VectorUniverse::render(const Frame& f, GLuint fbo) {
     bool downbeat = false;
     if (music.hasSong && !paused && bi != lastBeat_) {
         if (lastBeat_ >= 0 && bi == lastBeat_ + 1) {
-            beatT_ = 0.f;
+            if (((bi % 2) + 2) % 2 == 0) beatT_ = 0.f; // the punch every two beats (half time)
             downbeat = ((bi % 4) + 4) % 4 == 0;
             if (downbeat && wPeak0 > 0.5f && dropT_ > 0.3f) { bar_++; barT_ = 0.f; }
         }
