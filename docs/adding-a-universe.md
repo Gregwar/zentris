@@ -40,6 +40,9 @@ signature hit on the drop's first downbeat, and for the whole peak the world hit
 and changes with the bars, so that even with the sound off it is obvious the song is in a drop. No camera shake and no
 strobing (one soft flash on the drop is fine).
 
+**Priorities.** Living, clearly different looks for the song's sections (a DROP, a CHORUS and a BREAK must each be
+noticeable at a glance) matter far more than the slow motion bonus or the game over: spend the effort there first.
+
 **Effects that look good** (rules from play testing):
 - A line clear makes the blocks themselves disappear (fade, melt, break, fall, pop), quickly (under ~0.5 s). Never
   draw something over the row (a brush stroke, a white dash, a blade of light), and leave nothing behind (no tide
