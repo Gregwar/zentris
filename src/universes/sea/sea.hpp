@@ -40,42 +40,27 @@ private:
     struct Vert { float x, y, r, g, b, a; };
     std::vector<CellInst> cells_;
     std::vector<SpriteInst> sprites_;
-    void cell(float x, float y, float size, int mask, const vec3& col, float alpha, float level, float slope, bool ghost, float seed);
+    std::vector<SpriteInst> lifeInst_;
+    // A glass cube of water (every cell is one): its center, size, rotation, crack (0 whole .. 1 about to burst).
+    void cell(float x, float y, float size, const vec3& col, float alpha, float rot, bool ghost, float seed, float crack = 0.f);
     void sprite(float x, float y, float hx, float hy, float rot, int kind, const vec3& col, float alpha, float p0 = 0.f,
                 float p1 = 0.f, float seed = 0.f);
     void flushCells();
     void flushSprites();
 
-    // ---- The stack's glass: per board cell, the vessel it belongs to (a piece's cells make one vessel, its water
-    // at one level), how full it is, how its water sloshes after a landing.
-    struct Glass {
-        int id = -1, type = -1;
-        float fill = 0.78f, seed = 0.f, slosh = 0.f;
-    };
-    Glass glass_[Game::H][Game::W];
-    float water_[Game::H][Game::W] = {}; // the water's level above each cell's bottom (cells), from its vessel
-    float slope_[Game::H][Game::W] = {};
-    int nextId_ = 1;
-    int lastDrop_ = 0;
-    void syncGlass(const Game& game, float dt);
-    void levelWater();
-    int maskOf(int x, int y) const;
-    // the level (board y) of a vessel's water: cells' bottoms, fill fraction
-    static float waterLevel(const float* bottoms, int n, float fill);
-
-    // The falling piece's water: its level above the piece's lowest cell (springing when it turns), its tilt.
-    float fallH_ = 0.f, fallHV_ = 0.f, fallTilt_ = 0.f, fallTiltV_ = 0.f, prevVisX_ = 0.f;
-    int fallType_ = -1, fallRot_ = -1;
-    bool fallSnap_ = true;
-    void simulatePiece(const Game& game, float dt);
+    // Cubes thrown out of a cleared row, up and outward; each one breaks in the air.
+    struct Flyer { vec2 p, v; float rot, spin, t, breakAt, water, seed; int type; };
+    std::vector<Flyer> flyers_;
+    int boardCount_ = 0; // the board's cubes last frame (a whole stack appearing at once: a review, a game joined)
+    void watchBoard(const Game& game);
 
     // A breaking cube (game over: the stack breaks row by row).
-    struct Dying { float x, y, delay, t, lvl; int type; bool broken; };
+    struct Dying { float x, y, delay, t; int type; bool broken; };
     std::vector<Dying> dying_;
-    void breakCell(float x, float y, int type, float power, float water);
+    void breakCell(float x, float y, int type, float power, float water, vec2 carry = vec2{0.f, 0.f});
 
     // Particles: shards of glass, droplets, the sea's splashes and spray.
-    enum { P_SHARD = 0, P_DROP = 1, P_POUR = 2, P_SPLASH = 3, P_SPRAY = 4 };
+    enum { P_SHARD = 0, P_DROP = 1, P_POUR = 2, P_SPLASH = 3, P_SPRAY = 4, P_CLOUD = 5, P_BUBBLE = 6 };
     struct Particle {
         vec2 p, v;
         float age, life, size, rot, spin, grav, drag, seed;
@@ -113,6 +98,25 @@ private:
     std::vector<Boat> boats_;
     float boatT_ = 0.f;
     bool spawnBoat(bool onScreen);
+
+    // ---- Life in the sea, in layers: schools of small fish near the surface, jellyfish drifting in the middle
+    // water, and in the dark depths an anglerfish and its lure, siphonophores. Only where there is water.
+    enum { L_FISH = 0, L_JELLY = 1, L_ANGLER = 2, L_SIPHON = 3 };
+    struct Critter {
+        int kind, school;
+        float x, u, du, dir, speed, size, phase, seed, alpha, dart, dartY, dyv;
+        vec3 col, glow;
+    };
+    std::vector<Critter> critters_;
+    int nextSchool_ = 0;
+    float lifeT_ = 0.f, scatter_ = 0.f, glowUp_ = 0.f;
+    float waterDepth() const;                // the near layer's base above the sand (board units)
+    float critterY(const Critter& c) const;  // where a critter is (board y)
+    float darkAt(float depth) const;         // how dark the water is this far under the surface (0..1)
+    void spawnLife(bool onScreen);
+    void simulateLife(float dt, float wdt, float world);
+    void drawLife(float world);
+
     void simulate(const Game& game, const MusicState& music, float dt, float wdt);
 
     void drawHud(const std::vector<HudText>& hud, const std::vector<HudRect>& panels);
@@ -135,8 +139,8 @@ private:
     void drawText(const Font& f, const std::vector<float>& quads, const vec3& ink, float alpha, float bias);
 
     // ---- GL.
-    GLuint progSea_ = 0, progBoat_ = 0, progCell_ = 0, progSprite_ = 0, progText_ = 0, progShape_ = 0, progPost_ = 0;
-    GLuint quadVbo_ = 0, cellVao_ = 0, cellVbo_ = 0, spriteVao_ = 0, spriteVbo_ = 0, boatVao_ = 0, boatVbo_ = 0, textVao_ = 0, textVbo_ = 0,
+    GLuint progSea_ = 0, progBoat_ = 0, progCell_ = 0, progSprite_ = 0, progLife_ = 0, progText_ = 0, progShape_ = 0, progPost_ = 0;
+    GLuint quadVbo_ = 0, cellVao_ = 0, cellVbo_ = 0, spriteVao_ = 0, spriteVbo_ = 0, lifeVao_ = 0, lifeVbo_ = 0, boatVao_ = 0, boatVbo_ = 0, textVao_ = 0, textVbo_ = 0,
            shapeVao_ = 0, shapeVbo_ = 0;
     ugl::Target sceneT_;
     mat4 vp_;
