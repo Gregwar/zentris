@@ -42,6 +42,7 @@ private:
               int mask = 0, float fog = 0.f, float e0 = 1.f, float e1 = 0.f, float e2 = 0.f, float e3 = 0.f);
 
     void simulate(const Game& game, const MusicState& music, float dt, float wdt);
+    float freezeAge(const Game& g, int x, int y) const;
     void buildBoard(const Game& game);
     void buildFx();
     void drawSky();
@@ -111,7 +112,13 @@ private:
     std::vector<Powder> powder_;
     // A cleared cell shattering (or, game over, a cell freezing white then crumbling): ox the blast's origin (board
     // x), power 1 (a Tetris more), seed shared by one clear's cells so its shards run across them.
-    struct Dying { float x, y, t, delay; int type, mask; bool over, crumbled; float seed, ox = 0.f, power = 1.f; };
+    struct Dying {
+        float x, y, t, delay;
+        int type, mask;
+        bool over, crumbled;
+        float seed, ox = 0.f, power = 1.f;
+        float pseed = 0.f, cdx = 0.f, cdy = 0.f; // its piece's frame (lakeIce in shaders.hpp)
+    };
     std::vector<Dying> dying_;
     struct Glint { vec2 p; float t, life, size; };
     // The piece each locked cell came from (from the Lock events): a piece's cells join, two pieces never do. t0:

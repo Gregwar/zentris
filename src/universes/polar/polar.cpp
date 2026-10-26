@@ -65,6 +65,7 @@ constexpr float TAN_H = 0.4452f;                 // the world camera's half fiel
 constexpr float EYE = 1.7f;                      // standing in the snow
 constexpr float WELL_X = 5.2f, WELL_Y = 10.2f;   // the well's sheet of ice (half extents, board)
 constexpr int FLAKES = 320;
+constexpr float FREEZE_SECONDS = 7.f;            // a locked piece's water turning to ice (shaders.hpp: FREEZE)
 
 vec2 v2(float x, float y) { return vec2{x, y}; }
 vec2 operator+(vec2 a, vec2 b) { return {a.x + b.x, a.y + b.y}; }
@@ -84,6 +85,16 @@ template <class F> int neighbourMask(F same) {
     if (same(-1, 1)) m |= 64;
     if (same(1, 1)) m |= 128;
     return m;
+}
+
+// A piece's seed (its veils and cracks), from its id.
+float pieceSeed(int id) { return (float)((id * 37) % 101) * 0.73f + 0.5f; }
+
+// A cell's neighbour mask with where its piece landed (relative to the cell, board units, within +-4 by 1/8) packed
+// above it, for the cells that leave the stack (shaders.hpp: unpackContact).
+float packContact(int mask, float dx, float dy) {
+    const int qx = std::clamp((int)std::lround((dx + 4.f) * 8.f), 0, 63), qy = std::clamp((int)std::lround((dy + 4.f) * 8.f), 0, 63);
+    return (float)(mask + 256 * (qx + 64 * qy));
 }
 
 vec3 hex(unsigned v) { return {((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255.f, (v & 255) / 255.f}; }
@@ -512,6 +523,14 @@ void PolarUniverse::onEvent(const GameEvent& ev, const Game& game) {
             return false;
         });
     };
+    // a leaving cell keeps its piece's frame (seed, where it landed), so its ice does not change as it goes
+    auto framePiece = [&](Dying& d, int x, int y, int type) {
+        const int id = idAt(x, y, type);
+        if (id < 0) return;
+        d.pseed = pieceSeed(id);
+        d.cdx = ice_[y][x].cx - x;
+        d.cdy = y - ice_[y][x].cy;
+    };
     switch (ev.type) {
     case GameEvent::Lock: {
         // The piece freezes from where it touched down: its resting cells (on the floor or on the stack).
@@ -552,6 +571,7 @@ void PolarUniverse::onEvent(const GameEvent& ev, const Game& game) {
             d.x = p.x; d.y = p.y; d.t = 0.f; d.type = std::clamp(c.type, 0, 6); d.mask = maskOf(c);
             d.over = false; d.crumbled = false; d.delay = 0.f;
             d.seed = seed; d.ox = ox; d.power = tetris ? 1.6f : 1.f;
+            framePiece(d, c.x, c.y, c.type);
             dying_.push_back(d);
         }
         {
@@ -595,6 +615,7 @@ void PolarUniverse::onEvent(const GameEvent& ev, const Game& game) {
             d.over = true; d.crumbled = false;
             d.delay = (Game::H - 1 - c.y) * 0.05f + rng_.range(0.f, 0.05f);
             d.seed = rng_.uniform();
+            framePiece(d, c.x, c.y, c.type);
             dying_.push_back(d);
         }
         for (auto& row : ice_)
@@ -685,6 +706,20 @@ void PolarUniverse::simulate(const Game& game, const MusicState& music, float dt
         }
     }
 
+    // Cold vapor: a slight wisp rising off the top faces of the pieces still freezing, thinning as they set.
+    for (int y = Game::HIDDEN; y < Game::H; y++)
+        for (int x = 0; x < Game::W; x++) {
+            const float age = freezeAge(game, x, y);
+            if (age < 0.f) continue;
+            if (y > Game::HIDDEN && game.cell(x, y - 1).type >= 0) continue;
+            const float k = age / FREEZE_SECONDS;
+            const float rate = 1.3f * (1.f - k) * smoothstepf(0.f, 0.08f, k);
+            if (rng_.uniform() > rate * wdt) continue;
+            const vec3 p = layout::cellPos((float)x, y - game.rowOffset(y));
+            powder(v2(p.x + rng_.range(-0.4f, 0.4f), p.y + 0.42f), v2(rng_.range(-0.06f, 0.06f), rng_.range(0.15f, 0.3f)),
+                   rng_.range(0.2f, 0.32f), rng_.range(1.8f, 2.6f), 0.14f + 0.12f * (1.f - k), 0.f, true);
+        }
+
     // Effects age (slowed by the slow motion like the world).
     for (auto& p : powder_) {
         p.t += wdt;
@@ -721,6 +756,14 @@ void PolarUniverse::tile(float x, float y, float hw, float hh, const vec3& c, fl
     tiles_.push_back({{x, y, hw, hh}, {c.x, c.y, c.z, alpha}, {(float)kind, age, (float)mask, fog}, {e0, e1, e2, e3}});
 }
 
+// Seconds since the piece of a locked cell landed while it is still freezing, else -1.
+float PolarUniverse::freezeAge(const Game& g, int x, int y) const {
+    const IceCell& ic = ice_[y][x];
+    if (ic.id < 0 || g.cell(x, y).type != ic.type) return -1.f;
+    const float a = iceClock_ - ic.t0;
+    return a < FREEZE_SECONDS ? a : -1.f;
+}
+
 void PolarUniverse::buildBoard(const Game& g) {
     // Cells whose piece is unknown (a stack inherited from another universe, a prefilled board): grouped into bodies
     // of ice by kind, at most four cells each (a piece's size), so they read as pieces rather than loose tiles.
@@ -730,7 +773,7 @@ void PolarUniverse::buildBoard(const Game& g) {
             if (t < 0 || ice_[y][x].type == t) continue;
             const int id = pieceCounter_++;
             int qx[4], qy[4], n = 0, head = 0;
-            ice_[y][x] = {id, t};
+            ice_[y][x] = {id, t, -99.f, (float)x, y + 0.5f};
             qx[n] = x; qy[n] = y; n++;
             while (head < n && n < 4) {
                 const int cx = qx[head], cy = qy[head];
@@ -740,7 +783,7 @@ void PolarUniverse::buildBoard(const Game& g) {
                     const int nx = cx + dx[k], ny = cy + dy[k];
                     if (nx < 0 || nx >= Game::W || ny < 0 || ny >= Game::H) continue;
                     if (g.cell(nx, ny).type != t || ice_[ny][nx].type == t) continue;
-                    ice_[ny][nx] = {id, t};
+                    ice_[ny][nx] = {id, t, -99.f, (float)x, y + 0.5f};
                     qx[n] = nx; qy[n] = ny; n++;
                 }
             }
@@ -759,10 +802,11 @@ void PolarUniverse::buildBoard(const Game& g) {
             if (c.type < 0) continue;
             const vec3 p = layout::cellPos((float)x, y - g.rowOffset(y));
             const int id = idAt(x, y);
-            // freezing: seconds since it locked (-1: ice long since), the contact relative to the cell (board units)
-            float age = -1.f, cdx = 0.f, cdy = 0.f;
-            if (id >= 0 && iceClock_ - ice_[y][x].t0 < 1.f) {
-                age = iceClock_ - ice_[y][x].t0;
+            // freezing: seconds since it locked (-1: ice long since); where it landed relative to the cell (board
+            // units: the piece's own frame, its veils and cracks travel with it)
+            const float age = freezeAge(g, x, y);
+            float cdx = 0.f, cdy = 0.f;
+            if (id >= 0) {
                 cdx = ice_[y][x].cx - x;
                 cdy = y - ice_[y][x].cy;
             }
@@ -772,24 +816,25 @@ void PolarUniverse::buildBoard(const Game& g) {
                     if (idAt(x + dx, y + dy) != id) return false;
                     return dy == 0 || std::fabs(g.rowOffset(y + dy) - g.rowOffset(y)) < 0.01f;
                 });
-            tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask, 0.f, 1.f, cdx, cdy);
+            tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask, 0.f, id >= 0 ? pieceSeed(id) : 0.f, cdx, cdy);
         }
     // Cleared cells turning to snow; a topped-out stack freezing white, then crumbling.
     for (const Dying& d : dying_) {
         const float t = d.t - d.delay;
         if (d.over) {
             const float frost = smoothstepf(0.f, 0.7f, t);
-            if (!d.crumbled) tile(d.x, d.y, 0.5f, 0.5f, cur_.piece[d.type], 1.f, 0, -1.f, d.mask, frost);
+            if (!d.crumbled) tile(d.x, d.y, 0.5f, 0.5f, cur_.piece[d.type], 1.f, 0, -1.f, d.mask, frost, d.pseed, d.cdx, d.cdy);
             else {
                 const float k = 0.3f + saturate((t - 1.3f - d.seed * 0.5f) / 0.5f) * 0.7f;
-                tile(d.x, d.y, 0.5f, 0.5f, cur_.piece[d.type], 1.f, 2, -1.f, d.mask, 0.f, 1.f, k, d.seed * 7.f);
+                tile(d.x, d.y, 0.5f, 0.5f, cur_.piece[d.type], 1.f, 2, -1.f, packContact(d.mask, d.cdx, d.cdy), 0.f, 1.f, k,
+                     d.seed * 7.f, d.pseed);
             }
             continue;
         }
         // shattering: the quad grows to hold the shards flying off (their motion is in the shader)
         const float reach = 0.6f + d.power * (2.4f * t + 7.f * t * t);
-        tile(d.x, d.y - reach * 0.35f, 0.5f + reach * 0.8f, 0.5f + reach * 0.75f, cur_.piece[d.type], 1.f, 5, t, d.mask,
-             d.power, d.x, d.y, d.ox, d.seed);
+        tile(d.x, d.y - reach * 0.35f, 0.5f + reach * 0.8f, 0.5f + reach * 0.75f, cur_.piece[d.type], 1.f, 5, t,
+             packContact(d.mask, d.cdx, d.cdy), d.power, d.x, d.y, d.ox, d.pseed);
     }
     // The falling piece and its ghost.
     if (g.hasPiece()) {
