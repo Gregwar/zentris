@@ -398,7 +398,7 @@ void SumiUniverse::buildBranch() {
 
 // A petal on the wind: from an open blossom of the branch (the drop's flurry) or from beyond the paper's edge.
 void SumiUniverse::spawnPetal(vec2 pos, bool fromBranch) {
-    if (petals_.size() >= 70) return;
+    if (petals_.size() >= 180) return;
     Petal p;
     p.pos = pos;
     const float wind = fromBranch ? 1.25f : 1.f;
@@ -412,6 +412,7 @@ void SumiUniverse::spawnPetal(vec2 pos, bool fromBranch) {
     p.flip = rng_.range(0.f, TAU);
     p.flipRate = rng_.range(0.7f, 1.5f) * (rng_.chance(0.5f) ? 1.f : -1.f);
     p.red = rng_.chance(fromBranch ? 0.45f : 0.25f);
+    p.speed = 1.f + 4.f * drive_ * rng_.range(0.75f, 1.25f); // a drop's gust: much faster
     petals_.push_back(p);
 }
 
@@ -656,11 +657,11 @@ void SumiUniverse::simulate(const Game&, const MusicState& music, float dt, floa
         i++;
     }
 
-    // Plum petals on a gentle wind: a few at mid, a steady fall at peak (more in a drop), a flurry from the
-    // branch's open blossoms on the drop that settles over a few seconds.
+    // Plum petals on a gentle wind: a few at mid, a steady fall at peak, and in a drop many more on a strong wind
+    // (falling much faster), with a flurry from the branch's open blossoms on the drop.
     {
         const float peakW = smoothstepf(1.f, 2.f, lv);
-        const float rate = petalPresence_ * (0.12f + peakW * (0.45f + 0.25f * e + 0.45f * drive_)) + 7.f * petalBurst_;
+        const float rate = petalPresence_ * (0.12f + peakW * (0.45f + 0.25f * e + 7.f * drive_)) + 9.f * petalBurst_;
         petalAcc_ += rate * wdt;
         const float top = viewC_.y + viewH_.y, right = viewC_.x + viewH_.x;
         while (petalAcc_ >= 1.f) {
@@ -683,9 +684,9 @@ void SumiUniverse::simulate(const Game&, const MusicState& music, float dt, floa
         p.age += wdt;
         const float sway = std::sin(p.age * 0.8f + p.seed) * 0.3f;
         const float bob = std::sin(p.age * 1.1f + p.seed * 1.7f) * 0.12f;
-        p.pos = add(p.pos, mul(add(p.vel, v2(sway, bob)), wdt));
-        p.rot += p.spin * wdt;
-        p.flip += p.flipRate * wdt;
+        p.pos = add(p.pos, mul(add(mul(p.vel, p.speed), v2(sway, bob)), wdt));
+        p.rot += p.spin * p.speed * wdt;
+        p.flip += p.flipRate * (0.5f + 0.5f * p.speed) * wdt;
         if (p.pos.y < viewC_.y - viewH_.y - 1.f || p.pos.x < viewC_.x - viewH_.x - 1.f || p.age > p.life) {
             petals_[i] = petals_.back();
             petals_.pop_back();
@@ -770,7 +771,7 @@ void SumiUniverse::collectScenery(const MusicState& music, std::vector<Sprite>& 
     // Petals: a pale ink wash or the accent, turning over as they fall (their width follows the flip).
     const float petalFade = saturate(petalPresence_ * 2.f + petalBurst_);
     for (const Petal& p : petals_) {
-        float a = smoothstepf(0.f, 0.8f, p.age) * petalFade;
+        float a = smoothstepf(0.f, 0.8f / p.speed, p.age) * petalFade * (1.f + 0.1f * (p.speed - 1.f));
         float flip = 0.3f + 0.7f * std::fabs(std::cos(p.flip));
         put(p.pos.x, p.pos.y, p.size * flip, p.size, p.rot, K_PETAL + K_BEHIND, p.seed, (p.red ? 0.7f : 0.4f) * a,
             p.red ? verm_ : inkC_, 0, 0, 0, 0, 0);

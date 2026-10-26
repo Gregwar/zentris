@@ -89,6 +89,8 @@ private:
     int level_ = 1;
     int phos_ = 0, phosPrev_ = 0;     // phosphor shown, and the one it is replacing
     int basePhos_ = 0;                // the song's phosphor (the bonus shows its complement)
+    bool inDrop_ = false;             // a drop's peak: another phosphor until the peak ends
+    int tube() const;
     bool palSweep_ = false;           // the running change turns the phosphor
     float slowAmt_ = 0;               // slow-motion bonus presence (eased)
     float lv_ = 1.f, lvFrom_ = 1.f, lvTo_ = 1.f; // scene level, continuous 0 calm .. 2 peak

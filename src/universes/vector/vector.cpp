@@ -42,6 +42,9 @@ const Phosphor PHOSPHORS[4] = {
 };
 // The slow-motion bonus shows the "other" tube: a complement that stays inside the set.
 const int ALT_PHOSPHOR[4] = {3, 2, 1, 0};
+// A drop glows in another tube for the whole peak (not the bonus' one): green -> amber, amber -> rose, white -> rose,
+// rose -> amber.
+const int DROP_PHOSPHOR[4] = {1, 3, 3, 1};
 
 // ---- Stroke font: polylines on a 4 x 6 grid (y up), in the spirit of the 1979 arcade vector fonts.
 // Points are 2 digits (x, y); spaces separate points; '|' starts a new stroke.
@@ -249,6 +252,9 @@ int phosphorFor(const SongLook& l) {
 
 vec3 VectorUniverse::phosColor(int p) const { return PHOSPHORS[((p % 4) + 4) % 4].color; }
 
+// The tube of the moment: the bonus' complement, the drop's tube, or the song's own.
+int VectorUniverse::tube() const { return inverted_ ? ALT_PHOSPHOR[basePhos_] : inDrop_ ? DROP_PHOSPHOR[basePhos_] : basePhos_; }
+
 TransitionHints VectorUniverse::hints() const {
     TransitionHints h;
     const vec3 c = phosColor(basePhos_);
@@ -277,7 +283,7 @@ void VectorUniverse::floorRing(float amount, float life) { floorRings_.push_back
 void VectorUniverse::setSong(const SongLook& look, float seconds) {
     seed_ = look.seed;
     basePhos_ = phosphorFor(look);
-    const int want = inverted_ ? ALT_PHOSPHOR[basePhos_] : basePhos_;
+    const int want = tube();
     if (!hasSong_ || seconds < 0.1f) {
         hasSong_ = true;
         phos_ = phosPrev_ = want;
@@ -303,7 +309,8 @@ void VectorUniverse::setLevel(int level, float, float seconds, float impact) {
         return;
     }
     const bool rising = level > oldLevel, levelChange = level != oldLevel;
-    retune(phos_, rising ? 0.7f : (levelChange ? 1.2f : 1.1f));
+    if (level < 2) inDrop_ = false; // out of the peak: back to the song's tube
+    retune(tube(), rising ? 0.7f : (levelChange ? 1.2f : 1.1f));
     lvTo_ = (float)level;
     peakWait_ = -1.f;
     // The change comes from the world: rising, the floor kicks up with a burst (a ring racing out along it, the
@@ -338,8 +345,10 @@ void VectorUniverse::drop(float strength) {
     dropAmt_ = s;
     slam_ = s;
     if (level_ >= 2) {
-        // The peak arrives on the beat: the mountains rise out of the half-risen floor in half a second.
-        retune(phos_, 0.5f);
+        // The peak arrives on the beat: the mountains rise out of the half-risen floor in half a second, and the
+        // tube glows in another phosphor for the whole peak.
+        inDrop_ = true;
+        retune(tube(), 0.5f);
         lvTo_ = 2.f;
         peakWait_ = -1.f;
     }
@@ -361,7 +370,7 @@ void VectorUniverse::setBonus(bool on) {
     if (on == inverted_) return;
     inverted_ = on;
     // The other tube glows in with a degauss shudder (and back out when the bonus ends).
-    retune(on ? ALT_PHOSPHOR[basePhos_] : basePhos_, 0.55f);
+    retune(tube(), 0.55f);
     degauss_ = std::max(degauss_, 0.5f);
     lvTo_ = (float)level_;
 }

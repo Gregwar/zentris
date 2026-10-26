@@ -30,7 +30,7 @@ private:
     enum { K_BLOCK = 0, K_GHOST = 1, K_DROP = 2, K_STROKE = 3, K_SEAL = 4, K_ENSO = 5, K_SUN = 6, K_PETAL = 7,
            K_BLOOM = 8, K_BLOSSOM = 9, K_BEHIND = 100 };
     struct Bloom { vec2 pos; float age, life, size, inner, tide, rough, seed; vec3 col; };
-    struct Petal { vec2 pos, vel; float rot, spin, size, age, life, seed, flip, flipRate; bool red; };
+    struct Petal { vec2 pos, vel; float rot, spin, size, age, life, seed, flip, flipRate; bool red; float speed = 1.f; };
     // The peak's plum branch: brushed limbs and shoots (painted one after another, from the paper's edge) and
     // the blossoms opening along them once the brush has passed.
     struct BranchSeg { vec2 a, b; float width, t0, dur, dry, taper, seed; };
