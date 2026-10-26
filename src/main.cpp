@@ -163,11 +163,14 @@ void App::startTrack(std::shared_ptr<Track> t) {
     lastPhase_ = first ? plan_.phaseAt(0.0) : 0;
     look_ = makeSongLook(&track_->analysis.fp, runSeed_ ^ splitmix64(sceneCounter_));
     // Each song gets its universe (picked from its footprint, never the same twice in a row), swept in with a
-    // transition on the beat; a forced universe stays and performs its own change of song.
+    // transition on the beat; a forced universe stays and performs its own change of song, and so does the
+    // universe shown while the first song loaded (the game doesn't jump to another world as the music starts).
     int variant = -1;
-    const int u = songUniverse(&variant);
     const bool offline = !opt_.shotPrefix.empty() || !opt_.clipPath.empty();
-    if (forcedUniverse_ >= 0 && u == R_.universe() && !offline) {
+    const bool keep = first && !offline && opt_.reviewPath.empty();
+    const int u = keep ? R_.universe() : songUniverse(&variant);
+    if (keep) variant = forcedVariant_ >= 0 ? forcedVariant_ : R_.variant();
+    if ((forcedUniverse_ >= 0 || keep) && u == R_.universe() && !offline) {
         look_.variant = variant;
         R_.setSong(look_, 1.5f);
         R_.setLevel(phaseLevel(lastPhase_), phaseEnergy(lastPhase_), 1.5f, 0.f);
@@ -600,7 +603,7 @@ int App::run() {
 
     game_.reset(runSeed_);
     // A universe while the first song loads (the forced one, else one picked from the run seed); the first song
-    // then gets its own.
+    // keeps it.
     if (!opt_.universe.empty()) {
         forcedUniverse_ = universes::parse(opt_.universe, &forcedVariant_);
         if (forcedUniverse_ < 0) {
