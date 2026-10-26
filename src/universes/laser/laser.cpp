@@ -641,7 +641,7 @@ void LaserUniverse::onEvent(const GameEvent& ev, const Game& game) {
 
 // A spot for a projector: somewhere in the dark room, never on the well, the HUD's columns or the corners' text.
 vec2 LaserUniverse::randomSpot() {
-    const float xMax = std::max(8.f, viewH_.x - 1.2f), yMax = viewH_.y - 1.f;
+    const float xMax = std::max(8.f, viewH_.x - 2.8f), yMax = viewH_.y - 2.2f;
     vec2 best = v2(-xMax, 0.f);
     for (int tries = 0; tries < 40; tries++) {
         const vec2 p = v2(rng_.range(-xMax, xMax), viewC_.y + rng_.range(-yMax, yMax));
@@ -727,7 +727,7 @@ void LaserUniverse::addProjection(vec2 src, const std::vector<vec2>& corners, co
         if (a < a0) { a0 = a; c0 = c; }
         if (a > a1) { a1 = a; c1 = c; }
     }
-    const vec3 sheet = col * (0.05f * power * gain);
+    const vec3 sheet = col * (0.11f * power * gain);
     cones_.push_back({{src.x, src.y, c0.x, c0.y}, {c1.x, c1.y, depth, 0.f}, {sheet.x, sheet.y, sheet.z, 0.f}});
     const vec3 ray = col * (0.5f * power * gain);
     for (auto& c : corners) {
@@ -889,7 +889,7 @@ void LaserUniverse::buildProjection(const Game& g) {
         for (auto& c : c4)
             if (c[1] >= Game::HIDDEN - 1) cs.push_back({c[0], c[1]});
         const float dx = g.pieceVisualX() - pc.x, dy = g.pieceVisualY() - pc.y;
-        addProjection(srcPos(fall_), outline(cs, nullptr, dx, dy), laserColor(pc.type), fall_.power * 1.1f,
+        addProjection(srcPos(fall_), outline(cs, nullptr, dx, dy), laserColor(pc.type), fall_.power * 1.7f,
                       std::fmod(fall_.seed * 7.3f + 0.1f, 1.f), true);
     }
     // the cleared parts: weak, blinking, off
