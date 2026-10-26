@@ -57,7 +57,7 @@ private:
     // ---- GL.
     GLuint progWorld_ = 0, progMark_ = 0, progText_ = 0, progPanel_ = 0, progComp_ = 0;
     GLuint quadVbo_ = 0, markVao_ = 0, markVbo_ = 0, textVao_ = 0, textVbo_ = 0, panelVao_ = 0, panelVbo_ = 0;
-    ugl::Target inkT_;
+    ugl::Target inkT_, bgT_;
     mat4 vp_;
     vec2 viewC_{0, 0.4f}, viewH_{22, 12.4f};
     float px_ = 0.05f;
@@ -80,23 +80,24 @@ private:
     // ---- The world: three big flat shapes (B, A, C) and the Tetris stamp.
     struct Shape { float x, y, sx, sy, rot, type; };
     Shape shape_[3]{}, next_[3]{};
-    float reprint_[3] = {1.f, 1.f, 1.f}; // a shape re-printed elsewhere: its dots shrink, then grow at the new place
+    float reprint_[3] = {1.f, 1.f, 1.f}; // a shape re-printed elsewhere (a new song): fades out, then in at the new place
     int reprintState_[3] = {0, 0, 0};    // 0 idle, 1 shrinking, 2 growing
     float pres_[3] = {1.f, 0.f, 0.f};    // presence of each shape (follows the level)
     int comp_ = 0;
     float stampT_ = 9.f;
-    vec2 drift_{0.f, 0.f};
+    float drift_ = 0.f;
     void composition(int comp, Shape out[3]) const;
 
     // ---- Music.
     float worldTime_ = 0.f;
     double lastBeat_ = -1.0;
     int beatCount_ = 0;
-    float kickIn_ = 0.f, hitB_ = 0.f, hitC_ = 0.f, prevKick_ = 0.f;
-    float slamT_ = 9.f, slamAmp_ = 0.f, slamCT_ = 9.f;
-    float pulse_ = 0.f;
-    float flood_ = 0.f, floodT_ = 9.f; // the peak's flood of the third ink, the drop's slam of it
-    vec2 offB_{0.f, 0.f}, offC_{0.f, 0.f};
+    float kickIn_ = 0.f, prevKick_ = 0.f;
+    float kickTgt_ = 0.f, kickEnv_ = 0.f; // the kicks, smoothed into a slow breath of ink density
+    float bloom_ = 0.f, dropT_ = 9.f, dropAmp_ = 0.f; // the third ink's gradient (the peak), the drop's swell of it
+    vec2 offB_{0.f, 0.f}, offC_{0.f, 0.f};       // the background's registration (never the stack's)
+    vec2 blotPos_{0.f, 0.f};
+    float blotT_ = 9.f, blotK_ = 0.f;             // the last lock's soft blot
 
     // ---- Board bookkeeping: which lock each cell came from (one piece = one shape) and how hard it landed.
     struct InkCell { int id = -1, type = -1; float hard = 0.f; };

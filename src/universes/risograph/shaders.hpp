@@ -1,13 +1,13 @@
 #pragma once
 // RISOGRAPH's shaders (see risograph.cpp).
 //
-// The frame is a print. Everything (the world's flat shapes, the pieces, the well's marks, the HUD) is drawn as
-// ink coverage into one buffer, one channel per drum: r = ink A (the key), g = ink B, b = ink C (the third ink of
-// the peaks), a = the structure (the stack and the text, solid, for the bridge). Tints are screened where they are
-// drawn (halftone dots or a line screen, at a fixed angle per drum), so the buffer holds what each drum lays down.
-// COMPOSITE_FS then prints the drums on the paper: each channel read with its own registration offset (the
-// misregistration is the music's signature), a riso grain in the ink, and the inks multiplied over white paper
-// (overprints darken where they overlap) or laid like light over black paper.
+// The frame is a print. The stack, the well's marks and the HUD are drawn as ink coverage into one buffer, one
+// channel per drum: r = ink A (the key), g = ink B, b = ink C (the third ink of the peaks), a = the structure (the
+// stack and the text, solid, for the bridge); the pieces' tints are screened where they are drawn. The background
+// (big flat shapes, the sheet's gradients) goes into a second buffer as continuous ink densities, a soft riso
+// gradient with no visible screen. COMPOSITE_FS prints both on the paper: the background's drums slightly out of
+// register (only the background: the stack and the HUD never move), a riso grain in the ink, and the inks
+// multiplied over white paper (overprints darken) or laid like light over black paper.
 
 namespace risograph_shaders {
 
@@ -40,20 +40,21 @@ float screenAt(vec2 p, float d, int drum, bool lines) {
 }
 )";
 
-// ---------------------------------------------------------------- the world: a few big flat shapes, screened
+// ---------------------------------------------------------------- the world: soft gradients of ink
+// The background is printed in continuous densities (a riso gradient: no visible screen), into its own buffer, so
+// that the registration only ever moves the background, never the stack or the HUD. r = A, g = B, b = C.
 inline const char* WORLD_FS = R"(#version 330 core
 in vec2 vUv;
 out vec4 frag;
 uniform vec4 uView;            // center xy, half extents xy (board units)
 uniform vec4 uShapeA[4];       // center xy, size xy (disc / half disc: radius in x)
 uniform vec4 uShapeB[4];       // rotation, type (0 disc, 1 rectangle, 2 half disc), drum, density
-uniform vec4 uShapeC[4];       // gradient angle, gradient amount, line screen, -
-uniform vec2 uDrift;           // the screens drift a little (mid)
+uniform vec4 uShapeC[4];       // gradient angle, gradient amount, -, -
 uniform float uPx;             // board units per pixel
-uniform vec4 uWell;            // the well: center xy, half extents xy (the sheet's tints keep clear of it)
-uniform float uFloodSide;      // +1: the flood comes from the right
-uniform vec4 uFlood;           // C's flood of the peak (density), B's wash (density), wash angle, flood swell
-// Distance from the well (0 inside), for the tints that cover the sheet around it.
+uniform vec4 uWell;            // the well: center xy, half extents xy (the sheet's gradients keep clear of it)
+uniform float uSide;           // +1: the shapes (and the gradients) are on the right
+uniform vec4 uSheet;           // C's bloom (density), B's wash (density), wash angle, slow drift phase
+uniform vec4 uBlot;            // a lock's soft blot of B: center xy, age 0..1, strength
 float wellDist(vec2 p) { vec2 e = abs(p - uWell.xy) - uWell.zw; return length(max(e, 0.0)); }
 void main() {
     vec2 p = uView.xy + (vUv * 2.0 - 1.0) * uView.zw;
@@ -73,31 +74,39 @@ void main() {
         }
         float inside = clamp(0.5 - d / uPx, 0.0, 1.0);
         if (inside <= 0.0) continue;
-        // a linear gradient across the shape: full density on one side, fading toward the other
+        // a linear gradient across the shape: full density on one side, fading smoothly toward the other
         float ga = uShapeC[i].x;
         vec2 gd = vec2(cos(ga), sin(ga));
         float ext = type == 1 ? dot(abs(gd), uShapeA[i].zw) : uShapeA[i].z;
         float t = clamp(0.5 + 0.5 * dot(p - uShapeA[i].xy, gd) / max(ext, 0.01), 0.0, 1.0);
-        float de = dens * mix(1.0, 1.0 - uShapeC[i].y, t);
+        float de = dens * mix(1.0, 1.0 - uShapeC[i].y, t * t * (3.0 - 2.0 * t));
         int drum = int(uShapeB[i].z + 0.5);
-        float cov = inside * screenAt(p + uDrift, de, drum, uShapeC[i].z > 0.5);
-        ink[drum] = max(ink[drum], cov);
+        float cov = inside * de;
+        ink[drum] = 1.0 - (1.0 - ink[drum]) * (1.0 - cov);
     }
-    // the sheet's tints, in a coarse screen: B's faint wash across the paper (always), and the peak's flood of the
-    // third ink printed to the sheet's edges, its dots growing away from the well (and with the kicks)
+    // the sheet: large soft gradients, kept off the well and the text's side
     float wd = wellDist(p);
-    if (uFlood.y > 0.0) {
-        vec2 gd = vec2(cos(uFlood.z), sin(uFlood.z));
-        float t = clamp(0.5 + 0.5 * dot(p - uView.xy, gd) / length(uView.zw), 0.0, 1.0);
-        float de = uFlood.y * smoothstep(0.35, 1.0, t) * smoothstep(0.4, 3.5, wd);
-        ink.g = max(ink.g, screenAt(p * 0.42 + 0.3, de, 1, false));
+    float clear = smoothstep(0.6, 5.0, wd);
+    vec2 n = (p - uView.xy) / uView.zw; // -1..1
+    // a slow cloud in the ink, so the gradient reads as printed (very low frequency, not a pattern)
+    float cloud = 0.75 + 0.5 * vnoise(p * 0.11 + vec2(uSheet.w, 0.3 * uSheet.w));
+    if (uSheet.y > 0.0) {
+        vec2 gd = vec2(cos(uSheet.z), sin(uSheet.z));
+        float t = clamp(0.5 + 0.5 * dot(n, gd), 0.0, 1.0);
+        float de = uSheet.y * smoothstep(0.3, 1.0, t) * clear * cloud;
+        ink.g = 1.0 - (1.0 - ink.g) * (1.0 - de);
     }
-    if (uFlood.x > 0.0) {
-        // from the shapes' side of the sheet (the text's side stays clear)
-        vec2 q = (p - uView.xy) / uView.zw;
-        float edge = smoothstep(0.05, 0.95, uFloodSide * q.x + 0.25 * abs(q.y));
-        float de = uFlood.x * smoothstep(0.5, 4.0, wd) * edge * uFlood.w;
-        ink.b = max(ink.b, screenAt(p * 0.55 + uDrift * 0.5, de, 2, false));
+    if (uSheet.x > 0.0) {
+        // the bloom of the third ink: a broad glow rising from the shapes' edge of the sheet
+        float edge = smoothstep(-0.1, 1.05, uSide * n.x) * (1.0 - 0.35 * n.y * n.y);
+        float de = uSheet.x * edge * clear * cloud;
+        ink.b = 1.0 - (1.0 - ink.b) * (1.0 - de);
+    }
+    if (uBlot.w > 0.0) {
+        // a lock: a small soft blot of the second ink pressed out under the piece
+        vec2 q = (p - uBlot.xy) / vec2(1.1 + 0.5 * uBlot.z, 0.45 + 0.15 * uBlot.z);
+        float de = uBlot.w * (1.0 - uBlot.z) * (1.0 - uBlot.z) * exp(-2.5 * dot(q, q)) * step(p.y, uBlot.y + 0.2);
+        ink.g = 1.0 - (1.0 - ink.g) * (1.0 - de);
     }
     frag = vec4(ink, 0.0);
 }
@@ -138,7 +147,7 @@ void main() {
 //     The cell's shape is its square inset at the piece's outline, so a piece is one clean shape and two pieces
 //     always keep a hairline of paper between them.
 //   1 a rule (a filled rectangle). v2: coverage of A, B, C, structure; v3.xy: its half extents.
-//   2 a ring and a screened disc. v2: ring coverage of A, B, C, structure; v3: radius, ring width, disc radius,
+//   2 a ring and a tinted disc. v2: ring coverage of A, B, C, structure; v3: radius, ring width, disc radius,
 //     disc density; v4: disc drums A, B, C (weights), -.
 inline const char* MARK_FS = R"(#version 330 core
 in vec2 vLocal;
@@ -195,7 +204,7 @@ void main() {
         float disc = clamp(0.5 - (r - v3.z) / px, 0.0, 1.0);
         vec4 o = v2 * ring;
         for (int k = 0; k < 3; k++)
-            if (v4[k] > 0.0) o[k] = max(o[k], v4[k] * disc * screenAt(vWorld, v3.w, k, false));
+            if (v4[k] > 0.0) o[k] = max(o[k], v4[k] * disc * v3.w); // a flat tint (no screen)
         frag = o;
         return;
     }
@@ -294,8 +303,9 @@ void main() { frag = uColor; }
 inline const char* COMPOSITE_FS = R"(#version 330 core
 in vec2 vUv;
 out vec4 frag;
-uniform sampler2D uInk;
-uniform vec2 uOffA, uOffB, uOffC;    // registration of each drum (uv)
+uniform sampler2D uInk;              // the stack, the well's marks and the HUD: always in register
+uniform sampler2D uBg;               // the background's gradients
+uniform vec2 uOffA, uOffB, uOffC;    // registration of each drum on the background only (uv)
 uniform vec3 uPaper, uInkA, uInkB, uInkC; // linear
 uniform float uDark;                 // black paper: the inks laid like light
 uniform vec4 uView;                  // board space of the frame (center, half extents)
@@ -305,10 +315,8 @@ uniform vec3 uBridgeColor, uBridgeInk;
 uniform float uDim, uFade;
 void main() {
     vec2 bp = uView.xy + (vUv * 2.0 - 1.0) * uView.zw; // board units
-    float a = texture(uInk, vUv - uOffA).r;
-    float b = texture(uInk, vUv - uOffB).g;
-    float c = texture(uInk, vUv - uOffC).b;
-    float s = texture(uInk, vUv).a;
+    vec4 fg = texture(uInk, vUv);
+    float a = fg.r, b = fg.g, c = fg.b, s = fg.a;
     // the riso grain: the ink laid unevenly (a soft mottle, a fine tooth, the odd missing speck), fixed in the paper
     vec2 g = bp * 34.0;
     float mott = vnoise(bp * 1.3) * 0.5 + vnoise(bp * 3.7 + 7.0) * 0.5;
@@ -318,6 +326,18 @@ void main() {
     float gb = 1.0 - uGrain * (0.10 * (1.0 - mott) + 0.16 * smoothstep(0.45, 0.95, vnoise(g + 17.0)) + 0.35 * step(0.93, vnoise(g * 0.67 + 29.0)));
     float gc = 1.0 - uGrain * (0.08 * mott + 0.14 * smoothstep(0.45, 0.95, vnoise(g + 41.0)));
     a *= ga; b *= gb; c *= gc;
+    // the background's gradients, slightly out of register, with a fine grain (a pixel-scale tooth, nearly
+    // invisible: the gradient stays smooth at viewing size)
+    float ba = texture(uBg, vUv - uOffA).r;
+    float bb = texture(uBg, vUv - uOffB).g;
+    float bc = texture(uBg, vUv - uOffC).b;
+    vec2 pp = gl_FragCoord.xy;
+    float fine = (hash12(pp) - 0.5) * 0.5 + (vnoise(bp * 9.0) - 0.5) * 0.5;
+    float bg = 1.0 + 0.16 * fine;
+    ba = clamp(ba * bg, 0.0, 1.0); bb = clamp(bb * bg, 0.0, 1.0); bc = clamp(bc * bg, 0.0, 1.0);
+    a = 1.0 - (1.0 - a) * (1.0 - ba);
+    b = 1.0 - (1.0 - b) * (1.0 - bb);
+    c = 1.0 - (1.0 - c) * (1.0 - bc);
     // the paper: a stock of its own tone, with a tooth, a slow cloudy formation and fibers (short hairs, a few
     // darker, a few lighter), all fixed in the sheet
     float form = vnoise(bp * 0.35 + 3.0) * 0.6 + vnoise(bp * 1.1 + 9.0) * 0.4;
@@ -330,7 +350,7 @@ void main() {
         float sel = vnoise(r * 0.9 + float(i) * 7.0);
         fibers += smoothstep(0.86, 0.95, n) * smoothstep(0.55, 0.8, sel) * (i == 1 ? -0.6 : 1.0);
     }
-    float tex = 0.035 * (form - 0.5) + 0.03 * (toothP - 0.5) - 0.045 * fibers;
+    float tex = 0.03 * (form - 0.5) + 0.018 * (toothP - 0.5) - 0.015 * fibers;
     vec3 col = uPaper * (1.0 + tex * mix(1.0, 4.0, uDark));
     // white paper: the inks multiply (overprints darken); black paper: the inks lie like light
     vec3 w = col * (vec3(1.0) - a * (vec3(1.0) - uInkA)) * (vec3(1.0) - b * (vec3(1.0) - uInkB)) * (vec3(1.0) - c * (vec3(1.0) - uInkC));
