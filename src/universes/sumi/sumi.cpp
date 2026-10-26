@@ -99,6 +99,11 @@ const Variant VARIANTS[] = {
      {0.035f, 0.035f, 0.038f}, {0.900f, 0.900f, 0.895f}},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
+// The pigment of each variant's drop sky (the colored wash of a drop): its accent, or a deeper wash of its second
+// ink where the accent is a gold or an ochre (a yellow wash would tint the paper; on the lacquer it is a glow).
+const vec3 SKY[VARIANT_COUNT] = {
+    {0.784f, 0.251f, 0.165f}, {0.22f, 0.40f, 0.62f}, {0.33f, 0.58f, 0.48f}, {0.50f, 0.27f, 0.55f},
+    {0.68f, 0.30f, 0.14f}, {0.90f, 0.44f, 0.16f}, {0.80f, 0.26f, 0.17f}, {0.82f, 0.64f, 0.26f}};
 
 vec3 cellPos(float x, float y) { return layout::cellPos(x, y); }
 
@@ -312,13 +317,13 @@ void SumiUniverse::buildBranch() {
     // From the bottom right corner, under the enso, reaching left below the right HUD column (it ends above
     // the gauge); the branch shrinks on narrow screens.
     const float right = viewC_.x + viewH_.x;
-    const float room = right - 7.5f;
+    const float room = right - 9.f;
     const float sc = std::clamp(room / 10.5f, 0.45f, 1.4f), wsc = std::sqrt(sc);
-    const float roof = layout::RIGHT_COLUMN[1] - 0.4f; // the lowest HUD element right of the well
+    const float roof = layout::RIGHT_COLUMN[1] - 1.f; // the lowest HUD element right of the well
     auto dir = [](float a) { return v2(std::cos(a), std::sin(a)); };
     vec2 p = v2(right + 0.9f, viewC_.y - viewH_.y + rng_.range(1.6f, 2.4f));
     const float heading = PI - rng_.range(0.26f, 0.34f); // leftward, rising
-    float t = 0.f, w = 0.26f * wsc;
+    float t = 0.f, w = 0.32f * wsc;
         int side = rng_.chance(0.5f) ? 1 : -1;
     auto addSeg = [&](vec2 a, vec2 b, float width, float t0, float speed, float dry, float taper) {
         float dx = b.x - a.x, dy = b.y - a.y, len = std::sqrt(dx * dx + dy * dy);
@@ -335,7 +340,7 @@ void SumiUniverse::buildBranch() {
             float off = rng_.range(-1.f, 1.f) * (s.width * 0.6f + 0.18f);
             Blossom b;
             b.pos = add(add(s.a, mul(d, u)), mul(nrm, off));
-            b.size = rng_.range(0.40f, 0.50f) * wsc;
+            b.size = rng_.range(0.46f, 0.58f) * wsc;
             b.rot = rng_.range(0.f, TAU);
             b.t0 = s.t0 + s.dur * u + rng_.range(0.15f, 0.9f) + t0Extra;
             b.seed = rng_.range(0.f, 100.f);
@@ -371,7 +376,7 @@ void SumiUniverse::buildBranch() {
             const bool hang = false;
             const float sa = hang ? -PI * 0.5f - rng_.range(0.2f, 0.5f) : PI * 0.5f + rng_.range(-0.55f, 0.65f);
             float sl = (hang ? rng_.range(1.2f, 1.7f) : rng_.range(1.5f, 2.5f)) * sc;
-            if (root.x < layout::RIGHT_COLUMN[2] + 0.8f) sl = std::min(sl, std::max(0.6f, (roof - root.y) / std::sin(sa)));
+            if (root.x < layout::RIGHT_COLUMN[2] + 1.5f) sl = std::min(sl, std::max(0.6f, (roof - root.y) / std::sin(sa)));
             // two strokes with a slight kink, the second thinner
             const float kink = rng_.range(0.15f, 0.3f) * (rng_.chance(0.5f) ? 1.f : -1.f);
             const vec2 sm = add(root, mul(dir(sa), sl * 0.55f));
@@ -400,7 +405,7 @@ void SumiUniverse::spawnPetal(vec2 pos, bool fromBranch) {
     p.vel = v2(-rng_.range(0.45f, 0.95f) * wind, -rng_.range(0.32f, 0.6f));
     p.rot = rng_.range(0.f, TAU);
     p.spin = rng_.range(-0.6f, 0.6f);
-    p.size = rng_.range(0.2f, 0.3f);
+    p.size = rng_.range(0.26f, 0.38f);
     p.age = 0;
     p.life = 60.f;
     p.seed = rng_.range(0.f, 100.f);
@@ -767,7 +772,7 @@ void SumiUniverse::collectScenery(const MusicState& music, std::vector<Sprite>& 
     for (const Petal& p : petals_) {
         float a = smoothstepf(0.f, 0.8f, p.age) * petalFade;
         float flip = 0.3f + 0.7f * std::fabs(std::cos(p.flip));
-        put(p.pos.x, p.pos.y, p.size * flip, p.size, p.rot, K_PETAL + K_BEHIND, p.seed, (p.red ? 0.6f : 0.34f) * a,
+        put(p.pos.x, p.pos.y, p.size * flip, p.size, p.rot, K_PETAL + K_BEHIND, p.seed, (p.red ? 0.7f : 0.4f) * a,
             p.red ? verm_ : inkC_, 0, 0, 0, 0, 0);
     }
     // The plum branch: each stroke brushed after the one before, the blossoms opening behind the brush.
@@ -1109,10 +1114,7 @@ void SumiUniverse::render(const Frame& f, GLuint fbo) {
             ivory_ = lerp(ivory_, vec3(0.925f, 0.9f, 0.845f), k);
         }
         neg_ = k >= 1.f ? (V.negative ? 1.f : 0.f) : approach(neg_, V.negative ? 1.f : 0.f, 0.7f, dt);
-        // The sky's wash takes the accent, or the second ink when the accent is a gold or an ochre (a yellow
-        // wash would tint the paper).
-        const bool yellow = V.accent.y > 0.55f * V.accent.x && V.accent.z < 0.3f;
-        skyCol_ = lerp(skyCol_, yellow ? V.ink2 : V.accent, k);
+        skyCol_ = lerp(skyCol_, SKY[variant_], k);
     }
 
     invT_ += dt;

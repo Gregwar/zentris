@@ -185,7 +185,7 @@ void main() {
     if (uLevel.z >= 0.0) {
         float e = uLevel.z - rr;
         float dry = 1.0 - uLevel.w * uLevel.w;
-        float tide = exp(-pow((e - 0.12) / 0.16, 2.0)) * (0.16 + 0.14 * uImpact);
+        float tide = exp(-pow((e - 0.12) / 0.16, 2.0)) * 0.12; // a soft tide line, never a ring hitting harder at a drop
         float body = smoothstep(0.0, 0.6, e) * exp(-max(e, 0.0) * 0.35) * (0.045 + 0.06 * uImpact);
         float grain = 0.75 + 0.5 * vnoise(p * 3.0);
         float dens = (tide + body) * grain * dry * (1.0 - 0.8 * well) * uWorld;
