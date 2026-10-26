@@ -1,0 +1,338 @@
+#pragma once
+// GARDEN's shaders (see garden.cpp): the sky and the ground line, the clods of earth, the sprites (blades of grass,
+// flowers, petals, seeds, dust), the HUD letters and the final pass.
+
+namespace garden_shaders {
+
+// Shared helpers, inserted after each fragment shader's #version line.
+inline const char* COMMON_GLSL = R"(
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+float vnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+float fbm(vec2 p) {
+    float s = 0.0, a = 0.5;
+    for (int i = 0; i < 4; i++) { s += a * vnoise(p); p = p * 2.03 + 17.1; a *= 0.5; }
+    return s;
+}
+)";
+
+// ---------------------------------------------------------------- the sky and the ground line
+// One wide line of earth along the bottom of the picture (low and flat under the well, rising gently toward the
+// edges), the sky above it: a plain gradient, one sun or moon, the drop's glow rising from the horizon.
+inline const char* SKY_FS = R"(#version 330 core
+in vec2 vUv;
+out vec4 frag;
+uniform vec4 uView;          // center x, y, half extents x, y (board units)
+uniform vec3 uSkyTop, uSkyLow, uSunCol, uGlow, uGround, uGroundDeep, uLip, uBridgeCol, uDusk;
+uniform vec4 uSun;           // x, y, radius, moon (0 / 1)
+uniform float uGlowAmt, uSlow, uBridge, uSeed, uPx, uStars, uVeil, uDry;
+float groundY(float x) {
+    float a = abs(x);
+    float side = smoothstep(6.0, 12.0, a);
+    return -10.05 + 0.3 * smoothstep(5.4, 11.0, a) + 2.4 * pow(smoothstep(11.0, 24.0, a), 1.3)
+           + (0.22 * sin(x * 0.37 + uSeed) + 0.12 * sin(x * 0.91 + uSeed * 1.7)) * side;
+}
+void main() {
+    vec2 w = uView.xy + (vUv * 2.0 - 1.0) * uView.zw;
+    // the sky: a plain gradient from the horizon up
+    float h = clamp((w.y + 10.0) / 23.0, 0.0, 1.0);
+    vec3 sky = mix(uSkyLow, uSkyTop, smoothstep(0.0, 1.0, pow(h, 0.75)));
+    // the drop: a glow of the flowers' color rising from the horizon, steady for the whole drop
+    float glow = uGlowAmt * exp(-max(w.y + 9.0, 0.0) / 9.0);
+    sky = mix(sky, uGlow, clamp(glow, 0.0, 0.8));
+    // slow motion: dusk falls over the garden
+    vec3 dusk = mix(uDusk * 0.55, uDusk, smoothstep(-10.0, 6.0, -w.y));
+    sky = mix(sky, dusk, uSlow * 0.85);
+    // stars (night, or dusk in slow motion): a few faint points, still
+    float st = max(uStars, uSlow * 0.8);
+    if (st > 0.01) {
+        vec2 c = floor(w * 2.2);
+        float r = hash12(c + 7.0);
+        if (r > 0.985) {
+            vec2 q = fract(w * 2.2) - 0.5 - (vec2(hash12(c + 1.3), hash12(c + 2.9)) - 0.5) * 0.6;
+            float s = smoothstep(0.09, 0.0, length(q)) * st * smoothstep(-4.0, 4.0, w.y) * (0.4 + 0.6 * hash12(c + 5.1));
+            sky += vec3(0.75, 0.8, 0.95) * s * 0.6;
+        }
+    }
+    // the sun (or the moon): a soft disk and a wide halo
+    float d = length(w - uSun.xy);
+    float sunA = smoothstep(uSun.z + uPx * 1.5, uSun.z - uPx * 1.5, d);
+    float halo = exp(-max(d - uSun.z, 0.0) / (uSun.z * (1.6 + 0.8 * (1.0 - uSun.w)))) * (0.22 + 0.1 * (1.0 - uSun.w));
+    vec3 sunCol = uSunCol * (1.0 - 0.35 * uSlow);
+    if (uSun.w > 0.5) {
+        // the moon: a faint mottling
+        sunCol *= 0.9 + 0.1 * fbm((w - uSun.xy) * 2.0 + 3.0);
+    }
+    sky = mix(sky, sunCol, halo * (1.0 - 0.6 * uSlow));
+    sky = mix(sky, sunCol, sunA * (1.0 - 0.5 * uSlow));
+    // the well: the same sky, a touch quieter (a breath of shade)
+    float wellM = smoothstep(5.35, 5.05, abs(w.x)) * smoothstep(10.35, 10.05, w.y) * smoothstep(-10.2, -9.9, w.y);
+    sky = mix(sky, sky * 0.93, wellM * uVeil);
+    // the ground line: dark earth, a lighter lip where the light catches its edge, fine grain
+    float gy = groundY(w.x);
+    float below = gy - w.y;
+    float edge = smoothstep(-uPx * 1.2, uPx * 1.2, below + (vnoise(vec2(w.x * 9.0, 3.0)) - 0.5) * 0.05);
+    float depth = smoothstep(0.0, 3.2, below);
+    vec3 soil = mix(uGround, uGroundDeep, depth);
+    soil *= 0.88 + 0.24 * fbm(w * vec2(2.2, 3.4) + uSeed);
+    float sp = hash12(floor(w * 24.0));
+    soil *= sp > 0.94 ? 1.25 : (sp < 0.05 ? 0.7 : 1.0);
+    soil = mix(soil, uLip, exp(-below / 0.09) * 0.55 * (1.0 - 0.5 * uDry));
+    soil *= 1.0 - 0.45 * uSlow;
+    vec3 col = mix(sky, soil, edge);
+    col = mix(col, uBridgeCol, uBridge);
+    frag = vec4(col, 1.0);
+}
+)";
+
+// ---------------------------------------------------------------- the clods of earth
+// One instance per cell. The cells of one piece merge into one clod: the shape is the distance to the empty
+// squares around the cell (its 8 neighbours that are not the same piece), inset, with rounded outer corners and
+// a crumbly edge; the grain lives in the piece's own space (it stays with the clod when rows fall).
+inline const char* CELL_VS = R"(#version 330 core
+layout(location = 0) in vec2 aQ;
+layout(location = 1) in vec4 a0;   // x, y, size, neighbour mask (L R D U LD RD LU RU)
+layout(location = 2) in vec4 a1;   // linear rgb, alpha
+layout(location = 3) in vec4 a2;   // grain origin x, y, crumble 0..1, ghost
+layout(location = 4) in vec4 a3;   // seed, moss on the top edge, -, -
+uniform mat4 uVP;
+out vec2 vP;
+flat out vec4 v0, v1, v2, v3;
+void main() {
+    vP = aQ * 0.5;
+    v0 = a0; v1 = a1; v2 = a2; v3 = a3;
+    gl_Position = uVP * vec4(a0.xy + aQ * 0.5 * a0.z, 0.0, 1.0);
+}
+)";
+inline const char* CELL_FS = R"(#version 330 core
+in vec2 vP;
+flat in vec4 v0, v1, v2, v3;
+out vec4 frag;
+uniform float uPx, uBridge;
+uniform vec3 uBridgeInk, uMoss;
+float boxD(vec2 p, vec2 o) {
+    vec2 q = abs(p - o) - 0.5;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+}
+void main() {
+    int m = int(v0.w + 0.5);
+    float size = v0.z;
+    vec2 offs[8] = vec2[8](vec2(-1.0, 0.0), vec2(1.0, 0.0), vec2(0.0, -1.0), vec2(0.0, 1.0),
+                           vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0));
+    float dE = 9.0, dTop = 9.0, dBot = 9.0;
+    for (int i = 0; i < 8; i++) {
+        if (((m >> i) & 1) != 0) continue;
+        float d = boxD(vP, offs[i]);
+        dE = min(dE, d);
+        if (offs[i].y > 0.5) dTop = min(dTop, d);
+        if (offs[i].y < -0.5) dBot = min(dBot, d);
+    }
+    // rounded outer corners (both sides open)
+    const float R = 0.2;
+    for (int c = 0; c < 4; c++) {
+        vec2 s = vec2(c == 0 || c == 2 ? -1.0 : 1.0, c < 2 ? -1.0 : 1.0);
+        int sx = s.x < 0.0 ? 0 : 1, sy = s.y < 0.0 ? 2 : 3;
+        if (((m >> sx) & 1) != 0 || ((m >> sy) & 1) != 0) continue;
+        vec2 q = vP * s - vec2(0.5 - R);
+        if (q.x > 0.0 && q.y > 0.0) dE = min(dE, R - length(q));
+    }
+    vec2 nc = v2.xy + vP;
+    bool ghost = v2.w > 0.5;
+    float px = uPx / size;
+    float inset = 0.055;
+    float crumb = ghost ? 0.0 : (fbm(nc * 7.0 + v3.x) - 0.5) * 0.08 + (vnoise(nc * 31.0) - 0.5) * 0.035;
+    float a = smoothstep(inset - px, inset + px, dE + crumb);
+    // loose crumbs just off the edge
+    if (!ghost) {
+        float band = smoothstep(inset - 0.07, inset - 0.02, dE + crumb * 0.5) * (1.0 - a);
+        float g = vnoise(nc * 36.0 + 4.0);
+        a = max(a, band * smoothstep(0.74, 0.8, g));
+    }
+    vec3 base = v1.rgb;
+    vec3 col = base;
+    if (!ghost) {
+        float tb = 1.0 - uBridge;
+        // clumps and fine grain
+        float clump = fbm(nc * 4.2 + v3.x * 1.3);
+        col *= mix(1.0, 0.82 + 0.36 * clump, tb);
+        vec2 gc = floor(nc * 22.0);
+        float h = hash12(gc + v3.x);
+        vec2 gq = fract(nc * 22.0) - 0.5;
+        float dot_ = smoothstep(0.42, 0.18, length(gq));
+        col *= mix(1.0, h > 0.9 ? 1.0 + 0.35 * dot_ : (h < 0.1 ? 1.0 - 0.4 * dot_ : 1.0), tb);
+        // light from above: a lighter lip along the open top, the underside in shade, a darker crumbly rim
+        col *= mix(1.0, 1.0 + 0.16 * exp(-max(dTop - inset, 0.0) / 0.07), tb);
+        col *= mix(1.0, 1.0 - 0.22 * exp(-max(dBot - inset, 0.0) / 0.16), tb);
+        col *= mix(1.0, 1.0 - 0.14 * exp(-max(dE - inset, 0.0) / 0.035), tb);
+        // moss where grass has taken on the top
+        col = mix(col, uMoss, v3.y * 0.35 * exp(-max(dTop - inset, 0.0) / 0.06) * tb);
+    }
+    // a cleared row crumbles: the earth breaks up from its grain
+    float cr = v2.z;
+    if (cr > 0.0) {
+        float n = vnoise(nc * 9.0) * 0.6 + vnoise(nc * 27.0) * 0.4;
+        float k = cr * 1.25 - 0.1;
+        a *= smoothstep(k, k + 0.08, n);
+        col *= 1.0 - 0.25 * smoothstep(k + 0.25, k, n);
+    }
+    col = mix(col, uBridgeInk, uBridge);
+    frag = vec4(col, a * v1.a);
+}
+)";
+
+// ---------------------------------------------------------------- sprites
+// Kinds: 0 a blade of grass or a stem (root at x, y; half width, length; bent), 1 a soft dot (dust, pollen,
+// fireflies), 2 a flower head (opening), 3 a petal, 4 a seed with its pappus, 5 the bonus gauge, 6 a bud.
+inline const char* SPRITE_VS = R"(#version 330 core
+layout(location = 0) in vec2 aQ;
+layout(location = 1) in vec4 a0;   // x, y, half x (width), half y (length)
+layout(location = 2) in vec4 a1;   // rotation, kind, p0, p1
+layout(location = 3) in vec4 a2;   // linear rgb, alpha
+layout(location = 4) in vec4 a3;   // p2, p3, seed, -
+uniform mat4 uVP;
+out vec2 vQ;
+flat out vec4 v1, v2, v3;
+void main() {
+    int kind = int(a1.y + 0.5);
+    vec2 local;
+    if (kind == 0) {
+        float v = aQ.y * 0.5 + 0.5;
+        float w = a0.z * mix(1.0, 0.15, v);
+        local = vec2(aQ.x * w + a1.z * v * v * a0.w, v * a0.w);
+    } else {
+        local = aQ * a0.zw;
+    }
+    float c = cos(a1.x), s = sin(a1.x);
+    vec2 wp = a0.xy + vec2(c * local.x - s * local.y, s * local.x + c * local.y);
+    vQ = aQ;
+    v1 = a1; v2 = a2; v3 = a3;
+    gl_Position = uVP * vec4(wp, 0.0, 1.0);
+}
+)";
+inline const char* SPRITE_FS = R"(#version 330 core
+in vec2 vQ;
+flat in vec4 v1, v2, v3;
+out vec4 frag;
+uniform vec3 uCenter;   // the flowers' hearts
+uniform vec3 uRing;     // the gauge's ring
+void main() {
+    int kind = int(v1.y + 0.5);
+    vec3 col = v2.rgb;
+    float a = 0.0;
+    float r = length(vQ);
+    if (kind == 0) {
+        float v = vQ.y * 0.5 + 0.5;
+        a = smoothstep(1.0, 0.45, abs(vQ.x));
+        col *= 0.72 + 0.4 * v;
+    } else if (kind == 1) {
+        a = smoothstep(1.0, v1.z, r);
+    } else if (kind == 2) {
+        // petals around a heart, opening: p0 openness, p1 petal count
+        float ang = atan(vQ.y, vQ.x);
+        float n = v1.w;
+        float o = v1.z;
+        float petal = pow(abs(cos(ang * n * 0.5)), 0.7);
+        float R = mix(0.35, 1.0, o) * (0.55 + 0.45 * petal);
+        a = smoothstep(R, R - 0.12, r);
+        float heart = 0.3 * mix(0.6, 1.0, o);
+        col *= 0.8 + 0.25 * smoothstep(0.0, R, r);
+        col = mix(col, uCenter, smoothstep(heart, heart - 0.1, r));
+        // the petals' veins: a touch darker between them
+        col *= 1.0 - 0.12 * (1.0 - petal) * smoothstep(heart, R, r);
+    } else if (kind == 3) {
+        vec2 q = vQ;
+        float e = length(vec2(q.x, q.y * (1.0 + 0.25 * q.y)));
+        a = smoothstep(1.0, 0.75, e);
+        col *= 0.85 + 0.2 * q.y;
+    } else if (kind == 4) {
+        float ang = atan(vQ.y, vQ.x);
+        float core = smoothstep(0.22, 0.12, r);
+        float fil = pow(abs(cos(ang * 5.0)), 12.0) * smoothstep(1.0, 0.85, r) * step(0.15, r) * 0.5;
+        float fuzz = smoothstep(1.0, 0.5, r) * 0.18;
+        a = max(core, max(fil, fuzz));
+    } else if (kind == 5) {
+        // the bonus gauge: a fine ring, a meadow rising inside it
+        float fill = v1.z, ready = v1.w;
+        float ring = smoothstep(0.035, 0.0, abs(r - 0.96)) * (0.55 + 0.45 * ready);
+        float inside = smoothstep(0.92, 0.89, r);
+        float lvl = -0.9 + 1.8 * fill + 0.03 * sin(vQ.x * 9.0 + v3.z);
+        float f = inside * smoothstep(lvl + 0.02, lvl - 0.02, vQ.y) * step(0.001, fill);
+        col = mix(uRing, v2.rgb * (0.8 + 0.3 * smoothstep(lvl - 0.6, lvl, vQ.y)), f);
+        a = max(ring, f);
+    } else if (kind == 6) {
+        // a bud: a closed drop of color in a green sheath
+        vec2 q = vQ;
+        float e = length(vec2(q.x * (1.0 + 0.4 * (q.y + 1.0) * 0.5), q.y));
+        a = smoothstep(1.0, 0.8, e);
+        col = mix(col, col * 0.35 + vec3(0.04, 0.08, 0.03), smoothstep(0.1, -0.6, q.y));
+    }
+    frag = vec4(col, a * v2.a);
+}
+)";
+
+// ---------------------------------------------------------------- text
+inline const char* TEXT_VS = R"(#version 330 core
+layout(location = 0) in vec2 aPos;   // pixels, top-left origin
+layout(location = 1) in vec2 aUv;
+uniform vec2 uRes;
+out vec2 vUv;
+void main() {
+    vUv = aUv;
+    gl_Position = vec4(aPos.x / uRes.x * 2.0 - 1.0, 1.0 - aPos.y / uRes.y * 2.0, 0.0, 1.0);
+}
+)";
+inline const char* TEXT_FS = R"(#version 330 core
+in vec2 vUv;
+out vec4 frag;
+uniform sampler2D uFont;
+uniform vec3 uInk;
+uniform float uAlpha, uBias;
+void main() {
+    float d = texture(uFont, vUv).r;
+    float w = max(fwidth(d), 1e-3) * 0.75;
+    float a = smoothstep(0.5 - uBias - w, 0.5 - uBias + w, d);
+    frag = vec4(uInk, a * uAlpha);
+}
+)";
+
+inline const char* SHAPE_VS = R"(#version 330 core
+layout(location = 0) in vec2 aPos;
+layout(location = 1) in vec4 aCol;
+uniform vec2 uRes;
+out vec4 vCol;
+void main() {
+    vCol = aCol;
+    gl_Position = vec4(aPos.x / uRes.x * 2.0 - 1.0, 1.0 - aPos.y / uRes.y * 2.0, 0.0, 1.0);
+}
+)";
+inline const char* SHAPE_FS = R"(#version 330 core
+in vec4 vCol;
+out vec4 frag;
+void main() { frag = vCol; }
+)";
+
+// ---------------------------------------------------------------- the final pass
+inline const char* POST_FS = R"(#version 330 core
+in vec2 vUv;
+out vec4 frag;
+uniform sampler2D uScene;
+uniform float uFade, uDim;
+void main() {
+    vec3 c = texture(uScene, vUv).rgb;
+    // a soft vignette, very light
+    vec2 q = vUv - 0.5;
+    c *= 1.0 - 0.12 * dot(q, q) * 2.0;
+    c *= 1.0 - uDim * 0.5;
+    c *= uFade;
+    frag = vec4(pow(max(c, 0.0), vec3(1.0 / 2.2)), 1.0);
+}
+)";
+
+} // namespace garden_shaders
