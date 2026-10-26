@@ -63,7 +63,7 @@ flat in float vW, vLayer;
 flat in vec4 vC;
 uniform vec2 uQuad[4];     // the well, in pixels (bottom-left origin), counter-clockwise
 uniform vec4 uRects[2];    // HUD panels: x0, y0, x1, y1 (pixels, bottom-left origin)
-uniform float uQuadDim, uRectDim, uHalo;
+uniform float uQuadDim, uQuadPad, uRectDim, uHalo;
 out vec4 frag;
 float edge(vec2 a, vec2 b, vec2 p) { vec2 e = normalize(b - a); return (p.x - a.x) * e.y - (p.y - a.y) * e.x; }
 void main() {
@@ -79,7 +79,7 @@ void main() {
         vec2 p = gl_FragCoord.xy;
         float m = 1e9;
         for (int i = 0; i < 4; i++) m = min(m, -edge(uQuad[i], uQuad[(i + 1) % 4], p));
-        float k = 1.0 - (1.0 - uQuadDim) * smoothstep(-6.0, 6.0, m);
+        float k = 1.0 - (1.0 - uQuadDim) * smoothstep(-uQuadPad, 0.0, m);
         for (int i = 0; i < 2; i++) {
             vec4 r = uRects[i];
             float mr = min(min(p.x - r.x, r.z - p.x), min(p.y - r.y, r.w - p.y));
