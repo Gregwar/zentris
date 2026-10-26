@@ -65,7 +65,7 @@ constexpr float TAN_H = 0.4452f;                 // the world camera's half fiel
 constexpr float EYE = 1.7f;                      // standing in the snow
 constexpr float WELL_X = 5.2f, WELL_Y = 10.2f;   // the well's sheet of ice (half extents, board)
 constexpr int FLAKES = 320;
-constexpr float FREEZE_SECONDS = 1.8f;           // a locked piece freezing at once, then steaming for a moment
+constexpr float FREEZE_SECONDS = 7.f;            // a locked piece's water turning to ice (shaders.hpp: FREEZE)
 
 vec2 v2(float x, float y) { return vec2{x, y}; }
 vec2 operator+(vec2 a, vec2 b) { return {a.x + b.x, a.y + b.y}; }
@@ -713,11 +713,11 @@ void PolarUniverse::simulate(const Game& game, const MusicState& music, float dt
             if (age < 0.f) continue;
             if (y > Game::HIDDEN && game.cell(x, y - 1).type >= 0) continue;
             const float k = age / FREEZE_SECONDS;
-            const float rate = 4.f * (1.f - k) * smoothstepf(0.f, 0.08f, k);
+            const float rate = 1.3f * (1.f - k) * smoothstepf(0.f, 0.08f, k);
             if (rng_.uniform() > rate * wdt) continue;
             const vec3 p = layout::cellPos((float)x, y - game.rowOffset(y));
             powder(v2(p.x + rng_.range(-0.4f, 0.4f), p.y + 0.42f), v2(rng_.range(-0.06f, 0.06f), rng_.range(0.15f, 0.3f)),
-                   rng_.range(0.2f, 0.32f), rng_.range(1.8f, 2.6f), 0.22f + 0.18f * (1.f - k), 0.f, true);
+                   rng_.range(0.2f, 0.32f), rng_.range(1.8f, 2.6f), 0.14f + 0.12f * (1.f - k), 0.f, true);
         }
 
     // Effects age (slowed by the slow motion like the world).
@@ -816,7 +816,22 @@ void PolarUniverse::buildBoard(const Game& g) {
                     if (idAt(x + dx, y + dy) != id) return false;
                     return dy == 0 || std::fabs(g.rowOffset(y + dy) - g.rowOffset(y)) < 0.01f;
                 });
-            tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask, 0.f, id >= 0 ? pieceSeed(id) : 0.f, cdx, cdy);
+            // fused faces: freezing next to another piece, the two bodies of ice slowly grow together (4 bits per
+            // side, left right up down: how far both have frozen)
+            const float kSelf = age < 0.f ? 1.f : saturate(age / FREEZE_SECONDS);
+            int fused = 0;
+            const int SX[4] = {-1, 1, 0, 0}, SY[4] = {0, 0, -1, 1};
+            for (int i = 0; i < 4; i++) {
+                const int nx = x + SX[i], ny = y + SY[i];
+                if (nx < 0 || nx >= Game::W || ny < Game::HIDDEN || ny >= Game::H) continue;
+                if (g.cell(nx, ny).type < 0 || (mask >> i & 1)) continue;
+                if (SY[i] != 0 && std::fabs(g.rowOffset(ny) - g.rowOffset(y)) > 0.01f) continue;
+                const float an = freezeAge(g, nx, ny);
+                const float kn = an < 0.f ? 1.f : saturate(an / FREEZE_SECONDS);
+                fused |= (int)(std::min(kSelf, kn) * 15.f + 0.5f) << (4 * i);
+            }
+            tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask, 0.f, id >= 0 ? pieceSeed(id) : 0.f, cdx, cdy,
+                 (float)fused);
         }
     // Cleared cells turning to snow; a topped-out stack freezing white, then crumbling.
     for (const Dying& d : dying_) {
