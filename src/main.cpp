@@ -109,7 +109,7 @@ private:
         else glfwGetFramebufferSize(win_, &w, &h);
     }
     void swap() {
-        if (!headless_) swap();
+        if (!headless_) glfwSwapBuffers(win_);
     }
     AudioEngine audio_;
     Library lib_;
