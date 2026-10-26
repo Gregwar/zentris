@@ -7,6 +7,9 @@
 #include "ugl.hpp"
 #include "universe.hpp"
 
+class q3Scene;
+class q3Body;
+
 class WhiteRoomUniverse : public Universe {
 public:
     ~WhiteRoomUniverse() override;
@@ -123,35 +126,41 @@ private:
 
     // ---- Cleared blocks thrown out of the well: cubes flying out left, right or back, landing on the floor, lying
     // there a while and fading (their physics at the real speed, like the clear).
-    // They fly and tumble, then settle on a heightmap of the floor that grows as they pile up (a random yaw, a tilt
-    // from the pile under them, tipping off an edge they do not sit on), sleep there 60 to 120 s and fade; a cube
-    // fading out lowers the heightmap and the cubes resting on it drop.
+    // They are rigid bodies (qu3e): they fly, tumble, collide, stack and come to rest on the floor, the cove and each
+    // other; a cube at rest freezes (a static body: a pile costs nothing). They lie there 60 to 120 s and fade; a cube
+    // gone (or knocked away) wakes the cubes it held, which settle again.
     struct Ejected {
-        vec3 p, v, w;              // center, velocity, angular velocity (board space)
-        vec3 ax[3];                // its axes (orientation)
-        vec3 fromP, fromAx[3];     // settling: from the landing pose ...
-        vec3 toP, toAx[3];         // ... to the resting pose
-        float settle = 0.f;        // 0..1
-        float h = 0.42f;           // half size
+        q3Body* body = nullptr;
+        int layers = 0;            // its collision layers (see GHOST in white_room.cpp)
+        int ghost = 0;             // thrown out from inside cubes lying there: its own layer, which those leave until it is clear
+        float busy = 0.f;          // seconds moving since it last froze
+        bool frozen = false;       // long at rest: a static body (wakes when what holds it moves)
+        float still = 0.f;         // seconds still
+        vec3 p0, p1;               // the last two steps' centers (drawn in between)
+        vec4 q0, q1;               // ... and orientations (quaternions)
+        vec3 ext;                  // half size of its bounding box
+        vec3 rest;                 // where it last lay still (moving off it wakes the frozen ones it held)
+        float h = 0.42f;           // half size (drawn)
         int color = 0;
         float age = 0.f, life = 1.f; // seconds; fades over its last FADE seconds
-        int state = 0;             // AIR, SETTLE, REST
-        int tips = 0;              // times it tipped off an edge since it was thrown (or woken)
     };
     std::vector<Ejected> ejected_;
     static constexpr int EJECT_MAX = 300;
+    q3Scene* world_ = nullptr;     // owned
+    float physAcc_ = 0.f;          // real time not stepped yet
+    void physicsInit();
+    void makeBody(Ejected& e, bool dynamic, const vec3& v, const vec3& w); // (again) at its pose
+    int ghostSeq_ = 0;             // the ghosts' layers, in turn
+    void unfreezeAround(const Ejected& m, bool hard); // the frozen cubes it touches (above it, or all after a hit)
     void eject(float x, float y, int color, float power);
     void stepEjected(float dt);
-    void land(Ejected& e);
-    // the heightmap over the floor (x, z): the ground (floor, plinth) and the resting cubes' tops
+    // how high the piles stand over the floor (x, z), from the resting cubes: they darken the floor around them
     static constexpr int HM_NX = 128, HM_NZ = 20;
     static constexpr float HM_X0 = -25.6f, HM_Z0 = -4.4f, HM_CELL = 0.4f;
-    std::vector<float> hm_, hmBase_, hmUp_;
+    std::vector<float> hm_;
     bool hmDirty_ = true;
     GLuint hmTex_ = 0;
-    float hmAt(float x, float z) const;
     void hmStamp(const vec3& p, const vec3 (&ax)[3], float h);
-    void hmRebuild(); // after a cube is gone: the piles again, waking the cubes left hanging
     std::vector<CubeInst> thrown_, thrownFade_;
     float dropSwing_ = 0.f;  // the drop's gels swinging in from far out (1 on the downbeat .. 0)
 

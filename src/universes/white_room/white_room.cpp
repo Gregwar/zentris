@@ -33,6 +33,7 @@
 #include "universes/white_room/shaders.hpp"
 #define STB_TRUETYPE_IMPLEMENTATION
 #define STBTT_STATIC
+#include "q3.h"
 #include "stb_truetype.h"
 
 namespace {
@@ -61,7 +62,6 @@ GLuint compile(const char* vs, const char* fs, const char* name, bool lit = fals
 
 constexpr float FLOOR = -10.6f, WALL_Z = -9.f, COVE = 5.f;
 constexpr float PLINTH_TOP = -10.05f, PLINTH_HX = 5.5f, PLINTH_HZ = 1.3f;
-constexpr float PANE_Z = -0.62f;
 
 vec3 hex(unsigned v) { return {((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255.f, (v & 255) / 255.f}; }
 vec3 lin(unsigned c) { return ugl::toLinear(hex(c)); }
@@ -292,18 +292,11 @@ bool WhiteRoomUniverse::init(int width, int height) {
     glSamplerParameteri(shRawSampler_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glSamplerParameteri(shRawSampler_, GL_TEXTURE_COMPARE_MODE, GL_NONE);
 
-    // The piles' heightmap: the ground (the floor, the plinth's top) and the resting cubes' tops, cell by cell.
-    hmBase_.assign(HM_NX * HM_NZ, 0.f);
-    for (int iz = 0; iz < HM_NZ; iz++)
-        for (int ix = 0; ix < HM_NX; ix++) {
-            const float x = HM_X0 + (ix + 0.5f) * HM_CELL, z = HM_Z0 + (iz + 0.5f) * HM_CELL;
-            hmBase_[iz * HM_NX + ix] = std::fabs(x) < PLINTH_HX && std::fabs(z) < PLINTH_HZ ? PLINTH_TOP : FLOOR;
-        }
-    hm_ = hmBase_;
-    hmUp_.assign(HM_NX * HM_NZ, 0.f);
+    // The piles' heightmap: how high the resting cubes stand over their ground, cell by cell.
+    hm_.assign(HM_NX * HM_NZ, 0.f);
     glGenTextures(1, &hmTex_);
     glBindTexture(GL_TEXTURE_2D, hmTex_);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, HM_NX, HM_NZ, 0, GL_RED, GL_FLOAT, hmUp_.data());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, HM_NX, HM_NZ, 0, GL_RED, GL_FLOAT, hm_.data());
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -421,6 +414,7 @@ void WhiteRoomUniverse::createTargets() {
 }
 
 WhiteRoomUniverse::~WhiteRoomUniverse() {
+    delete world_;
     sceneT_.destroy();
     for (GLuint p : {progRoom_, progOcc_, progTile_, progShape_, progText_, progPost_, progCube_, progShadow_, progCopy_})
         glDeleteProgram(p);
@@ -532,45 +526,149 @@ TransitionHints WhiteRoomUniverse::hints() const {
 // =====================================================================================================
 
 namespace {
-constexpr float EJECT_Z = -1.25f; // thrown out from behind the pane (z = -0.62): nothing is drawn over the well
+// Thrown out from behind the pane (z = -0.62) and the plinth (nothing is drawn over the well; nothing comes to rest
+// where the next cubes are thrown from).
+constexpr float EJECT_Z = -PLINTH_HZ - 0.45f;
 constexpr float FADE = 1.5f;
-constexpr float ZMIN = WALL_Z + COVE + 0.55f, ZMAX = 2.2f, XMAX = 17.f; // the floor they keep to
-enum { AIR, SETTLE, REST };
+constexpr float GRAVITY = 30.f;
+constexpr float STEP = 1.f / 120.f;
+constexpr int MAX_STEPS = 4;      // per frame (after a long frame the cubes lag rather than cost more)
+// A cube thrown out from inside cubes lying behind the plinth is a ghost: it has a layer of its own (one of 30), which
+// those cubes leave until it is clear of them (one still inside another after GHOST_MAX seconds fades out). The room
+// is in every layer, a cube in all but GHOST, a ghost in its own and GHOST (the ghosts meet each other).
+constexpr float GHOST_MAX = 1.f;
+constexpr int GHOST = 1 << 30, SOLID = ~GHOST;
+constexpr float BUSY_MAX = 6.f;   // seconds a cube may keep moving (wedged, jittering) before it fades out
+constexpr float FREEZE = 0.4f;    // seconds still before a cube turns static
+constexpr float STILL_V = 0.15f, STILL_W = 0.3f; // still: slower than this (units/s, radians/s)
+// The solver lets a resting box sink into what holds it by up to its slop (0.01): every collider is a little larger
+// than drawn, so resting cubes touch.
+constexpr float SKIN = 0.004f;
+// the room they keep to: soft bounds (flying outward slows down), then walls (the HUD's text stays clear)
+constexpr float XSOFT = 13.f, XMAX = 17.f, ZSOFT = 1.2f, ZMAX = 2.2f;
 
-float extentY(const vec3 (&ax)[3], float h) { return h * (std::fabs(ax[0].y) + std::fabs(ax[1].y) + std::fabs(ax[2].y)); }
-void orthonormalize(vec3 (&ax)[3]) {
-    ax[0] = normalize(ax[0]);
-    ax[1] = normalize(ax[1] - ax[0] * dot(ax[0], ax[1]));
-    ax[2] = cross(ax[0], ax[1]);
+q3Vec3 qv(const vec3& v) { return q3Vec3(v.x, v.y, v.z); }
+vec3 vq(const q3Vec3& v) { return vec3(v.x, v.y, v.z); }
+void axesOf(const vec4& q, vec3 (&ax)[3]) {
+    const float x = q.x, y = q.y, z = q.z, w = q.w;
+    ax[0] = vec3(1.f - 2.f * (y * y + z * z), 2.f * (x * y + w * z), 2.f * (x * z - w * y));
+    ax[1] = vec3(2.f * (x * y - w * z), 1.f - 2.f * (x * x + z * z), 2.f * (y * z + w * x));
+    ax[2] = vec3(2.f * (x * z + w * y), 2.f * (y * z - w * x), 1.f - 2.f * (x * x + y * y));
 }
-vec3 rotateAbout(const vec3& v, const vec3& k, float a) {
-    const float c = std::cos(a), s = std::sin(a);
-    return v * c + cross(k, v) * s + k * (dot(k, v) * (1.f - c));
+// how deep two cubes (centers, orientations, half size) overlap: the least overlap over the separating axes (< 0: apart)
+float overlap(const vec3& pa, const vec4& qa, const vec3& pb, const vec4& qb, float h) {
+    vec3 A[3], B[3], L[15];
+    axesOf(qa, A);
+    axesOf(qb, B);
+    int n = 0;
+    for (int i = 0; i < 3; i++) { L[n++] = A[i]; L[n++] = B[i]; }
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++) {
+            const vec3 c = cross(A[i], B[j]);
+            if (dot(c, c) > 1e-4f) L[n++] = normalize(c);
+        }
+    const vec3 d = pb - pa;
+    float o = 1e9f;
+    for (int k = 0; k < n; k++) {
+        float r = 0.f;
+        for (int i = 0; i < 3; i++) r += h * (std::fabs(dot(A[i], L[k])) + std::fabs(dot(B[i], L[k])));
+        o = std::min(o, r - std::fabs(dot(d, L[k])));
+    }
+    return o;
 }
-int upAxis(const vec3 (&ax)[3]) {
+struct Waker : q3QueryCallback {
+    bool ReportShape(q3Box* box) override {
+        box->body->SetToAwake();
+        return true;
+    }
+};
+} // namespace
+
+// The room as the cubes feel it (static boxes): the floor, the plinth, the well (a solid from the plinth's back up and
+// forward: nothing goes in front of the well, over it, or rests on the plinth behind the pane), the cove and the back wall, and the bounds of the room.
+void WhiteRoomUniverse::physicsInit() {
+    world_ = new q3Scene(STEP, q3Vec3(0.f, -GRAVITY, 0.f), 10);
+    q3BodyDef def;
+    def.bodyType = eStaticBody;
+    def.layers = ~0;
+    q3Body* room = world_->CreateBody(def);
+    auto add = [&](const vec3& c, const vec3& size, float angle) { // turned about x
+        q3Transform tx;
+        q3Identity(tx);
+        tx.position = qv(c);
+        tx.rotation = q3Quaternion(q3Vec3(1.f, 0.f, 0.f), angle).ToMat3();
+        q3BoxDef box;
+        box.Set(tx, qv(size));
+        box.SetFriction(0.6f);
+        box.SetRestitution(0.f);
+        room->AddBox(box);
+    };
+    auto solid = [&](const vec3& lo, const vec3& hi) { add((lo + hi) * 0.5f, hi - lo, 0.f); };
+    const float S = SKIN, H = 0.42f, BIG = 60.f;
+    solid(vec3(-BIG, FLOOR - 2.f, -14.f), vec3(BIG, FLOOR + S, 14.f));
+    solid(vec3(-PLINTH_HX - S, FLOOR - 1.f, -PLINTH_HZ - S), vec3(PLINTH_HX + S, BIG, 14.f));
+    solid(vec3(-BIG, FLOOR - 1.f, ZMAX + H - S), vec3(BIG, BIG, 14.f));
+    solid(vec3(-BIG, FLOOR - 1.f, -14.f), vec3(-XMAX - H + S, BIG, 14.f));
+    solid(vec3(XMAX + H - S, FLOOR - 1.f, -14.f), vec3(BIG, BIG, 14.f));
+    solid(vec3(-BIG, FLOOR + COVE - 0.5f, -14.f), vec3(BIG, BIG, WALL_Z + S));
+    // the cove: a quarter cylinder (radius COVE) in six flat strips, each touching it along its middle
+    const float zc = WALL_Z + COVE, yc = FLOOR + COVE, half = 0.25f * PI / 6.f;
+    for (int k = 0; k < 6; k++) {
+        const float a = (2 * k + 1) * half;
+        const vec3 n(0.f, std::cos(a), std::sin(a)); // from the strip toward the cylinder's axis
+        add(vec3(0.f, yc, zc) - n * (COVE - S + 1.f), vec3(2.f * BIG, 2.f, 2.f * (COVE * std::tan(half) + 0.15f)), a);
+    }
+}
+
+// A cube's body at its pose: dynamic (moving), or static (frozen: a cube long at rest costs nothing, and a pile of
+// them is no longer one big island that a landing cube wakes whole).
+void WhiteRoomUniverse::makeBody(Ejected& e, bool dynamic, const vec3& v, const vec3& w) {
+    if (e.body) world_->RemoveBody(e.body);
+    q3BodyDef def;
+    def.bodyType = dynamic ? eDynamicBody : eStaticBody;
+    def.position = qv(e.p1);
+    const vec4& q = e.q1;
+    const float s = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z);
+    def.axis = s > 1e-6f ? q3Vec3(q.x / s, q.y / s, q.z / s) : q3Vec3(0.f, 1.f, 0.f);
+    def.angle = 2.f * std::atan2(s, q.w);
+    def.linearVelocity = qv(v);
+    def.angularVelocity = qv(w);
+    def.layers = e.layers;
+    def.angularDamping = 0.3f;
+    e.body = world_->CreateBody(def);
+    q3BoxDef box;
+    q3Transform tx;
+    q3Identity(tx);
+    const float d = 2.f * (e.h + SKIN);
+    box.Set(tx, q3Vec3(d, d, d));
+    box.SetFriction(0.6f);
+    box.SetRestitution(0.15f);
+    e.body->AddBox(box);
+    e.frozen = !dynamic;
+    e.still = 0.f;
+    if (!dynamic) e.busy = 0.f;
+    e.rest = e.p1;
+}
+
+// A cube moved (or is gone): the frozen ones it touches wake, those above it (they may have rested or leant on it), or
+// all of them after a hit.
+void WhiteRoomUniverse::unfreezeAround(const Ejected& m, bool hard) {
+    for (Ejected& o : ejected_) {
+        if (!o.frozen || &o == &m) continue;
+        const vec3 d = o.p1 - m.p1, r = o.ext + m.ext + vec3(0.08f);
+        if (std::fabs(d.x) > r.x || std::fabs(d.y) > r.y || std::fabs(d.z) > r.z) continue;
+        if (hard || d.y > 0.25f * m.h) makeBody(o, true, vec3(0.f), vec3(0.f));
+    }
+}
+
+// A resting cube raises the piles' heightmap under it to its top (a little under it).
+void WhiteRoomUniverse::hmStamp(const vec3& p, const vec3 (&ax)[3], float h) {
     int u = 0;
     for (int k = 1; k < 3; k++)
         if (std::fabs(ax[k].y) > std::fabs(ax[u].y)) u = k;
-    return u;
-}
-} // namespace
-
-float WhiteRoomUniverse::hmAt(float x, float z) const {
-    const int ix = (int)std::floor((x - HM_X0) / HM_CELL), iz = (int)std::floor((z - HM_Z0) / HM_CELL);
-    if (ix < 0 || iz < 0 || ix >= HM_NX || iz >= HM_NZ) return FLOOR;
-    return hm_[iz * HM_NX + ix];
-}
-
-// A resting cube raises the cells under it to its top (a little under it: the next one nests in).
-void WhiteRoomUniverse::hmStamp(const vec3& p, const vec3 (&ax)[3], float h) {
-    const int u = upAxis(ax);
     const vec3 a = ax[(u + 1) % 3], b = ax[(u + 2) % 3];
     const vec3 n = ax[u] * (ax[u].y < 0.f ? -1.f : 1.f); // its top face's normal
-    const float ext = extentY(ax, h);
-    // the top face over a cell (a tilted cube is lower on one side)
-    auto top = [&](float dx, float dz) {
-        return p.y + std::min(ext, (h - n.x * dx - n.z * dz) / std::max(n.y, 0.3f)) * 0.92f;
-    };
+    const float ext = h * (std::fabs(ax[0].y) + std::fabs(ax[1].y) + std::fabs(ax[2].y));
     const float R = 1.42f * h;
     const int x0 = std::max(0, (int)std::floor((p.x - R - HM_X0) / HM_CELL)),
               x1 = std::min(HM_NX - 1, (int)std::floor((p.x + R - HM_X0) / HM_CELL));
@@ -578,70 +676,51 @@ void WhiteRoomUniverse::hmStamp(const vec3& p, const vec3 (&ax)[3], float h) {
               z1 = std::min(HM_NZ - 1, (int)std::floor((p.z + R - HM_Z0) / HM_CELL));
     for (int iz = z0; iz <= z1; iz++)
         for (int ix = x0; ix <= x1; ix++) {
-            const float dx = HM_X0 + (ix + 0.5f) * HM_CELL - p.x, dz = HM_Z0 + (iz + 0.5f) * HM_CELL - p.z;
+            const float x = HM_X0 + (ix + 0.5f) * HM_CELL, z = HM_Z0 + (iz + 0.5f) * HM_CELL, dx = x - p.x, dz = z - p.z;
             if (std::fabs(dx * a.x + dz * a.z) > h * 0.95f || std::fabs(dx * b.x + dz * b.z) > h * 0.95f) continue;
+            const float ground = std::fabs(x) < PLINTH_HX && std::fabs(z) < PLINTH_HZ ? PLINTH_TOP : FLOOR;
+            const float top = p.y + std::min(ext, (h - n.x * dx - n.z * dz) / std::max(n.y, 0.3f)) * 0.92f;
             float& c = hm_[iz * HM_NX + ix];
-            c = std::max(c, top(dx, dz));
+            c = std::max(c, top - ground);
         }
-    const int ix = (int)std::floor((p.x - HM_X0) / HM_CELL), iz = (int)std::floor((p.z - HM_Z0) / HM_CELL);
-    if (ix >= 0 && iz >= 0 && ix < HM_NX && iz < HM_NZ) hm_[iz * HM_NX + ix] = std::max(hm_[iz * HM_NX + ix], top(0.f, 0.f));
-    hmDirty_ = true;
-}
-
-// A cube is gone: the piles again from the ground up (the resting cubes from the lowest); a cube left hanging over
-// the gap wakes and drops.
-void WhiteRoomUniverse::hmRebuild() {
-    hm_ = hmBase_;
-    std::vector<std::pair<float, int>> order;
-    for (int i = 0; i < (int)ejected_.size(); i++) {
-        const Ejected& e = ejected_[i];
-        if (e.state != AIR) order.push_back({e.toP.y - extentY(e.toAx, e.h), i});
-    }
-    std::sort(order.begin(), order.end());
-    for (auto& o : order) {
-        Ejected& e = ejected_[o.second];
-        const float r = 0.7f * e.h, x = e.toP.x, z = e.toP.z;
-        const float S = std::max({hmAt(x, z), hmAt(x + r, z), hmAt(x - r, z), hmAt(x, z + r), hmAt(x, z - r)});
-        if (o.first > S + 0.3f * e.h) {
-            if (e.state == REST) {
-                e.p = e.toP;
-                for (int k = 0; k < 3; k++) e.ax[k] = e.toAx[k];
-            }
-            e.state = AIR;
-            e.v = vec3(0.f, 0.f, 0.f);
-            e.w = vec3(rng_.range(-1.5f, 1.5f), rng_.range(-1.5f, 1.5f), rng_.range(-1.5f, 1.5f));
-            e.tips = 0;
-        } else hmStamp(e.toP, e.toAx, e.h);
-    }
-    hmDirty_ = true;
 }
 
 // A cleared block thrown out: left, right (mostly toward its own side of the well) or back toward the wall, with an
 // upward kick and a tumble; power grows with the lines cleared.
 void WhiteRoomUniverse::eject(float x, float y, int color, float power) {
+    if (!world_) physicsInit();
     Ejected e;
-    e.h = 0.42f;
-    e.p = vec3(x, y, EJECT_Z);
     const float side = x + rng_.range(-3.5f, 3.5f) < 0.f ? -1.f : 1.f;
+    vec3 v;
     if (rng_.chance(0.3f)) {
         // back toward the wall, spreading sideways (piles behind and beside the well)
-        e.v = vec3(side * rng_.range(3.f, 10.f), rng_.range(3.f, 7.f), -rng_.range(1.f, 3.5f));
+        v = vec3(side * rng_.range(3.f, 10.f), rng_.range(3.f, 7.f), -rng_.range(1.f, 3.5f));
     } else {
-        e.v = vec3(side * rng_.range(5.f, 17.f), rng_.range(3.f, 8.5f), rng_.range(-2.5f, 0.6f));
+        v = vec3(side * rng_.range(5.f, 17.f), rng_.range(3.f, 8.5f), rng_.range(-2.5f, 0.6f));
     }
-    e.v = e.v * power;
-    const float yaw = rng_.range(0.f, TAU);
-    e.ax[0] = vec3(std::cos(yaw), 0.f, -std::sin(yaw));
-    e.ax[1] = vec3(0.f, 1.f, 0.f);
-    e.ax[2] = cross(e.ax[0], e.ax[1]);
+    v = v * power;
     // tumbling about an axis across its flight
-    const vec3 dir = normalize(vec3(e.v.x, 0.f, e.v.z));
+    const vec3 dir = normalize(vec3(v.x, 0.f, v.z));
     const vec3 axis = normalize(cross(vec3(0.f, 1.f, 0.f), dir) +
                                 vec3(rng_.range(-0.4f, 0.4f), rng_.range(-0.4f, 0.4f), rng_.range(-0.4f, 0.4f)));
-    e.w = axis * (rng_.range(4.f, 11.f) * (rng_.chance(0.8f) ? 1.f : -1.f));
+    const vec3 w = axis * (rng_.range(4.f, 11.f) * (rng_.chance(0.8f) ? 1.f : -1.f));
+    e.p0 = e.p1 = vec3(x, y, EJECT_Z);
+    const float yaw = rng_.range(-0.1f, 0.1f); // nearly square to its row (its neighbours are close)
+    e.q0 = e.q1 = vec4(0.f, std::sin(0.5f * yaw), 0.f, std::cos(0.5f * yaw));
+    e.ext = vec3(e.h * 1.1f);
+    e.layers = SOLID;
+    for (Ejected& o : ejected_)
+        if (!o.ghost && length(o.p1 - e.p1) < 3.5f * e.h && overlap(e.p1, e.q1, o.p1, o.q1, e.h) > 0.f) {
+            if (!e.ghost) {
+                e.ghost = 1 << (ghostSeq_++ % 30);
+                e.layers = e.ghost | GHOST;
+            }
+            o.layers &= ~e.ghost;
+            o.body->SetLayers(o.layers);
+        }
+    makeBody(e, true, v, w);
     e.color = color;
     e.life = rng_.range(60.f, 120.f);
-    e.state = AIR;
     ejected_.push_back(e);
     // over the cap: the oldest start fading now
     int alive = 0;
@@ -652,140 +731,113 @@ void WhiteRoomUniverse::eject(float x, float y, int color, float power) {
     }
 }
 
-// Landing: on the floor, the plinth or a pile (the heightmap under it). A cube whose middle is not held (it came
-// down on an edge) tips off toward the lower side; otherwise it settles, its lowest face down, turned a little,
-// tilted along the pile under it (leaning when it tipped already).
-void WhiteRoomUniverse::land(Ejected& e) {
-    const float h = e.h, r = 0.7f * h, x = e.p.x, z = e.p.z;
-    const float Hc = hmAt(x, z), Hxp = hmAt(x + r, z), Hxm = hmAt(x - r, z), Hzp = hmAt(x, z + r), Hzm = hmAt(x, z - r);
-    const float S = std::max({Hc, Hxp, Hxm, Hzp, Hzm}), lo = std::min({Hc, Hxp, Hxm, Hzp, Hzm});
-    // the pile's slope around (a cube on a peak rolls down its steepest side: the piles spread into mounds)
-    // (never toward where it cannot go: in front of the well, out of the room)
-    const float R2 = 2.2f * h;
-    auto around = [&](float xx, float zz) {
-        const bool shut = (std::fabs(xx) < PLINTH_HX + h && zz > PANE_Z - h) || zz < ZMIN || zz > ZMAX || std::fabs(xx) > XMAX;
-        return shut ? 1e3f : hmAt(xx, zz);
-    };
-    float low = 1e9f;
-    vec3 downhill(1.f, 0.f, 0.f);
-    const float a0 = rng_.range(0.f, TAU);
-    for (int q = 0; q < 8; q++) {
-        const vec3 dd(std::cos(a0 + q * TAU / 8.f), 0.f, std::sin(a0 + q * TAU / 8.f));
-        const float v = around(x + dd.x * R2, z + dd.z * R2);
-        if (v < low) { low = v; downhill = dd; }
-    }
-    const bool edge = Hc < S - 0.45f * h, steep = S - low > 1.25f * h;
-    if ((edge && e.tips < 2) || (steep && e.tips < 10)) {
-        vec3 d(Hxm - Hxp, 0.f, Hzm - Hzp);
-        if (!edge) d = downhill + vec3(rng_.range(-0.3f, 0.3f), 0.f, rng_.range(-0.3f, 0.3f));
-        if (length(d) < 1e-3f) d = vec3(rng_.range(-1.f, 1.f), 0.f, rng_.range(-1.f, 1.f));
-        d = normalize(d);
-        const float sp = rng_.range(2.2f, 3.6f);
-        e.v = vec3(d.x * sp, 1.2f, d.z * sp);
-        e.w = cross(vec3(0.f, 1.f, 0.f), d) * rng_.range(4.f, 7.f);
-        e.p.y = S + extentY(e.ax, h) + 0.02f;
-        e.tips++;
-        return;
-    }
-    const int ui = upAxis(e.ax), j = (ui + 1) % 3, k = (ui + 2) % 3;
-    const float sgn = e.ax[ui].y < 0.f ? -1.f : 1.f;
-    float gx = (Hxp - Hxm) / (2.f * r), gz = (Hzp - Hzm) / (2.f * r);
-    const float maxT = (e.tips > 0 || Hc < S - 0.2f * h) ? 0.8f : 0.2f;
-    const float gl = std::sqrt(gx * gx + gz * gz);
-    if (gl > maxT) { gx *= maxT / gl; gz *= maxT / gl; }
-    gx += rng_.range(-0.04f, 0.04f);
-    gz += rng_.range(-0.04f, 0.04f);
-    const vec3 n = normalize(vec3(-gx, 1.f, -gz));
-    vec3 T[3];
-    T[ui] = n * sgn;
-    vec3 A = e.ax[j] - n * dot(e.ax[j], n);
-    if (length(A) < 1e-3f) A = e.ax[k] - n * dot(e.ax[k], n);
-    T[j] = rotateAbout(normalize(A), n, rng_.range(-0.3f, 0.3f));
-    T[k] = cross(T[ui], T[j]);
-    const float P = std::max(Hc, 0.5f * (S + lo));
-    e.fromP = e.p;
-    e.toP = vec3(x, P + h / n.y, z);
-    for (int i = 0; i < 3; i++) {
-        e.fromAx[i] = e.ax[i];
-        e.toAx[i] = T[i];
-    }
-    e.settle = 0.f;
-    e.state = SETTLE;
-    e.v = vec3(0.f, 0.f, 0.f);
-    e.w = vec3(0.f, 0.f, 0.f);
-    hmStamp(e.toP, e.toAx, h);
-}
-
-// Flight: gravity and the tumble, the room's bounds, the pane (they stay behind it, or beside the well), the piles
-// in the way, the ground (a bounce, then landing). Settling cubes ease into their pose; resting ones cost nothing.
+// The rigid bodies at a fixed step (120 Hz); the cubes are drawn between the last two steps. A cube long asleep
+// freezes (static); a moving cube wakes the frozen ones it may have held, and a cube gone wakes its neighbours.
 void WhiteRoomUniverse::stepEjected(float dt) {
-    const float G = 30.f;
-    const int steps = 2;
-    const float hdt = dt / steps;
-    for (Ejected& e : ejected_) {
-        if (e.state == REST) continue;
-        if (e.state == SETTLE) {
-            e.settle = std::min(1.f, e.settle + dt / 0.14f);
-            const float k = smoothstepf(0.f, 1.f, e.settle);
-            e.p = lerp(e.fromP, e.toP, k);
-            for (int i = 0; i < 3; i++) e.ax[i] = lerp(e.fromAx[i], e.toAx[i], k);
-            orthonormalize(e.ax);
-            if (e.settle >= 1.f) {
-                e.state = REST;
-                e.p = e.toP;
-                for (int i = 0; i < 3; i++) e.ax[i] = e.toAx[i];
+    if (!world_) return;
+    physAcc_ += dt;
+    bool moved = false;
+    const float damp = std::exp(-6.f * STEP);
+    int n = 0;
+    for (; physAcc_ >= STEP && n < MAX_STEPS; n++, physAcc_ -= STEP) {
+        for (Ejected& e : ejected_) {
+            e.p0 = e.p1;
+            e.q0 = e.q1;
+            if (e.frozen) continue;
+            // still for a moment (asleep, or nearly still while its neighbours move): frozen
+            const q3Vec3 lv = e.body->GetLinearVelocity(), av = e.body->GetAngularVelocity();
+            const bool awake = e.body->IsAwake();
+            if (!awake || (q3Dot(lv, lv) < STILL_V * STILL_V && q3Dot(av, av) < STILL_W * STILL_W)) e.still += STEP;
+            else e.still = 0.f;
+            if (e.still > FREEZE && !e.ghost) {
+                makeBody(e, false, vec3(0.f), vec3(0.f));
+                continue;
             }
-            continue;
+            if (!awake) continue;
+            moved = true;
+            e.busy += STEP;
+            // flying out of the room: slowing down
+            q3Vec3 v = e.body->GetLinearVelocity();
+            bool out = false;
+            if (std::fabs(e.p1.x) > XSOFT && v.x * e.p1.x > 0.f) { v.x *= damp; out = true; }
+            if (e.p1.z > ZSOFT && v.z > 0.f) { v.z *= damp; out = true; }
+            if (out) e.body->SetLinearVelocity(v);
         }
-        for (int s = 0; s < steps && e.state == AIR; s++) {
-            e.v.y -= G * hdt;
-            const vec3 prev = e.p;
-            e.p += e.v * hdt;
-            const float wl = length(e.w);
-            if (wl > 1e-4f) {
-                const vec3 kax = e.w / wl;
-                for (int i = 0; i < 3; i++) e.ax[i] = rotateAbout(e.ax[i], kax, wl * hdt);
-                orthonormalize(e.ax);
-            }
-            if (e.p.z < ZMIN) { e.p.z = ZMIN; e.v.z = std::fabs(e.v.z) * 0.3f; }
-            if (e.p.z > ZMAX) { e.p.z = ZMAX; e.v.z = -std::fabs(e.v.z) * 0.3f; }
-            if (std::fabs(e.p.x) > XMAX) { e.p.x = std::copysign(XMAX, e.p.x); e.v.x = -e.v.x * 0.3f; }
-            // the pane (and the plinth's front): behind it, or beside the well
-            const float px = PLINTH_HX + e.h;
-            const float ez = e.h * (std::fabs(e.ax[0].z) + std::fabs(e.ax[1].z) + std::fabs(e.ax[2].z));
-            if (std::fabs(e.p.x) < px && e.p.z > PANE_Z - ez && e.p.y < 10.6f) {
-                if (std::fabs(prev.x) < px) { e.p.z = PANE_Z - ez; e.v.z = -std::fabs(e.v.z) * 0.3f; }
-                else { e.p.x = std::copysign(px, prev.x); e.v.x = -e.v.x * 0.3f; }
-            }
-            const float ext = extentY(e.ax, e.h);
-            // a pile in the way
-            const float hc = hmAt(e.p.x, e.p.z);
-            if (e.p.y - ext < hc - 0.35f * e.h && hmAt(prev.x, prev.z) < hc - 0.05f) {
-                e.p.x = prev.x;
-                e.p.z = prev.z;
-                e.v.x *= -0.3f;
-                e.v.z *= -0.3f;
-            }
-            const float r = 0.7f * e.h;
-            const float S = std::max({hmAt(e.p.x, e.p.z), hmAt(e.p.x + r, e.p.z), hmAt(e.p.x - r, e.p.z),
-                                      hmAt(e.p.x, e.p.z + r), hmAt(e.p.x, e.p.z - r)});
-            if (e.p.y - ext <= S) {
-                if (e.v.y > 0.f) e.p.y = S + ext;
-                else if (e.v.y < -4.f) {
-                    e.p.y = S + ext;
-                    e.v.y = -e.v.y * 0.28f;
-                    e.v.x *= 0.6f;
-                    e.v.z *= 0.6f;
-                    e.w = e.w * 0.5f + vec3(rng_.range(-3.f, 3.f), rng_.range(-3.f, 3.f), rng_.range(-3.f, 3.f));
-                } else land(e);
-            }
+        world_->Step();
+        for (Ejected& e : ejected_) {
+            if (e.frozen) continue;
+            e.p1 = vq(e.body->GetTransform().position);
+            const q3Quaternion r = e.body->GetQuaternion();
+            e.q1 = vec4(r.x, r.y, r.z, r.w);
+            vec3 ax[3];
+            axesOf(e.q1, ax);
+            for (int k = 0; k < 3; k++)
+                (&e.ext.x)[k] = e.h * (std::fabs((&ax[0].x)[k]) + std::fabs((&ax[1].x)[k]) + std::fabs((&ax[2].x)[k]));
+        }
+        for (size_t i = 0; i < ejected_.size(); i++) {
+            const Ejected& e = ejected_[i];
+            if (e.frozen || !e.body->IsAwake()) continue;
+            const q3Vec3 v = e.body->GetLinearVelocity();
+            const vec3 d = e.p1 - e.rest;
+            if (dot(d, d) > 0.08f * 0.08f) unfreezeAround(e, q3Dot(v, v) > 16.f);
         }
     }
-    const size_t before = ejected_.size();
-    for (Ejected& e : ejected_) e.age += dt;
-    ejected_.erase(std::remove_if(ejected_.begin(), ejected_.end(), [](const Ejected& e) { return e.age >= e.life; }),
-                   ejected_.end());
-    if (ejected_.size() != before) hmRebuild();
+    if (n == MAX_STEPS) physAcc_ = std::min(physAcc_, STEP);
+    for (Ejected& e : ejected_) {
+        if (e.ghost) {
+            bool clear = true;
+            for (const Ejected& o : ejected_) {
+                if (&o == &e || o.ghost || (o.layers & e.ghost)) continue;
+                const vec3 d = o.p1 - e.p1, r = o.ext + e.ext;
+                if (std::fabs(d.x) < r.x && std::fabs(d.y) < r.y && std::fabs(d.z) < r.z &&
+                    overlap(e.p1, e.q1, o.p1, o.q1, e.h) > 0.f) { clear = false; break; }
+            }
+            if (clear) {
+                for (Ejected& o : ejected_)
+                    if (&o != &e && !o.ghost && !(o.layers & e.ghost)) {
+                        o.layers |= e.ghost;
+                        o.body->SetLayers(o.layers);
+                    }
+                // a new body, so that the cubes already touching it are found
+                e.ghost = 0;
+                e.layers = SOLID;
+                makeBody(e, true, vq(e.body->GetLinearVelocity()), vq(e.body->GetAngularVelocity()));
+            } else if (e.age > GHOST_MAX && e.life - e.age > FADE) e.life = e.age + FADE; // still inside one: it fades
+        }
+        // one that cannot come to rest (wedged in a gap, still inside another) fades out
+        if (e.busy > BUSY_MAX && e.life - e.age > FADE) e.life = e.age + FADE;
+        e.age += dt;
+    }
+    for (size_t i = 0; i < ejected_.size();) {
+        if (ejected_[i].age < ejected_[i].life) { i++; continue; }
+        const Ejected e = ejected_[i];
+        ejected_.erase(ejected_.begin() + i); // (oldest first)
+        world_->RemoveBody(e.body);
+        for (Ejected& o : ejected_)
+            if (e.ghost && !(o.layers & e.ghost)) {
+                o.layers |= e.ghost;
+                o.body->SetLayers(o.layers);
+            }
+        unfreezeAround(e, false);
+        q3AABB box;
+        box.min = qv(e.p1 - e.ext - vec3(0.1f));
+        box.max = qv(e.p1 + e.ext + vec3(0.1f));
+        Waker wake;
+        world_->QueryAABB(&wake, box);
+        moved = true;
+    }
+    if (moved) {
+        // the piles' heightmap: the cubes at rest (or nearly)
+        std::fill(hm_.begin(), hm_.end(), 0.f);
+        for (const Ejected& e : ejected_) {
+            if (!e.frozen && e.body->IsAwake() && q3Dot(e.body->GetLinearVelocity(), e.body->GetLinearVelocity()) > 1.f)
+                continue;
+            vec3 ax[3];
+            axesOf(e.q1, ax);
+            hmStamp(e.p1, ax, e.h);
+        }
+        hmDirty_ = true;
+    }
 }
 
 // =====================================================================================================
@@ -1349,16 +1401,25 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
     thrown_.clear();
     thrownFade_.clear();
     vec3 lo(1e9f, 1e9f, 1e9f), hi(-1e9f, -1e9f, -1e9f);
+    const float tk = saturate(physAcc_ / STEP); // between the last two physics steps
     for (const Ejected& e : ejected_) {
         const float a = saturate((e.life - e.age) / FADE);
         if (a <= 0.f) continue;
         const vec3 c = pal_.piece[e.color];
-        const CubeInst ci{{e.p.x, e.p.y, e.p.z, e.h}, {e.ax[0].x, e.ax[0].y, e.ax[0].z, a}, {e.ax[1].x, e.ax[1].y, e.ax[1].z, 0.f},
+        const vec3 p = lerp(e.p0, e.p1, tk);
+        const float sg = e.q0.x * e.q1.x + e.q0.y * e.q1.y + e.q0.z * e.q1.z + e.q0.w * e.q1.w < 0.f ? -1.f : 1.f;
+        vec4 q(lerpf(e.q0.x, sg * e.q1.x, tk), lerpf(e.q0.y, sg * e.q1.y, tk), lerpf(e.q0.z, sg * e.q1.z, tk),
+               lerpf(e.q0.w, sg * e.q1.w, tk));
+        const float ql = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+        q = vec4(q.x / ql, q.y / ql, q.z / ql, q.w / ql);
+        vec3 ax[3];
+        axesOf(q, ax);
+        const CubeInst ci{{p.x, p.y, p.z, e.h}, {ax[0].x, ax[0].y, ax[0].z, a}, {ax[1].x, ax[1].y, ax[1].z, 0.f},
                           {c.x, c.y, c.z, 1.f}};
         (a >= 1.f ? thrown_ : thrownFade_).push_back(ci);
         const float r = e.h * 1.74f;
-        lo = vec3(std::min(lo.x, e.p.x - r), std::min(lo.y, e.p.y - r), std::min(lo.z, e.p.z - r));
-        hi = vec3(std::max(hi.x, e.p.x + r), std::max(hi.y, e.p.y + r), std::max(hi.z, e.p.z + r));
+        lo = vec3(std::min(lo.x, p.x - r), std::min(lo.y, p.y - r), std::min(lo.z, p.z - r));
+        hi = vec3(std::max(hi.x, p.x + r), std::max(hi.y, p.y + r), std::max(hi.z, p.z + r));
     }
     // nearest first (the piles' hidden faces fail the depth test before they are shaded)
     {
@@ -1381,9 +1442,8 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
 
     // ---- The piles' heightmap (what lies on the floor darkens it).
     if (hmDirty_) {
-        for (int i = 0; i < HM_NX * HM_NZ; i++) hmUp_[i] = hm_[i] - hmBase_[i];
         glBindTexture(GL_TEXTURE_2D, hmTex_);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, HM_NX, HM_NZ, GL_RED, GL_FLOAT, hmUp_.data());
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, HM_NX, HM_NZ, GL_RED, GL_FLOAT, hm_.data());
         glGenerateMipmap(GL_TEXTURE_2D);
         hmDirty_ = false;
     }
