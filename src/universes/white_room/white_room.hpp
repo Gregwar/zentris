@@ -18,8 +18,6 @@ public:
     void refresh(float strength) override;
     void onEvent(const GameEvent& ev, const Game& game) override;
     void setBonus(bool on) override;
-    void levelUp() override;
-    void kick(float amount) override { kickIn_ = std::max(kickIn_, amount); }
     void render(const Frame& f, GLuint fbo) override;
     vec2 project(const vec3& p) const override;
     TransitionHints hints() const override;
@@ -104,29 +102,28 @@ private:
     float wallLum_ = 0.8f;
     float shadowAmt_ = 0.6f;    // how dark the shadow play is
 
-    // ---- The balls on the floor.
-    struct Ball {
-        float x, z, h, vx, vy, r;   // h: height of its bottom above the floor
-        int color;                  // 0..6 a piece's color, 7 white, 8 the accent
-        float sq = 1.f, sqv = 0.f;  // squash (y scale) and its spring
-        bool leaving = false;
-        float age = 0.f;
+    // ---- Cleared blocks thrown out of the well: cubes flying out left, right or back, landing on the floor, lying
+    // there a while and fading (their physics at the real speed, like the clear).
+    struct Ejected {
+        vec3 p, v;          // center, velocity (board space)
+        float yaw, th, w;   // heading about y, tumble about the cube's own x axis, its spin
+        float h;            // half size
+        int color;
+        float age, life;    // seconds; fades over its last second
     };
-    std::vector<Ball> balls_;
-    float spawnAcc_ = 0.f;
-    float rainT_ = 99.f;            // since the drop's rain started
-    void spawnBall(bool fromAbove, int color, float hFrom, float vyFrom);
-    vec3 ballColor(const Ball& b) const;
-    int wantedBalls() const;
+    std::vector<Ejected> ejected_;
+    static constexpr int EJECT_MAX = 40;
+    void eject(float x, float y, int color, float power);
+    void stepEjected(float dt);
+    float dropSwing_ = 0.f;  // the drop's gels swinging in from far out (1 on the downbeat .. 0)
 
     // ---- Effects.
-    struct Dying { float x, y, t, delay; int type; bool over; };
+    struct Dying { float x, y, t, delay; int type; }; // game over: the stack turning to plaster
     std::vector<Dying> dying_;
     float press_ = 0.f;             // the last lock's press (stronger after a hard drop)
     int lastDrop_ = 0;
 
     // ---- Beat.
-    float prevKick_ = 0.f, kickIn_ = 0.f, sinceKick_ = 9.f;
     double beat_ = 0.0;
 
     // ---- Game state seen by the universe.
