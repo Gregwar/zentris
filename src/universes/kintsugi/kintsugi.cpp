@@ -7,9 +7,9 @@
 // never on the grid). Gold lives in the stone too: veins that grow through the marble with the song.
 //
 // The song: calm is the bare stone in a low, cool light, nothing moving; mid warms the light and lets a few thin
-// gold veins creep out from the well, a glint of light running over them every two beats; a chorus lights the slab
+// gold veins creep into the open stone, a glint of light running over them every two beats; a chorus lights the slab
 // fully and the veins spread in polished gold; a DROP melts the metal: on its first downbeat molten gold races out
-// through the stone along new cracks from the well to the edges of the slab, flakes of gold leaf burst out of the
+// through the stone along new cracks in from the edges of the slab, flakes of gold leaf burst out of the
 // cracks and settle slowly, and for the whole drop the veins stay molten (glowing, lighting the stone around them),
 // the stone takes a warm grade, the seams of the pieces glow, new branches keep spreading slowly and a surge of
 // light runs out along the cracks every two beats. Never a pulse of the whole scene's light: the drop is one swell
@@ -365,7 +365,7 @@ void KintsugiUniverse::setSong(const SongLook& look, float seconds) {
     rng_ = Rng(seed_ ^ 0x6b17ull);
     marbleDirty_ = true;
     if (seconds <= 0.f) palSet_ = false;
-    // the new song's veins grow again from the well
+    // the new song's veins grow again
     fadeNets(0, 2.f);
     fadeNets(1, 2.f);
     if (level_ >= 1) {
@@ -541,7 +541,7 @@ void KintsugiUniverse::walk(Net& n, Rng& r, float x, float y, float ang, float l
              depth + 1, branchRate * 0.6f, branchDelay, branchSpeed);
 }
 
-// kind 0: a few thin veins creeping out of the well (mid); kind 1: the peak's network, trunks racing from the well
+// kind 0: a few thin veins creeping into the stone (mid); kind 1: the peak's network, trunks racing in from the edges
 // to the edges of the slab (speed: how fast), branches spreading for many seconds after; kind 2: a Tetris burst.
 void KintsugiUniverse::growNet(Net& n, int kind, float speed, uint64_t seed) {
     Rng r(seed);
