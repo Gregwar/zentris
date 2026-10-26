@@ -484,7 +484,9 @@ vec4 iceCube(vec2 wl, float d, vec3 pc, float k, float seed) {
     float cb = texture(uNoise, wl * 0.09 - vec2(uTime * 0.04, -uTime * 0.02)).b;
     float caus = smoothstep(0.9, 1.0, 1.0 - abs(ca - cb) * 3.0) * (seed > 0.0 ? 0.0 : 1.0);
     float glow = 0.75 + 0.25 * smoothstep(0.0, 0.45, d);
-    vec3 water = bg * pc * 0.6 + pc * 0.9 * glow + mix(pc, vec3(1.0), 0.4) * (caus * 0.2 + 0.06);
+    vec3 vivid = clamp(mix(vec3(lum), pc, 1.3), 0.0, 1.0);
+    float wet = exp(-d / 0.035);
+    vec3 water = bg * vivid * 0.5 + vivid * 1.05 * glow + mix(vivid, vec3(1.0), 0.5) * (caus * 0.25 + 0.06 + wet * 0.45);
     // the frost: needles of crystals reaching in from the faces, ahead of a frosted band that thickens inward
     float fe = fern(wv * 0.55), fe2 = fern(wv * 1.2 + 1.7);
     float n = texture(uNoise, wv * 0.35).r, n2 = texture(uNoise, wv * 0.9 + 0.4).b;
@@ -545,7 +547,27 @@ void main() {
             wl = vWorld - (v0.xy + v3.yz);
             fr = age >= 0.0 ? clamp(age / FREEZE, 0.0, 1.0) : 1.0;
         }
+        // fused faces (kind 0): the ice grows into its frozen neighbours, the seam closing under a bridge of frost
+        float fuse = 0.0;
+        if (kind == 0) {
+            int fb = int(v3.w + 0.5);
+            vec2 q = p / s;
+            vec4 fl = vec4(float(fb & 15), float((fb >> 4) & 15), float((fb >> 8) & 15), float((fb >> 12) & 15)) / 15.0;
+            vec4 dist = vec4(q.x + 0.5, 0.5 - q.x, 0.5 - q.y, q.y + 0.5);
+            vec4 w = fl * exp(-dist / 0.12);
+            fuse = max(max(w.x, w.y), max(w.z, w.w));
+            int fm = mask | (fl.x > 0.0 ? 1 : 0) | (fl.y > 0.0 ? 2 : 0) | (fl.z > 0.0 ? 4 : 0) | (fl.w > 0.0 ? 8 : 0);
+            // where two joined faces meet, fill the corner too (no pinhole where four cells meet)
+            if ((fm & 5) == 5) fm |= 16;
+            if ((fm & 6) == 6) fm |= 32;
+            if ((fm & 9) == 9) fm |= 64;
+            if ((fm & 10) == 10) fm |= 128;
+            float d2 = iceDepth(q, fm);
+            d = mix(d, d2, fuse * 0.85);
+            cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, (SEAM - d) * s);
+        }
         vec4 ic = iceCube(wl, max(d - SEAM, 0.0), pc, fr, seed);
+        ic.rgb = mix(ic.rgb, mix(pc, vec3(1.0), 0.45) * 0.9, fuse * 0.35);
         // frozen over (game over): snow white
         float n = texture(uNoise, vWorld * 0.11 + 0.37).r;
         vec3 col = mix(ic.rgb, uFrostCol * (0.9 + 0.15 * n) + uAurLight * 0.3, frost);

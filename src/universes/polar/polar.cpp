@@ -816,7 +816,22 @@ void PolarUniverse::buildBoard(const Game& g) {
                     if (idAt(x + dx, y + dy) != id) return false;
                     return dy == 0 || std::fabs(g.rowOffset(y + dy) - g.rowOffset(y)) < 0.01f;
                 });
-            tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask, 0.f, id >= 0 ? pieceSeed(id) : 0.f, cdx, cdy);
+            // fused faces: freezing next to another piece, the two bodies of ice slowly grow together (4 bits per
+            // side, left right up down: how far both have frozen)
+            const float kSelf = age < 0.f ? 1.f : saturate(age / FREEZE_SECONDS);
+            int fused = 0;
+            const int SX[4] = {-1, 1, 0, 0}, SY[4] = {0, 0, -1, 1};
+            for (int i = 0; i < 4; i++) {
+                const int nx = x + SX[i], ny = y + SY[i];
+                if (nx < 0 || nx >= Game::W || ny < Game::HIDDEN || ny >= Game::H) continue;
+                if (g.cell(nx, ny).type < 0 || (mask >> i & 1)) continue;
+                if (SY[i] != 0 && std::fabs(g.rowOffset(ny) - g.rowOffset(y)) > 0.01f) continue;
+                const float an = freezeAge(g, nx, ny);
+                const float kn = an < 0.f ? 1.f : saturate(an / FREEZE_SECONDS);
+                fused |= (int)(std::min(kSelf, kn) * 15.f + 0.5f) << (4 * i);
+            }
+            tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask, 0.f, id >= 0 ? pieceSeed(id) : 0.f, cdx, cdy,
+                 (float)fused);
         }
     // Cleared cells turning to snow; a topped-out stack freezing white, then crumbling.
     for (const Dying& d : dying_) {
