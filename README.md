@@ -36,6 +36,10 @@ song, and songs change universe with a transition on the beat.
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/watercolor.jpg"><br><b>WATERCOLOR</b>: transparent washes on cold-press paper</td>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/polar.jpg"><br><b>POLAR NIGHT</b>: a snowfield under the aurora</td>
 </tr>
+<tr>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/risograph.jpg"><br><b>RISOGRAPH</b>: a two-ink risograph print</td>
+<td></td>
+</tr>
 </table>
 
 More in [docs/universes.md](https://github.com/Gregwar/zentris/blob/main/docs/universes.md): every universe and its variants, the transitions, and the

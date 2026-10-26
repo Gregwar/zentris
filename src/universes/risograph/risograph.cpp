@@ -929,9 +929,9 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         }
         // the Tetris stamp: one huge disc of the third ink over the sheet, its dots growing in and shrinking away
         const float st = stampT_;
-        const float stamp = st < 0.15f ? smoothstepf(0.f, 0.15f, st) : 1.f - smoothstepf(0.7f, 2.4f, st);
+        const float stamp = st < 0.15f ? smoothstepf(0.f, 0.15f, st) : 1.f - smoothstepf(0.45f, 1.9f, st);
         A[12] = 0.f; A[13] = 0.6f; A[14] = 12.5f; A[15] = 12.5f;
-        B[12] = 0.f; B[13] = 0.f; B[14] = 2.f; B[15] = 0.8f * stamp * world;
+        B[12] = 0.f; B[13] = 0.f; B[14] = 2.f; B[15] = 0.55f * stamp * world;
         C[12] = -PI * 0.5f; C[13] = 0.55f; C[14] = 0.f; C[15] = 0.f;
         glUseProgram(progWorld_);
         set4f(progWorld_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
