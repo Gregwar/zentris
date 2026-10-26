@@ -478,6 +478,7 @@ float fern(vec2 w) {
 // a little: the old ice keeps its colored heart
 const float FROZEN = 1.0;
 const float REACH = 0.34;
+const float FREEZE = 7.0; // seconds (polar.cpp FREEZE_SECONDS)
 
 vec4 iceCube(vec2 wl, float d, vec3 pc, float k, float seed) {
     vec3 bg = behind(wl);
@@ -503,12 +504,12 @@ vec4 iceCube(vec2 wl, float d, vec3 pc, float k, float seed) {
     float frosted = max(band, needles * 0.9) * step(0.001, k);
     // the cloudy core: the body clouds over to milk as it freezes, densest in the middle
     float milk = smoothstep(0.2, 0.9, k * 0.55) * (0.5 + 0.5 * smoothstep(0.05, 0.4, d));
-    vec3 pastel = mix(pc, vec3(lum) * 0.5 + 0.5, 0.3);
+    vec3 pastel = mix(pc, vec3(lum) * 0.5 + 0.5, 0.15);
     float core = smoothstep(0.08, 0.5, d + (n - 0.5) * 0.15);
-    vec3 cloudy = mix(water, mix(pastel * (0.8 + 0.1 * n), mix(pastel, vec3(1.0), 0.35) * 0.95, core), milk);
+    vec3 cloudy = mix(water, mix(pastel * (0.85 + 0.1 * n), mix(pastel, vec3(1.0), 0.15) * 0.95, core), milk);
     // frosted surface: whitish, tinted, a crystalline grain
-    vec3 frost = mix(pastel, vec3(1.0), 0.25) * (0.82 + 0.1 * n2 + 0.08 * fe) + vec3(0.1) * smoothstep(0.55, 0.85, grain);
-    vec3 col = mix(cloudy, frost, frosted * 0.95);
+    vec3 frost = mix(pastel, vec3(1.0), 0.12) * (0.85 + 0.1 * n2 + 0.08 * fe) + vec3(0.06) * smoothstep(0.55, 0.85, grain);
+    vec3 col = mix(cloudy, frost, frosted * 0.8);
     float a = mix(0.9, 0.97, max(frosted, milk));
     return vec4(col, a);
 }
@@ -547,7 +548,6 @@ void main() {
         vec2 wl = vWorld;
         if (kind == 0) {
             // freezing, slowly (FREEZE s, polar.cpp FREEZE_SECONDS): -1 frozen long since
-            const float FREEZE = 7.0;
             seed = v3.x;
             wl = vWorld - (v0.xy + v3.yz);
             fr = age >= 0.0 ? clamp(age / FREEZE, 0.0, FROZEN) : FROZEN;
@@ -578,6 +578,53 @@ void main() {
         vec3 col = mix(ic.rgb, uFrostCol * (0.9 + 0.15 * n) + uAurLight * 0.3, frost);
         col = mix(col, uBridgeInk, bridgeK);
         float a = cov * alpha * mix(ic.a, 1.0, max(frost, bridgeK));
+        frag = vec4(col * a, a);
+        return;
+    }
+    if (kind == 6) {
+        // icicles under a frozen cell's free bottom face: clear blue ice hanging from it, irregular (two layers of
+        // drips, a count, spacing, length, width and slight bend of their own per face; many small, a few long), each
+        // growing down at its own moment as the freeze ends, then staying (v3.x: the piece's seed, v3.y: the face's
+        // height)
+        float grow = age >= 0.0 ? smoothstep(FREEZE - 2.5, FREEZE, age) : 1.0;
+        if (grow <= 0.0) discard;
+        float u = vWorld.x - v0.x + 0.5;            // 0..1 across the face
+        float dy = v3.y - vWorld.y;                 // below the face
+        if (u < 0.02 || u > 0.98 || dy < -0.06) discard;
+        float fs = floor(v0.x + 0.5) * 7.0 + v3.x * 3.1 + v3.y * 1.37;
+        float cov = 0.0, tt = 0.0, side = 0.0;
+        for (int layer = 0; layer < 2; layer++) {
+            float fl = float(layer);
+            // big drips: 2..5 per face; small ones: 6..10
+            float N = layer == 0 ? 2.0 + floor(hash12(vec2(fs, 1.7)) * 4.0) : 6.0 + floor(hash12(vec2(fs, 2.9)) * 5.0);
+            float uu = u + hash12(vec2(fs, 4.1 + fl)) / N;   // the slots shifted per face
+            float slot = floor(uu * N);
+            vec2 hk = vec2(slot + fl * 31.0, fs);
+            float h = hash12(hk);
+            if (h < (layer == 0 ? 0.35 : 0.5)) continue;
+            float gi = clamp((grow - hash12(hk + 9.1) * 0.6) / 0.4, 0.0, 1.0);
+            gi = 1.0 - (1.0 - gi) * (1.0 - gi);
+            float r = hash12(hk + 5.3);
+            float L = (layer == 0 ? 0.1 + 0.42 * r * r : 0.03 + 0.1 * r) * gi;
+            float w0 = (layer == 0 ? 0.18 + 0.17 * hash12(hk + 1.9) : 0.12 + 0.12 * hash12(hk + 1.9)) / N;
+            float cx = (slot + 0.5 + (hash12(hk + 3.7) - 0.5) * 0.5) / N;
+            float tq = clamp(dy / max(L, 1e-3), 0.0, 1.0);
+            // a slight bend, and bumps of refrozen drips along it
+            cx += (hash12(hk + 6.6) - 0.5) * 0.08 * tq * tq;
+            float hwid = w0 * pow(1.0 - tq, 1.1 + 0.8 * hash12(hk + 2.2)) * (1.0 + 0.2 * sin(dy * (25.0 + 30.0 * h) + h * 6.0));
+            float d = abs(uu - cx * 1.0) ;
+            float c = (1.0 - smoothstep(hwid - px * 0.6, hwid + px * 0.6, d)) * step(dy, L);
+            if (c > cov) { cov = c; tt = tq; side = (uu - cx) / max(hwid, 1e-4); }
+        }
+        if (cov <= 0.0) discard;
+        // clear blue ice, more see-through toward the tip, a bright edge on one side and a fine core line
+        vec3 ice = mix(vec3(0.62, 0.84, 1.0), vec3(0.8, 0.94, 1.0), tt);
+        ice = mix(ice, pc, 0.06);
+        float edge = smoothstep(0.2, 1.0, side);
+        float core = smoothstep(0.35, 0.0, abs(side + 0.25));
+        vec3 col = ice * (0.8 + 0.35 * edge) + vec3(0.9, 0.97, 1.0) * core * 0.25 + uAurLight * 0.12;
+        col = mix(col, uBridgeInk, bridgeK);
+        float a = cov * alpha * mix(0.78, 0.38, tt) * (0.75 + 0.25 * edge + 0.2 * core);
         frag = vec4(col * a, a);
         return;
     }

@@ -836,6 +836,10 @@ void PolarUniverse::buildBoard(const Game& g) {
             }
             tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask, 0.f, id >= 0 ? pieceSeed(id) : 0.f, cdx, cdy,
                  (float)fused);
+            // icicles hang from a free bottom face (the well's floor too)
+            const float iseed = id >= 0 ? pieceSeed(id) : 0.f;
+            if (y + 1 >= Game::H || g.cell(x, y + 1).type < 0)
+                tile(p.x, p.y - 0.78f, 0.5f, 0.32f, cur_.piece[c.type], 1.f, 6, age, 0, 0.f, iseed, p.y - 0.5f + 0.035f);
         }
     // Cleared cells turning to snow; a topped-out stack freezing white, then crumbling.
     for (const Dying& d : dying_) {
