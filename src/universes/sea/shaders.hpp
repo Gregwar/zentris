@@ -50,6 +50,8 @@ float layerTop(int k, float x) {
     return uLevel + L_OFF[k] * uSpread + A * (0.55 * s1 + 0.32 * s2 + 0.13 * s3);
 }
 float layerBase(int k) { return uLevel + L_OFF[k] * uSpread; }
+// the sandy bed under the sea: low dunes (sea.cpp's sandTop is the same function)
+float sandTop(float x) { return -9.35 + 0.55 * sin(x * 0.21 + 1.3) + 0.3 * sin(x * 0.53 + 0.4) + 0.1 * sin(x * 1.37 + 2.0); }
 
 )";
 
@@ -66,7 +68,7 @@ uniform float uPx, uTime, uCloudT;
 uniform vec3 uSkyTop, uSkyLow, uSunCol, uCloud, uStormSky, uStormCloud, uDusk;
 uniform vec4 uSun;           // x, y, radius, moon (0 / 1)
 uniform vec3 uSea0, uSea1, uSea2, uDeep, uFoam, uHaze, uStormSea;
-uniform vec3 uPanel;
+uniform vec3 uPanel, uSand;
 uniform float uPanelA;
 uniform float uStorm, uCaps, uGlint, uRain, uFlash, uFlashX, uSlow, uBridge, uStars, uClouds;
 uniform vec3 uBridgeCol;
@@ -172,6 +174,25 @@ void main() {
             c = mix(c, mix(uHaze, uFoam, 0.4), smoothstep(uPx * 2.0, 0.0, abs(depth)) * 0.35);
             float a = smoothstep(-uPx * 1.2, uPx * 1.2, depth);
             col = mix(col, c, a);
+        }
+    }
+    // the sand in front: dry and pale above the water, dark and wet under it, a darker line where the water meets it
+    {
+        float sT = sandTop(w.x);
+        float sa = smoothstep(uPx * 1.2, -uPx * 1.2, w.y - sT);
+        if (sa > 0.0) {
+            float d = sT - w.y;
+            vec3 sc = uSand * (1.0 - 0.28 * smoothstep(0.0, 2.5, d));
+            // fine grain and long ripples
+            sc *= 0.93 + 0.1 * hash12(floor(w / (uPx * 1.5))) + 0.05 * sin(w.x * 3.1 + 2.0 * sin(w.y * 2.3));
+            sc = mix(sc, uSand * 1.15, smoothstep(uPx * 2.5, 0.0, d) * 0.6);
+            float wTop = tops[2];
+            float wet = smoothstep(-uPx, uPx, wTop - w.y);
+            sc = mix(sc, mix(uSea2, uDeep, 0.4) * 0.9 + uSand * 0.12, wet * 0.7);
+            sc = mix(sc, uSand * 0.6, smoothstep(0.12, 0.0, abs(w.y - (wTop - 0.06))) * smoothstep(-0.05, 0.1, sT - wTop) * 0.5);
+            sc = mix(sc, uDusk * 0.5, uSlow * 0.5);
+            sc = mix(sc, uStormSea * 0.7, uStorm * 0.3);
+            col = mix(col, sc, sa);
         }
     }
     // rain slanting across in a storm (never behind the blocks)
@@ -432,40 +453,73 @@ void main() {
     bool ghost = v2.z > 0.5;
     vec3 tint = v1.rgb;
     bool lightP = uLightPanel > 0.5;
-    // the wall: a fine band of glass all around, darker along the lower right
-    float wall = smoothstep(0.055 + px, 0.055 - px, e);
-    vec3 wallC = lightP ? tint * 0.5 : mix(tint, vec3(1.0), 0.55);
-    wallC *= dBR < dTL ? (lightP ? 0.8 : 0.78) : 1.0;
+    // the glass: a wall with some thickness (an outer and an inner edge), clear, darker along the lower right
+    const float WT = 0.09;
+    float wall = smoothstep(WT + px, WT - px, e);
+    float outerL = smoothstep(px * 1.6, 0.0, abs(e)) ;
+    float innerL = smoothstep(px * 1.4, 0.0, abs(e - WT));
+    vec3 edgeC = lightP ? tint * 0.35 : mix(tint, vec3(1.0), 0.7);
+    vec3 wallC = mix(tint, vec3(1.0), lightP ? 0.62 : 0.5);
+    float shadeBR = dBR < dTL ? 0.82 : 1.0;
     if (ghost) {
-        frag = vec4(enc(mix(wallC, uBridgeInk, uBridge)), shape * (wall * 0.4 + 0.05) * v1.a);
+        frag = vec4(enc(mix(edgeC, uBridgeInk, uBridge)), shape * (max(outerL, innerL) * 0.45 + wall * 0.08 + 0.04) * v1.a);
         return;
     }
-    // the water: one level for the vessel, a gentle ripple on its surface
+    // the water: one level for the vessel, one clean surface with a gentle ripple
     vec2 wp = v0.xy + vP * size;
     float s = v2.x - 0.5 + v2.y * vP.x + (0.012 * sin(uTime * 1.6 + wp.x * 4.0 + v3.x) + 0.006 * sin(uTime * 2.7 - wp.x * 7.0)) / size;
     float depth = s - vP.y;
-    float inner = smoothstep(0.05, 0.07, e);
+    float inner = smoothstep(WT - px, WT + px, e);
     float wm = smoothstep(-px, px, depth) * inner;
-    // the air in the glass: a pale tint of the water's color
-    vec3 col = mix(tint, vec3(1.0), lightP ? 0.55 : 0.4);
-    float a = lightP ? 0.22 : 0.16;
-    // the water: lit under its surface, deeper down darker; soft caustics moving slowly
-    vec3 wc = tint * (1.2 - 0.42 * smoothstep(0.0, 2.6, depth));
-    wc = mix(wc, mix(tint, vec3(1.0), 0.5), exp(-max(depth, 0.0) / 0.08) * 0.55);
+    // the air in the glass: nearly clear, a breath of the water's color
+    vec3 col = mix(tint, vec3(1.0), lightP ? 0.7 : 0.5);
+    float a = lightP ? 0.12 : 0.1;
+    // the water: one body, slowly darker with depth, soft caustics moving slowly
+    vec3 wc = tint * (1.12 - 0.3 * smoothstep(0.0, 2.6, depth));
     float cs = vnoise(wp * 2.2 + vec2(uTime * 0.25, -uTime * 0.18)) + vnoise(wp * 3.1 - vec2(uTime * 0.2, uTime * 0.12));
-    wc *= 0.92 + 0.16 * smoothstep(0.75, 1.25, cs) * (1.0 - smoothstep(0.0, 3.0, depth) * 0.5);
+    wc *= 0.93 + 0.14 * smoothstep(0.75, 1.25, cs) * (1.0 - smoothstep(0.0, 3.0, depth) * 0.5);
+    // a darker rim where the water meets the glass (light bending at the wall)
+    wc *= 0.72 + 0.28 * smoothstep(WT, WT + 0.09, e);
+    // small bubbles rising slowly through the water, each column its own pace
+    {
+        vec2 g = vec2(wp.x * 4.0, 0.0);
+        float ci = floor(g.x);
+        float r = hash12(vec2(ci, v3.x * 1.7));
+        if (r > 0.45) {
+            float sp = 0.18 + 0.25 * hash12(vec2(ci, 3.3));
+            float ph = wp.y * 0.6 - uTime * sp * 0.6 + r * 9.0;
+            float by = (fract(ph) - 0.5) / 0.6;
+            float bx = (fract(g.x) - 0.5) / 4.0 + 0.025 * sin(uTime * 2.0 + wp.y * 5.0 + r * 20.0);
+            float br = 0.028 + 0.03 * hash12(vec2(ci, floor(ph) + 1.1));
+            float bd = length(vec2(bx, by)) - br;
+            float ring = smoothstep(uPx * 1.3, 0.0, abs(bd)) + smoothstep(0.0, -br, bd) * 0.15;
+            float hi = smoothstep(br * 0.6, 0.0, length(vec2(bx, by) + br * 0.35)) * step(bd, 0.0);
+            wc = mix(wc, mix(tint, vec3(1.0), 0.75), clamp(ring * 0.7 + hi * 0.8, 0.0, 1.0) * smoothstep(WT, WT + 0.06, e));
+        }
+    }
     col = mix(col, wc, wm);
-    a = mix(a, 0.94, wm);
-    // the meniscus: a bright line where the water meets the glass's air
-    float men = smoothstep(px * 2.0, 0.0, abs(depth)) * inner;
-    col = mix(col, mix(tint, vec3(1.0), 0.75), men * 0.9);
+    a = mix(a, 0.9, wm);
+    // the surface: one thin bright line
+    float men = smoothstep(px * 1.6, 0.0, abs(depth)) * inner;
+    col = mix(col, mix(tint, vec3(1.0), 0.8), men * 0.9);
     a = max(a, men * 0.95);
-    // the glass wall, then a light line along the upper left inside
-    col = mix(col, wallC, wall);
-    a = max(a, wall * 0.9);
-    float hl = smoothstep(px * 1.8, 0.0, abs(dTL - inset - 0.095)) * step(dTL, dBR + 0.2);
-    col = mix(col, vec3(1.0), hl * 0.55);
-    a = max(a, hl * 0.6);
+    // the glass wall over it: clear and pale, its two edges drawn, the lower right in shade
+    col = mix(col, wallC * shadeBR, wall * 0.7);
+    a = max(a, wall * (lightP ? 0.6 : 0.5));
+    float edges = max(outerL, innerL * 0.6);
+    col = mix(col, edgeC * shadeBR, edges);
+    a = max(a, edges * 0.9);
+    // reflections on the glass: two diagonal streaks across the whole vessel (in world space, so they run on across
+    // its cells), and a bright rim along the upper left
+    float dg = (wp.x + wp.y) * 0.7071;
+    float st = fract(dg / 3.4 + 0.37);
+    float streak = smoothstep(0.05, 0.0, abs(st - 0.5)) * 0.8 + smoothstep(0.018, 0.0, abs(st - 0.57)) * 0.6;
+    streak *= smoothstep(WT * 0.5, WT * 1.5, e);
+    col = mix(col, vec3(1.0), streak * 0.35);
+    a = max(a, streak * 0.35);
+    float hl = smoothstep(px * 1.8, 0.0, abs(dTL - inset - WT * 0.5)) * step(dTL, dBR + 0.2);
+    col = mix(col, vec3(1.0), hl * 0.8);
+    a = max(a, hl * 0.85);
     col = mix(col, uBridgeInk, uBridge);
     a = mix(a, 1.0, uBridge);
     frag = vec4(enc(col), a * shape * v1.a);
