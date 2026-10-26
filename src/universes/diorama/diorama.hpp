@@ -14,6 +14,7 @@ public:
     void refresh(float strength) override;
     void onEvent(const GameEvent& ev, const Game& game) override;
     void setBonus(bool on) override { inverted_ = on; }
+    void drop(float strength) override;
     void levelUp() override; // a ring on the water and a flock of birds
     void kick(float amount) override { kick_ = std::max(kick_, amount); }
     void render(const Frame& f, GLuint fbo) override;
@@ -99,6 +100,8 @@ private:
     float gust_ = 0, flare_ = 0, night_ = 0; // night_: the bonus night (0..1)
     float nightV_ = 0, nightAll_ = 0;       // how much the place is a night place; the darker of both
     bool inverted_ = false;
+    bool inDrop_ = false; // a drop: the night turns to a golden evening for its whole length
+    float eve_ = 0;       // how much the evening is in (0..1)
     float pauseFade_ = 0;
     float kick_ = 0, kickEnv_ = 0, lastKickT_ = 0;
     float windTime_ = 0, waterTime_ = 0, cloudTime_ = 0, worldTime_ = 0;
