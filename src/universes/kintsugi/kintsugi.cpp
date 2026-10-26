@@ -683,7 +683,17 @@ void KintsugiUniverse::breakRows(const GameEvent& ev, bool tetris) {
     struct Group { Shard s; float area = 0; vec2 sum = v2(0, 0); int id; };
     std::vector<Group> groups;
     std::vector<std::pair<long long, int>> index; // (piece id, site) -> group
-    struct Tri { vec2 a, b, c; vec2 pa, pb, pc; float ea, eb, ec; };
+    struct Tri { vec2 a, b, c; vec2 pa, pb, pc; float ea, eb, ec, oa, ob, oc; };
+    // the cleared cells of each piece: an edge between two of them is inside a shard, not its outline
+    auto clearedOf = [&](int x, int y) {
+        if (x < 0 || x >= Game::W || y < 0 || y >= Game::H) return -2;
+        for (auto& c : ev.cells)
+            if (c.x == x && c.y == y) {
+                const Owner& o = own_[y][x];
+                return o.type == c.type && o.id >= 0 ? o.id : -2;
+            }
+        return -2;
+    };
     std::vector<std::vector<Tri>> tris;
     int unknownId = -1;
     for (auto& c : ev.cells) {
@@ -736,8 +746,21 @@ void KintsugiUniverse::breakRows(const GameEvent& ev, bool tetris) {
                 const PolyV& A = poly[k];
                 const PolyV& B = poly[(k + 1) % poly.size()];
                 const float e = A.seam ? 0.f : 1.f;
+                // the shard's outline (a seam, or the piece's own edge) is smoothed; a side of the cell shared with
+                // another cleared cell of the same piece is inside the shard
+                bool outline = A.seam;
+                if (!A.seam) {
+                    const float eps = 1e-4f;
+                    int nx = c.x, ny = c.y;
+                    if (std::fabs(A.p.x - q0.x) < eps && std::fabs(B.p.x - q0.x) < eps) nx--;
+                    else if (std::fabs(A.p.x - q1.x) < eps && std::fabs(B.p.x - q1.x) < eps) nx++;
+                    else if (std::fabs(A.p.y - q0.y) < eps && std::fabs(B.p.y - q0.y) < eps) ny++;
+                    else if (std::fabs(A.p.y - q1.y) < eps && std::fabs(B.p.y - q1.y) < eps) ny--;
+                    outline = !(known && clearedOf(nx, ny) == id);
+                }
+                const float o = outline ? 0.f : 1.f;
                 const vec2 pa = toPiece(A.p), pb = toPiece(B.p);
-                tris[g].push_back({toBoard(pc), toBoard(pa), toBoard(pb), pc, pa, pb, 1.f, e, e});
+                tris[g].push_back({toBoard(pc), toBoard(pa), toBoard(pb), pc, pa, pb, 1.f, e, e, 1.f, o, o});
             }
             const float aw = std::fabs(area) / (S * S);
             groups[g].area += aw;
@@ -758,17 +781,19 @@ void KintsugiUniverse::breakRows(const GameEvent& ev, bool tetris) {
         if (ol < 0.05f) { const float a = rng_.range(0.f, TAU); out = v2(std::cos(a), std::sin(a)); ol = 1.f; }
         Shard& s = G.s;
         s.pivot = pivot;
-        const float sp = rng_.range(0.8f, 2.f) * (tetris ? 1.5f : 1.f);
-        s.v = v2(out.x / ol * sp * 0.45f, out.y / ol * sp * 0.4f - rng_.range(0.8f, 2.2f));
-        s.spin = rng_.range(-2.f, 2.f) / std::max(1.f, std::sqrt(G.area));
+        // thrown in a random direction (mostly sideways and up, leaning away from the piece's center), then gravity
+        const float ang = std::atan2(out.y / ol, out.x / ol) * 0.35f + rng_.range(0.15f, PI - 0.15f) * 0.65f;
+        const float sp = rng_.range(1.5f, 4.f) * (tetris ? 1.3f : 1.f);
+        s.v = v2(std::cos(ang) * sp, std::sin(ang) * sp);
+        s.spin = rng_.range(-3.f, 3.f) / std::max(1.f, std::sqrt(G.area));
         s.delay = std::fabs(pivot.x) * 0.012f;
-        s.life = 0.4f;
+        s.life = 6.f; // until it has fallen out of the frame
         for (const Tri& t : tris[g]) {
             const vec2 vs[3] = {t.a, t.b, t.c}, ps[3] = {t.pa, t.pb, t.pc};
-            const float es[3] = {t.ea, t.eb, t.ec};
+            const float es[3] = {t.ea, t.eb, t.ec}, os[3] = {t.oa, t.ob, t.oc};
             for (int k = 0; k < 3; k++) {
-                const float f[5] = {vs[k].x - pivot.x, vs[k].y - pivot.y, ps[k].x, ps[k].y, es[k]};
-                s.verts.insert(s.verts.end(), f, f + 5);
+                const float f[6] = {vs[k].x - pivot.x, vs[k].y - pivot.y, ps[k].x, ps[k].y, es[k], os[k]};
+                s.verts.insert(s.verts.end(), f, f + 6);
             }
         }
         shards_.push_back(std::move(s));
@@ -1019,11 +1044,14 @@ void KintsugiUniverse::simulate(const Game& game, const MusicState& music, float
     for (Shard& s : shards_) {
         s.t += dt;
         if (s.t < s.delay) continue;
-        s.v.y -= 16.f * dt;
+        s.v.y -= 22.f * dt;
         s.pivot = add(s.pivot, mul(s.v, dt));
         s.rot += s.spin * dt;
     }
-    shards_.erase(std::remove_if(shards_.begin(), shards_.end(), [](const Shard& s) { return s.t > s.delay + s.life; }), shards_.end());
+    const float floorY = viewC_.y - viewH_.y - 2.f; // all the way down, out of the frame
+    shards_.erase(std::remove_if(shards_.begin(), shards_.end(),
+                                 [&](const Shard& s) { return s.t > s.delay + s.life || s.pivot.y < floorY; }),
+                  shards_.end());
     for (Dying& d : dying_) d.t += dt;
     dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.t > d.delay + 6.f; }), dying_.end());
     levelGlint_ = approach(levelGlint_, 0.f, 0.8f, dt);
@@ -1141,16 +1169,16 @@ void KintsugiUniverse::buildBoard(const Game& g) {
     // the shards of the cleared rows: falling away into the dark (shrinking, darkening), their broken edges gold
     for (const Shard& s : shards_) {
         const float t = s.t - s.delay;
-        const float k = saturate(t / s.life);
-        const float scale = 1.f - 0.45f * k;
-        const float alpha = t < 0.f ? 1.f : 1.f - smoothstepf(0.45f, 1.f, k);
-        const float shade = 1.f - 0.45f * k;
+        // they keep their size and color as they fall (a slight dimming once out of the light)
+        const float scale = 1.f;
+        const float alpha = 1.f;
+        const float shade = 1.f - 0.25f * smoothstepf(0.f, 1.5f, t);
         const vec3 c = cur_.piece[s.type] * shade;
         const float cs = std::cos(s.rot), sn = std::sin(s.rot);
-        for (size_t i = 0; i + 4 < s.verts.size() + 1; i += 5) {
+        for (size_t i = 0; i + 6 <= s.verts.size(); i += 6) {
             const float rx = s.verts[i] * scale, ry = s.verts[i + 1] * scale;
             const float wx = s.pivot.x + cs * rx - sn * ry, wy = s.pivot.y + sn * rx + cs * ry;
-            const float f[12] = {wx, wy, s.verts[i + 2], s.verts[i + 3], c.x, c.y, c.z, alpha, wx, wy, s.verts[i + 4], 1.f};
+            const float f[12] = {wx, wy, s.verts[i + 2], s.verts[i + 3], c.x, c.y, c.z, alpha, wx, wy, s.verts[i + 4], s.verts[i + 5]};
             shardVerts_.insert(shardVerts_.end(), f, f + 12);
         }
     }

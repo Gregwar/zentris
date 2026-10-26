@@ -290,7 +290,7 @@ void main() {
 inline const char* SHARD_VS = R"(#version 330 core
 layout(location = 0) in vec4 aA;  // board xy (where it is now), piece space xy (where it was)
 layout(location = 1) in vec4 aB;  // color, alpha
-layout(location = 2) in vec4 aC;  // board xy where it was (the light), crack edge distance (barycentric), shade
+layout(location = 2) in vec4 aC;  // board xy (the light), seam edge distance, outline distance (barycentric)
 uniform mat4 uVP;
 out vec4 vA;
 out vec4 vB;
@@ -311,9 +311,11 @@ void main() {
     // the broken edge: a thin line of gold where it cracked
     float e = vC.z;
     float edge = 1.0 - smoothstep(0.0, fwidth(e) * 1.5 + 0.008, e);
-    vec3 col = mix(cer.rgb, uMetal * 1.4 * uGain, edge) * vC.w;
+    vec3 col = mix(cer.rgb, uMetal * 1.4 * uGain, edge);
     col = mix(col, uBridgeInk, smoothstep(0.3, 0.95, uBridge));
-    frag = vec4(col * vB.a, vB.a);
+    // the shard's outline, smoothed over a pixel (vC.w: 0 on it)
+    float a = vB.a * smoothstep(0.0, fwidth(vC.w) * 1.2 + 1e-4, vC.w);
+    frag = vec4(col * a, a);
 }
 )";
 
