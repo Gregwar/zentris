@@ -65,7 +65,7 @@ constexpr float TAN_H = 0.4452f;                 // the world camera's half fiel
 constexpr float EYE = 1.7f;                      // standing in the snow
 constexpr float WELL_X = 5.2f, WELL_Y = 10.2f;   // the well's sheet of ice (half extents, board)
 constexpr int FLAKES = 320;
-constexpr float FREEZE_SECONDS = 7.f;            // a locked piece's water turning to ice (shaders.hpp: FREEZE)
+constexpr float FREEZE_SECONDS = 4.5f;           // a locked piece's water turning to ice (shaders.hpp: FREEZE * FROZEN)
 
 vec2 v2(float x, float y) { return vec2{x, y}; }
 vec2 operator+(vec2 a, vec2 b) { return {a.x + b.x, a.y + b.y}; }
@@ -739,7 +739,10 @@ void PolarUniverse::simulate(const Game& game, const MusicState& music, float dt
         }
     }
     dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) {
-        return d.over ? d.t > d.delay + 2.6f : d.t > 0.62f * std::sqrt(d.power);
+        // a shattered cell lives until its shards have fallen past the bottom of the screen
+        if (d.over) return d.t > d.delay + 2.6f;
+        const float vy = 2.2f * d.power, dist = d.y + 14.f; // board units, down past the screen
+        return d.t > 0.2f + (vy + std::sqrt(vy * vy + 36.f * dist)) / 18.f;
     }), dying_.end());
     iceClock_ += wdt;
     for (auto& g : glints_) g.t += dt;
@@ -847,9 +850,11 @@ void PolarUniverse::buildBoard(const Game& g) {
             }
             continue;
         }
-        // shattering: the quad grows to hold the shards flying off (their motion is in the shader)
-        const float reach = 0.6f + d.power * (2.4f * t + 7.f * t * t);
-        tile(d.x, d.y - reach * 0.35f, 0.5f + reach * 0.8f, 0.5f + reach * 0.75f, cur_.piece[d.type], 1.f, 5, t,
+        // shattering: the quad grows to hold the shards flying off and falling to the bottom (their motion is in
+        // the shader)
+        const float st = std::max(t - 0.1f, 0.f);
+        const float side = 0.6f + (1.9f * d.power + 0.3f) * st, up = 0.5f + 0.35f * d.power, fall = 0.5f + 9.f * st * st;
+        tile(d.x, d.y + (up - fall) * 0.5f, side, (up + fall) * 0.5f, cur_.piece[d.type], 1.f, 5, t,
              packContact(d.mask, d.cdx, d.cdy), d.power, d.x, d.y, d.ox, d.pseed);
     }
     // The falling piece and its ghost.

@@ -474,6 +474,9 @@ float fern(vec2 w) {
 // Old ice: a matte frosted cube, whitish but clearly tinted. No outline, no relief, no gloss.
 // wl: the point in the piece's own frame (board units; its frost travels with it), d: depth inside the body (cell
 // units), pc: the piece's color, k: 0 water .. 1 frozen through, seed: the piece.
+// how far the freeze goes (0..1 of the full process): the old ice keeps its colored heart
+const float FROZEN = 0.64;
+
 vec4 iceCube(vec2 wl, float d, vec3 pc, float k, float seed) {
     vec3 bg = behind(wl);
     vec2 wv = wl + seed * 3.7;
@@ -486,7 +489,7 @@ vec4 iceCube(vec2 wl, float d, vec3 pc, float k, float seed) {
     float glow = 0.75 + 0.25 * smoothstep(0.0, 0.45, d);
     vec3 vivid = clamp(mix(vec3(lum), pc, 1.3), 0.0, 1.0);
     float wet = exp(-d / 0.035);
-    vec3 water = bg * vivid * 0.5 + vivid * 1.05 * glow + mix(vivid, vec3(1.0), 0.5) * (caus * 0.25 + 0.06 + wet * 0.45);
+    vec3 water = bg * vivid * 0.5 + vivid * 0.82 * glow + mix(vivid, vec3(1.0), 0.5) * (caus * 0.2 + 0.04 + wet * 0.3);
     // the frost: needles of crystals reaching in from the faces, ahead of a frosted band that thickens inward
     float fe = fern(wv * 0.55), fe2 = fern(wv * 1.2 + 1.7);
     float n = texture(uNoise, wv * 0.35).r, n2 = texture(uNoise, wv * 0.9 + 0.4).b;
@@ -541,11 +544,12 @@ void main() {
         float fr = 0.0, seed = 0.0;
         vec2 wl = vWorld;
         if (kind == 0) {
-            // freezing, slowly (FREEZE s, polar.cpp FREEZE_SECONDS): -1 frozen long since
+            // freezing, slowly (at the pace of a FREEZE s freeze, stopping at FROZEN: white frost outside, the color
+            // still deep inside; polar.cpp FREEZE_SECONDS = FREEZE * FROZEN): -1 frozen long since
             const float FREEZE = 7.0;
             seed = v3.x;
             wl = vWorld - (v0.xy + v3.yz);
-            fr = age >= 0.0 ? clamp(age / FREEZE, 0.0, 1.0) : 1.0;
+            fr = age >= 0.0 ? clamp(age / FREEZE, 0.0, FROZEN) : FROZEN;
         }
         // fused faces (kind 0): the ice grows into its frozen neighbours, the seam closing under a bridge of frost
         float fuse = 0.0;
@@ -617,12 +621,12 @@ void main() {
                 edge = e;
                 tr = tt;
             }
-        if (!found || w.y < -10.15) discard;
+        if (!found) discard;
         float d = iceDepth(q0 - cc, mask);
         float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, SEAM - d);
         if (cov <= 0.0) discard;
         // the piece's own ice (its frame: where it landed, packed with the mask), carried by the shard
-        vec4 bk = iceCube(q0 - cc - unpackContact(v2.z), max(d - SEAM, 0.0), pc, 1.0, seed);
+        vec4 bk = iceCube(q0 - cc - unpackContact(v2.z), max(d - SEAM, 0.0), pc, FROZEN, seed);
         vec3 col = bk.rgb;
         vec3 crackCol = mix(uFrostCol, pc, 0.3) * 1.05 + uAurLight * 1.5;
         // the crack lines (before it breaks), then the broken faces catching the light
@@ -631,7 +635,7 @@ void main() {
         col = mix(col, crackCol, line * reached * (1.0 - step(0.001, tr)));
         col += crackCol * exp(-edge / 0.04) * 0.35 * step(0.001, tr);
         if (any(isnan(col))) col = vec3(0.0);
-        float a = cov * bk.a * alpha * (1.0 - smoothstep(0.1, 0.32, tr)) * (1.0 - uBridge);
+        float a = cov * bk.a * alpha * (1.0 - uBridge); // no fade: the shards fall off the bottom of the screen
         frag = vec4(col * a, a);
         return;
     }
@@ -656,7 +660,7 @@ void main() {
         float whiten = smoothstep(0.0, 0.3, k);
         float th = (k - 0.25) * 1.5;
         float keep = smoothstep(th, th + 0.06, n);
-        vec3 col = mix(iceCube(p - unpackContact(v2.z), max(d - SEAM, 0.0), pc, 1.0, v3.w).rgb, uFrostCol * (0.9 + 0.15 * n), whiten);
+        vec3 col = mix(iceCube(p - unpackContact(v2.z), max(d - SEAM, 0.0), pc, FROZEN, v3.w).rgb, uFrostCol * (0.9 + 0.15 * n), whiten);
         col += uFrostCol * exp(-pow((n - th) / 0.05, 2.0)) * 0.6 * step(0.25, k);
         float a = cov * keep * alpha * (1.0 - uBridge);
         frag = vec4(col * a, a);
