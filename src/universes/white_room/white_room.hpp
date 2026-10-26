@@ -95,12 +95,12 @@ private:
     float sinceDrop_ = 99.f;
 
     // ---- This frame's light.
-    struct Light { vec3 dir, col; float soft, side; };
+    struct Light { vec3 pos, col; float radius, side; }; // a lamp: position (board space), color, radius
     Light l0_{}, l1_{};
     vec3 amb_{0.5f}, ambB_{0.5f};
-    vec4 lamp_{0, 13, 5, 0};
     vec4 pool_{0, 0, 14, 0.1f};
     float wallLum_ = 0.8f;
+    float shadowAmt_ = 0.6f;    // how dark the shadow play is
 
     // ---- The balls on the floor.
     struct Ball {
