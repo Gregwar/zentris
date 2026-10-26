@@ -221,7 +221,7 @@ bool KintsugiUniverse::init(int width, int height) {
         }
     };
     plain(veinVao_, veinVbo_, 3);
-    plain(shardVao_, shardVbo_, 3);
+    plain(shardVao_, shardVbo_, 4);
 
     glGenVertexArrays(1, &textVao_);
     glGenBuffers(1, &textVbo_);
@@ -695,6 +695,8 @@ void KintsugiUniverse::breakRows(const GameEvent& ev, bool tetris) {
         return -2;
     };
     std::vector<std::vector<Tri>> tris;
+    struct Side { vec2 a, b, pa, pb, n; bool seam; };
+    std::vector<std::vector<Side>> sides;
     int unknownId = -1;
     for (auto& c : ev.cells) {
         if (c.y < 0 || c.y >= Game::H || c.x < 0 || c.x >= Game::W) continue;
@@ -738,6 +740,7 @@ void KintsugiUniverse::breakRows(const GameEvent& ev, bool tetris) {
                 groups.back().id = id;
                 groups.back().s.type = std::clamp(c.type, 0, 6);
                 tris.push_back({});
+                sides.push_back({});
             }
             auto toPiece = [&](vec2 q) { return v2(q.x / S, q.y / S); };
             auto toBoard = [&](vec2 pp) { return v2(W.x + pp.x - P.x, W.y + pp.y - P.y); };
@@ -761,6 +764,15 @@ void KintsugiUniverse::breakRows(const GameEvent& ev, bool tetris) {
                 const float o = outline ? 0.f : 1.f;
                 const vec2 pa = toPiece(A.p), pb = toPiece(B.p);
                 tris[g].push_back({toBoard(pc), toBoard(pa), toBoard(pb), pc, pa, pb, 1.f, e, e, 1.f, o, o});
+                if (outline) {
+                    // a side wall: its outward normal points away from this fragment's center
+                    const vec2 ba = toBoard(pa), bb = toBoard(pb), bc = toBoard(pc);
+                    vec2 nrm = v2(bb.y - ba.y, -(bb.x - ba.x));
+                    const float nl = std::max(1e-5f, len2(nrm));
+                    nrm = mul(nrm, 1.f / nl);
+                    if ((0.5f * (ba.x + bb.x) - bc.x) * nrm.x + (0.5f * (ba.y + bb.y) - bc.y) * nrm.y < 0.f) nrm = mul(nrm, -1.f);
+                    sides[g].push_back({ba, bb, pa, pb, nrm, A.seam});
+                }
             }
             const float aw = std::fabs(area) / (S * S);
             groups[g].area += aw;
@@ -785,7 +797,12 @@ void KintsugiUniverse::breakRows(const GameEvent& ev, bool tetris) {
         const float ang = std::atan2(out.y / ol, out.x / ol) * 0.35f + rng_.range(0.15f, PI - 0.15f) * 0.65f;
         const float sp = rng_.range(1.5f, 4.f) * (tetris ? 1.3f : 1.f);
         s.v = v2(std::cos(ang) * sp, std::sin(ang) * sp);
-        s.spin = rng_.range(-3.f, 3.f) / std::max(1.f, std::sqrt(G.area));
+        // tumbling about a random axis, mostly in the plane (so its thickness shows)
+        {
+            const float aa = rng_.range(0.f, TAU);
+            s.axis = normalize(vec3(std::cos(aa), std::sin(aa), rng_.range(-0.4f, 0.4f)));
+        }
+        s.spin = (rng_.chance(0.5f) ? 1.f : -1.f) * rng_.range(2.5f, 6.f) / std::max(1.f, std::sqrt(G.area));
         s.delay = std::fabs(pivot.x) * 0.012f;
         s.life = 6.f; // until it has fallen out of the frame
         for (const Tri& t : tris[g]) {
@@ -795,6 +812,11 @@ void KintsugiUniverse::breakRows(const GameEvent& ev, bool tetris) {
                 const float f[6] = {vs[k].x - pivot.x, vs[k].y - pivot.y, ps[k].x, ps[k].y, es[k], os[k]};
                 s.verts.insert(s.verts.end(), f, f + 6);
             }
+        }
+        for (const Side& w : sides[g]) {
+            const float f[11] = {w.a.x - pivot.x, w.a.y - pivot.y, w.b.x - pivot.x, w.b.y - pivot.y,
+                                 w.pa.x, w.pa.y, w.pb.x, w.pb.y, w.n.x, w.n.y, w.seam ? 1.f : 0.f};
+            s.sides.insert(s.sides.end(), f, f + 11);
         }
         shards_.push_back(std::move(s));
     }
@@ -1167,19 +1189,46 @@ void KintsugiUniverse::buildBoard(const Game& g) {
     }
 
     // the shards of the cleared rows: falling away into the dark (shrinking, darkening), their broken edges gold
+    // a slab tumbling in 3D (orthographic: rotate, then drop z), lit by the raking light; the face toward the camera
+    // drawn last over its visible walls
+    const float moon = smoothstepf(0.f, 1.f, slow_);
+    const vec3 L = normalize(vec3(lerpf(-0.75f, 0.8f, moon), lerpf(0.65f, 0.6f, moon), 0.9f));
+    auto lightOf = [&](const vec3& n) { return (0.3f + 0.8f * std::max(0.f, dot(n, L))) / (0.3f + 0.8f * L.z); };
+    const float HALF = 0.3f; // half the slab's thickness (cells)
     for (const Shard& s : shards_) {
         const float t = s.t - s.delay;
-        // they keep their size and color as they fall (a slight dimming once out of the light)
-        const float scale = 1.f;
-        const float alpha = 1.f;
         const float shade = 1.f - 0.25f * smoothstepf(0.f, 1.5f, t);
         const vec3 c = cur_.piece[s.type] * shade;
-        const float cs = std::cos(s.rot), sn = std::sin(s.rot);
+        // Rodrigues' rotation about the shard's axis
+        const float ca = std::cos(s.rot), sa = std::sin(s.rot);
+        const vec3 k = s.axis;
+        auto R = [&](const vec3& v) { return v * ca + cross(k, v) * sa + k * (dot(k, v) * (1.f - ca)); };
+        auto emit = [&](const vec3& lp, float px, float py, float e, float o, float kind, float lit, float lip) {
+            const vec3 w = R(lp);
+            const float wx = s.pivot.x + w.x, wy = s.pivot.y + w.y;
+            const float f[16] = {wx, wy, px, py, c.x, c.y, c.z, 1.f, wx, wy, e, o, kind, lit, lip, 0.f};
+            shardVerts_.insert(shardVerts_.end(), f, f + 16);
+        };
+        const vec3 nFront = R(vec3(0.f, 0.f, 1.f));
+        const float zs = nFront.z >= 0.f ? 1.f : -1.f; // the face toward the camera: front (+z) or back (-z)
+        // the walls that face the camera
+        for (size_t i = 0; i + 11 <= s.sides.size(); i += 11) {
+            const float* w = &s.sides[i];
+            const vec3 n = R(vec3(w[8], w[9], 0.f));
+            if (n.z <= 0.f) continue;
+            const float kind = w[10] > 0.5f ? 1.f : 2.f, lit = lightOf(n);
+            const vec3 a0(w[0], w[1], HALF * zs), b0(w[2], w[3], HALF * zs), a1(w[0], w[1], -HALF * zs), b1(w[2], w[3], -HALF * zs);
+            // o: 1 at the edge it shares with the face, 0 at its far edge (the silhouette, smoothed)
+            emit(a0, w[4], w[5], 1.f, 1.f, kind, lit, 0.f); emit(b0, w[6], w[7], 1.f, 1.f, kind, lit, 0.f);
+            emit(b1, w[6], w[7], 1.f, 0.f, kind, lit, 1.f);
+            emit(a0, w[4], w[5], 1.f, 1.f, kind, lit, 0.f); emit(b1, w[6], w[7], 1.f, 0.f, kind, lit, 1.f);
+            emit(a1, w[4], w[5], 1.f, 0.f, kind, lit, 1.f);
+        }
+        // the face
+        const float litF = lightOf(nFront * zs);
         for (size_t i = 0; i + 6 <= s.verts.size(); i += 6) {
-            const float rx = s.verts[i] * scale, ry = s.verts[i + 1] * scale;
-            const float wx = s.pivot.x + cs * rx - sn * ry, wy = s.pivot.y + sn * rx + cs * ry;
-            const float f[12] = {wx, wy, s.verts[i + 2], s.verts[i + 3], c.x, c.y, c.z, alpha, wx, wy, s.verts[i + 4], s.verts[i + 5]};
-            shardVerts_.insert(shardVerts_.end(), f, f + 12);
+            const float* v = &s.verts[i];
+            emit(vec3(v[0], v[1], HALF * zs), v[2], v[3], v[4], v[5], 0.f, litF, v[5]);
         }
     }
 }
@@ -1535,7 +1584,7 @@ void KintsugiUniverse::render(const Frame& f, GLuint fbo) {
         glBindVertexArray(shardVao_);
         glBindBuffer(GL_ARRAY_BUFFER, shardVbo_);
         glBufferData(GL_ARRAY_BUFFER, shardVerts_.size() * sizeof(float), shardVerts_.data(), GL_STREAM_DRAW);
-        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(shardVerts_.size() / 12));
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(shardVerts_.size() / 16));
     }
     drawVeins(true); // the hairline cracks of the locks, at the contact
 

@@ -129,7 +129,16 @@ private:
     // A shard of a cleared row: one fragment of a piece between its gold seams (it may span several cells of the
     // piece), as triangles around its pivot: per vertex its offset from the pivot (board units), its point in piece
     // space, and 0 on a broken edge (a seam: gold), 1 elsewhere.
-    struct Shard { std::vector<float> verts; vec2 pivot, v; float rot = 0, spin = 0, t = 0, delay = 0, life = 0; int type = 0; };
+    // It is a slab of the ceramic (a front and a back face, side walls along its outline: gold where it broke along a
+    // seam, glaze along the piece's own edge), tumbling about its axis as it falls. sides: per wall, its two ends
+    // (offsets), their piece-space points, its outward normal in the plane, and 1 if it is a seam.
+    struct Shard {
+        std::vector<float> verts, sides;
+        vec2 pivot, v;
+        vec3 axis{0.f, 1.f, 0.f};
+        float rot = 0, spin = 0, t = 0, delay = 0, life = 0;
+        int type = 0;
+    };
     std::vector<Shard> shards_;
     void breakRows(const GameEvent& ev, bool tetris);
     struct Leaf { vec2 p, v; float rot, spin, turn, turnRate, size, t, life, seed; };

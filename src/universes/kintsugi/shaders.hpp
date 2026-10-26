@@ -291,29 +291,45 @@ inline const char* SHARD_VS = R"(#version 330 core
 layout(location = 0) in vec4 aA;  // board xy (where it is now), piece space xy (where it was)
 layout(location = 1) in vec4 aB;  // color, alpha
 layout(location = 2) in vec4 aC;  // board xy (the light), seam edge distance, outline distance (barycentric)
+layout(location = 3) in vec4 aD;  // kind (0 face, 1 gold wall, 2 glaze wall), light, lip (face) / across (wall)
 uniform mat4 uVP;
 out vec4 vA;
 out vec4 vB;
 out vec4 vC;
+out vec4 vD;
 void main() {
-    vA = aA; vB = aB; vC = aC;
+    vA = aA; vB = aB; vC = aC; vD = aD;
     gl_Position = uVP * vec4(aA.xy, 0.0, 1.0);
 }
 )";
+// A shard of a cleared row, a slab tumbling in 3D: its face is the glazed ceramic (lit by its own tilt), its walls the
+// broken edge (gold where it broke along a seam, the glaze's darker side along the piece's own edge).
 inline const char* SHARD_FS = R"(#version 330 core
 in vec4 vA;
 in vec4 vB;
 in vec4 vC;
+in vec4 vD;
 out vec4 frag;
 uniform float uPx;
 void main() {
-    vec4 cer = ceramic(vB.rgb, vA.zw, vC.xy, 0.3, 1.0, 0.045, 0.0, uPx);
-    // the broken edge: a thin line of gold where it cracked
-    float e = vC.z;
-    float edge = 1.0 - smoothstep(0.0, fwidth(e) * 1.5 + 0.008, e);
-    vec3 col = mix(cer.rgb, uMetal * 1.4 * uGain, edge);
+    float kind = vD.x, lit = vD.y;
+    vec3 col;
+    if (kind < 0.5) {
+        vec4 cer = ceramic(vB.rgb, vA.zw, vC.xy, 0.05 + 0.3 * vD.z, 1.0, 0.045, 0.0, uPx);
+        // the broken edge: a thin line of gold where it cracked
+        float e = vC.z;
+        float edge = 1.0 - smoothstep(0.0, fwidth(e) * 1.5 + 0.008, e);
+        col = mix(cer.rgb, uMetal * 1.4 * uGain, edge) * lit;
+    } else if (kind < 1.5) {
+        // the gold lacquer the shard broke along: metal, brighter where it turns to the light
+        float g = 0.6 + 0.4 * sin(vA.z * 7.0 + vA.w * 5.0);
+        col = uMetal * uGain * (0.25 + 1.1 * lit) * g + uMetal * 0.6 * pow(clamp(lit - 0.6, 0.0, 1.0), 2.0);
+    } else {
+        // the glaze running down the piece's own edge, a little deeper
+        col = vB.rgb * uLightCol * (0.4 + 0.45 * lit) * mix(1.0, 0.75, vD.z);
+    }
     col = mix(col, uBridgeInk, smoothstep(0.3, 0.95, uBridge));
-    // the shard's outline, smoothed over a pixel (vC.w: 0 on it)
+    // the silhouette, smoothed over a pixel (vC.w: 0 on it)
     float a = vB.a * smoothstep(0.0, fwidth(vC.w) * 1.2 + 1e-4, vC.w);
     frag = vec4(col * a, a);
 }
