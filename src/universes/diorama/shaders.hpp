@@ -424,9 +424,15 @@ in vec2 vUV;
 out vec4 frag;
 uniform sampler2D uSrc;
 uniform vec2 uTexel;
+// A stray non-finite pixel (a NaN, or a highlight past the half float's range) would spread through the blur into a
+// black rectangle for a frame: drop it here.
+vec4 tap(vec2 uv) {
+    vec4 c = texture(uSrc, uv);
+    return any(isnan(c)) || any(isinf(c)) ? vec4(0.0, 0.0, 0.0, 1e4) : min(c, vec4(vec3(64.0), 1e4));
+}
 void main() {
-    vec4 s = texture(uSrc, vUV + uTexel * vec2(-0.5, -0.5)) + texture(uSrc, vUV + uTexel * vec2(0.5, -0.5)) +
-             texture(uSrc, vUV + uTexel * vec2(-0.5, 0.5)) + texture(uSrc, vUV + uTexel * vec2(0.5, 0.5));
+    vec4 s = tap(vUV + uTexel * vec2(-0.5, -0.5)) + tap(vUV + uTexel * vec2(0.5, -0.5)) +
+             tap(vUV + uTexel * vec2(-0.5, 0.5)) + tap(vUV + uTexel * vec2(0.5, 0.5));
     frag = s * 0.25;
 }
 )";
@@ -459,6 +465,8 @@ vec3 tonemap(vec3 x) {
 void main() {
     vec4 s = texture(uScene, vUV);
     vec4 b = texture(uBlur, vUV);
+    if (any(isnan(s)) || any(isinf(s.rgb))) s = vec4(b.rgb, isnan(s.a) ? b.a : s.a); // a stray pixel: its surroundings
+    if (any(isnan(b)) || any(isinf(b.rgb))) b = s;
     float d = s.a;
     // Tilt-shift: the board's plane is sharp; the far landscape and the near water soften, and so do the
     // very top and bottom of the frame.
