@@ -1,9 +1,9 @@
 // GARDEN: clods of earth that grow grass and flowers.
 //
 // One world: a wide line of earth along the bottom of the picture (flat under the well, rising gently toward the
-// edges) under a plain sky with one sun or moon, and lots of empty air. The pieces are clods of earth, one brown per
-// piece type (from pale sandy earth to peat), with a soft crumbly edge and a fine grain; landed, they merge into one
-// mass of earth, the browns mixing over a ragged band where two clods meet. Wherever the top of a clod is open to the air, life takes hold: a fringe of
+// edges) under a plain sky with one sun or moon, and lots of empty air. The pieces are clods of the same earth, with
+// a soft crumbly edge, a fine grain and a few pebbles; landed, they merge into one mass of earth that grows out of
+// the ground line. Wherever the top of a clod is open to the air, life takes hold: a fringe of
 // grass sprouts within a second or two, then a few small flowers open slowly over about twelve seconds. A block
 // landing on top buries them: the grass and the flowers fold back into the soil in one quick, smooth motion.
 //
@@ -76,14 +76,14 @@ float groundY(float x, float seed) {
 
 // The variants (sRGB): the sky (top, at the horizon), the sun or moon, the drop's glow, the ground (top, deep, its
 // lit lip), the grass (green, lush, dry), the moss on the clods, the HUD ink, the accent, the flowers' heart, the
-// dusk of slow motion; the stack's three flowers, the ground line's four bloom colors; the seven soils (I O T S Z J
-// L: seven browns told apart by value, from pale sandy earth to peat); the sun (x, y, radius), moon 0/1, stars, the well's shade.
+// dusk of slow motion; the stack's three flowers, the ground line's four bloom colors; the soil of every clod;
+// the sun (x, y, radius), moon 0/1, stars, the opacity of the well's pale panel.
 struct VariantDef {
     const char* name;
     unsigned skyTop, skyLow, sun, glow, ground, groundDeep, lip, grass, lush, dry, moss, ink, accent, center, dusk;
     unsigned flower[3];
     unsigned bloom[4];
-    unsigned piece[7];
+    unsigned soil;
     float sunX, sunY, sunR, moon, stars, veil;
 };
 const VariantDef VARIANTS[] = {
@@ -91,32 +91,32 @@ const VariantDef VARIANTS[] = {
     {"SPRING MORNING", 0x8fbbe0, 0xf2ecdc, 0xfff6e0, 0xf4b0c4, 0x4a3626, 0x271b14, 0x7a5c40, 0x7ea446, 0x4f8a34, 0xcdb98a,
      0x5a7a30, 0x3b3226, 0xd9607e, 0xf2c230, 0x3c3a6a,
      {0xfbfaf4, 0xf6d23e, 0xf0a0b8}, {0xfbfaf4, 0xf6d23e, 0xec7f9e, 0xa88ae0},
-     {0xc49a6a, 0x8c6242, 0x9c7250, 0x6e5034, 0x8a5c40, 0x4a3226, 0x7e6650},
-     -16.f, 6.5f, 1.2f, 0.f, 0.f, 0.f},
+     0x8c6242,
+     -16.f, 6.5f, 1.2f, 0.f, 0.f, 0.16f},
     // A summer dusk: a low sun in an apricot haze under a dusky blue, cream and coral flowers; the drop glows magenta.
     {"SUMMER DUSK", 0x34406c, 0xf2a676, 0xffd6a6, 0xd8589c, 0x2c1f1c, 0x150e0e, 0x6a4030, 0x6a8a3a, 0x4a7a32, 0xc8a060,
      0x4a6a2c, 0xf6e6d4, 0xff9a6a, 0xffc23a, 0x1e1e48,
      {0xfff0dc, 0xf3895e, 0xe0b8f0}, {0xfff0dc, 0xff8a5c, 0xffc84a, 0xd890e0},
-     {0xae8050, 0x6e4a34, 0x8a5e42, 0x5a4230, 0x744632, 0x3a2820, 0x6a5848},
-     16.5f, -5.f, 2.f, 0.f, 0.f, 0.f},
+     0x7a5238,
+     16.5f, -5.f, 2.f, 0.f, 0.f, 0.13f},
     // An autumn field: an overcast pale sky, rust, gold and aster violet; the drop glows amber.
     {"AUTUMN FIELD", 0xa9b8c8, 0xebe0c8, 0xfff2dc, 0xf0a048, 0x3e2c1e, 0x21170f, 0x7a5a36, 0x8a9244, 0x6a8a3a, 0xbf9658,
      0x6a6a2a, 0x3c2c20, 0xc0602a, 0x6a3a1a, 0x2e2c50,
      {0xc8642a, 0xe6b440, 0x8c6ab4}, {0xd06a2a, 0xe8b23c, 0x9a70c0, 0xf4ead8},
-     {0xc89c62, 0x96643c, 0xa0724a, 0x705030, 0x885038, 0x4a2e1e, 0x887060},
-     -15.5f, 7.f, 1.4f, 0.f, 0.f, 0.f},
+     0x96643c,
+     -15.5f, 7.f, 1.4f, 0.f, 0.f, 0.16f},
     // A night garden: a deep blue sky, the moon, white moonflowers and pale blue; the drop glows violet.
     {"NIGHT GARDEN", 0x0a1024, 0x26304c, 0xe6ebf4, 0x6a4ab8, 0x15131a, 0x08070b, 0x3a3440, 0x3a5a4a, 0x2e6a52, 0x6a6a64,
      0x2e4a3a, 0xdde3ee, 0xb8c8ff, 0xf4e0a0, 0x0a0a20,
      {0xf2f5ff, 0xa4c0ff, 0xcaa8f4}, {0xf2f5ff, 0xa4c0ff, 0xd0a8f8, 0xf8e0a0},
-     {0xbca47c, 0x8e7462, 0xa87a5a, 0x7c6650, 0x9a6650, 0x645250, 0x8a7c70},
-     15.5f, 6.f, 1.f, 1.f, 1.f, 0.f},
+     0x8e7462,
+     15.5f, 6.f, 1.f, 1.f, 1.f, 0.07f},
     // A misty dawn: lavender grey over a pink horizon, sage grass, white and lilac flowers; the drop glows gold.
     {"MISTY DAWN", 0xb4b6d4, 0xf4d8cc, 0xfff2e6, 0xffc25a, 0x3e3232, 0x1e1818, 0x7a6464, 0x84a07e, 0x5e8c68, 0xbcae9c,
      0x5a7a5e, 0x3a3044, 0xb070c0, 0xf4d070, 0x2a2850,
      {0xffffff, 0xc4a0e8, 0xf4b0b8}, {0xffffff, 0xc89cf0, 0xf2a0b4, 0xf4d070},
-     {0xbc9a72, 0x80604e, 0x987260, 0x6a5444, 0x845a4c, 0x3e2e2e, 0x7a6a62},
-     -15.f, -3.5f, 1.5f, 0.f, 0.f, 0.f},
+     0x80604e,
+     -15.f, -3.5f, 1.5f, 0.f, 0.f, 0.16f},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 constexpr int NIGHT = 3;
@@ -134,7 +134,7 @@ Palette paletteOf(int v) {
     p.moss = L(d.moss); p.ink = L(d.ink); p.accent = L(d.accent); p.center = L(d.center); p.dusk = L(d.dusk);
     for (int i = 0; i < 3; i++) p.flower[i] = L(d.flower[i]);
     for (int i = 0; i < 4; i++) p.bloom[i] = L(d.bloom[i]);
-    for (int i = 0; i < 7; i++) p.piece[i] = L(d.piece[i]);
+    for (int i = 0; i < 7; i++) p.piece[i] = L(d.soil); // one earth for every clod
     p.sunX = d.sunX; p.sunY = d.sunY; p.sunR = d.sunR; p.moon = d.moon; p.stars = d.stars; p.veil = d.veil;
     return p;
 }
@@ -158,6 +158,8 @@ std::string titleCase(const std::string& s) {
 }
 
 // The 8 neighbours, in the shader's bit order (L R D U LD RD LU RU), as game offsets (game y grows down).
+// how far the bottom row reaches down into the ground line (cells)
+constexpr float ROOT = 0.35f;
 const int NDX[8] = {-1, 1, 0, 0, -1, 1, -1, 1};
 const int NDY[8] = {0, 0, 1, -1, 1, 1, -1, -1};
 
@@ -799,10 +801,10 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
 // =====================================================================================================
 
 void GardenUniverse::cell(float x, float y, float size, int mask, const vec3& col, float alpha, vec2 nc, float crumble,
-                          bool ghost, float seed, float moss, const float* blend) {
+                          bool ghost, float seed, float moss, const float* blend, float root) {
     if (alpha <= 0.003f) return;
     cells_.push_back({{x, y, size, (float)mask}, {col.x, col.y, col.z, alpha}, {nc.x, nc.y, crumble, ghost ? 1.f : 0.f},
-                      {seed, moss, 0.f, 0.f},
+                      {seed, moss, root, 0.f},
                       {blend ? blend[0] : -1.f, blend ? blend[1] : -1.f, blend ? blend[2] : -1.f, blend ? blend[3] : -1.f}});
 }
 
@@ -1048,8 +1050,16 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
             // the soils of the clods around (L R D U) blend into this one across the joins
             float blend[4];
             for (int i = 0; i < 4; i++)
-                blend[i] = (m & (1 << i)) ? packSoil(pal_.piece[soil_[y + NDY[i]][x + NDX[i]].type]) : -1.f;
-            cell(p.x, p.y, 1.f, m, pal_.piece[s.type], 1.f, s.nc, 0.f, false, (float)(s.id % 97), moss, blend);
+                blend[i] = (m & (1 << i)) && y + NDY[i] < Game::H ? packSoil(pal_.piece[soil_[y + NDY[i]][x + NDX[i]].type]) : -1.f;
+            // the bottom row grows out of the ground: joined below (no rim, no rounded corners), its earth mixing
+            // into the ground's
+            const bool root = y == Game::H - 1 && std::fabs(off) < 0.02f;
+            if (root) {
+                m |= (1 << 2) | (1 << 4) | (1 << 5);
+                blend[2] = packSoil(pal_.ground);
+            }
+            cell(p.x, p.y, 1.f, m, pal_.piece[s.type], 1.f, s.nc, 0.f, false, (float)(s.id % 97), moss, blend,
+                 root ? ROOT : 0.f);
         }
     // Cleared earth crumbling (at the real speed, even in slow motion).
     for (const Dying& d : dying_) {
@@ -1361,7 +1371,7 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
         set1f(progSky_, "uSeed", seedF_);
         set1f(progSky_, "uPx", px_);
         set1f(progSky_, "uStars", pal_.stars);
-        set1f(progSky_, "uVeil", pal_.veil);
+        set1f(progSky_, "uVeil", pal_.veil * (1.f - bridge_.amount));
         set1f(progSky_, "uDry", dry_);
         set1f(progSky_, "uHaze", smoothstepf(0.4f, 1.f, dry_) * (1.f - pal_.stars * 0.6f));
         set1f(progSky_, "uLush", smoothstepf(1.1f, 2.f, lv_) * (1.f - drive_));

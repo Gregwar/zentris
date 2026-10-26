@@ -77,9 +77,14 @@ void main() {
     }
     sky = mix(sky, sunCol, halo * (1.0 - 0.6 * uSlow));
     sky = mix(sky, sunCol, sunA * (1.0 - 0.5 * uSlow));
-    // the well: the same sky, a touch quieter (a breath of shade)
-    float wellM = smoothstep(5.35, 5.05, abs(w.x)) * smoothstep(10.35, 10.05, w.y) * smoothstep(-10.2, -9.9, w.y);
-    sky = mix(sky, sky * 0.93, wellM * uVeil);
+    // the well: a pale, see-through panel over the sky (rounded at the top, standing on the ground) that marks the
+    // area of play, with a slightly brighter hairline edge
+    vec2 wd = abs(w) - vec2(5.08, 10.08);
+    float rr = 0.3;
+    float wsd = length(max(wd + rr, 0.0)) + min(max(wd.x + rr, wd.y + rr), 0.0) - rr;
+    float wellM = smoothstep(uPx, -uPx, wsd);
+    float wellE = smoothstep(uPx * 1.5, 0.0, abs(wsd + uPx));
+    sky = mix(sky, vec3(1.0), wellM * uVeil + wellE * uVeil * 0.8);
     // the ground line: dark earth, a lighter lip where the light catches its edge, fine grain
     float gy = groundY(w.x);
     float below = gy - w.y;
@@ -108,15 +113,16 @@ layout(location = 0) in vec2 aQ;
 layout(location = 1) in vec4 a0;   // x, y, size, neighbour mask (L R D U LD RD LU RU)
 layout(location = 2) in vec4 a1;   // linear rgb, alpha
 layout(location = 3) in vec4 a2;   // grain origin x, y, crumble 0..1, ghost
-layout(location = 4) in vec4 a3;   // seed, moss on the top edge, -, -
+layout(location = 4) in vec4 a3;   // seed, moss on the top edge, root (how far it reaches down into the ground), -
 layout(location = 5) in vec4 a4;   // the soils joined on the L R D U sides (packed, -1: none)
 uniform mat4 uVP;
 out vec2 vP;
 flat out vec4 v0, v1, v2, v3, v4;
 void main() {
     vP = aQ * 0.5;
+    if (aQ.y < 0.0) vP.y -= a3.z; // a root reaches down into the ground
     v0 = a0; v1 = a1; v2 = a2; v3 = a3; v4 = a4;
-    gl_Position = uVP * vec4(a0.xy + aQ * 0.5 * a0.z, 0.0, 1.0);
+    gl_Position = uVP * vec4(a0.xy + vP * a0.z, 0.0, 1.0);
 }
 )";
 inline const char* CELL_FS = R"(#version 330 core
@@ -187,6 +193,9 @@ void main() {
             wsum += w;
         }
         if (wsum > 0.0) base = mix(base, sum / wsum, min(wsum, 0.5));
+        // a root: below the cell, the earth turns into the ground's and fades into it
+        if (v3.z > 0.0 && v4[2] >= 0.0)
+            base = mix(base, unpackSoil(v4[2]), smoothstep(-0.5, -0.5 - v3.z * 0.8, vP.y + (fbm(nc * 5.0) - 0.5) * 0.1));
     }
     vec3 col = base;
     if (!ghost) {
@@ -205,6 +214,24 @@ void main() {
         vec2 gq = fract(nc * 22.0) - 0.5;
         float dot_ = smoothstep(0.42, 0.18, length(gq));
         col *= mix(1.0, h > 0.92 ? 1.0 + 0.3 * dot_ : (h < 0.08 ? 1.0 - 0.35 * dot_ : 1.0), tb);
+        // pebbles here and there: small, pale, greyish stones lit from above, a little shade under each
+        for (int k = 0; k < 2; k++) {
+            float sc = k == 0 ? 3.2 : 6.5;
+            vec2 pc = floor(nc * sc);
+            if (hash12(pc + 41.3 + float(k) * 17.0) < (k == 0 ? 0.9 : 0.86)) continue;
+            vec2 jit = vec2(hash12(pc + 5.7), hash12(pc + 9.1)) - 0.5;
+            vec2 pq = (fract(nc * sc) - 0.5 - jit * 0.45) / sc;
+            float ang = hash12(pc + 2.9) * 6.283;
+            pq = mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * pq;
+            float r = (k == 0 ? 0.075 : 0.045) * (0.7 + 0.6 * hash12(pc + 13.3));
+            float d = length(pq * vec2(1.0, 1.45)) + (vnoise(nc * 40.0) - 0.5) * 0.012;
+            float peb = smoothstep(r + px, r - px, d);
+            float shade = smoothstep(r * 1.6, r, length((pq + vec2(0.0, r * 0.35)) * vec2(1.0, 1.45))) * (1.0 - peb);
+            vec3 stone = mix(vec3(dot(base, vec3(0.3, 0.55, 0.15))), base, 0.35) * (1.1 + 0.35 * hash12(pc + 7.7));
+            stone *= 0.75 + 0.45 * smoothstep(-r, r, pq.y + pq.x * 0.4); // lit from the upper left
+            col = mix(col, col * 0.7, shade * 0.6 * tb);
+            col = mix(col, stone, peb * 0.85 * tb);
+        }
         // light from above: the top of the clod catches it, its underside in shade, a darker crumbly rim
         col *= mix(1.0, 1.0 + 0.14 * exp(-max(dTop - inset, 0.0) / 0.2), tb);
         col *= mix(1.0, 1.0 - 0.28 * exp(-max(dBot - inset, 0.0) / 0.3), tb);
@@ -213,6 +240,8 @@ void main() {
         col = mix(col, uMoss, v3.y * 0.4 * exp(-max(dTop - inset, 0.0) / 0.07) * tb);
     }
     // a cleared row crumbles: the earth breaks up from its grain
+    // a root fades into the ground
+    if (v3.z > 0.0) a *= 1.0 - smoothstep(-0.5 - v3.z * 0.45, -0.5 - v3.z, vP.y + (fbm(nc * 6.0) - 0.5) * 0.12);
     float cr = v2.z;
     if (cr > 0.0) {
         float n = vnoise(nc * 9.0) * 0.6 + vnoise(nc * 27.0) * 0.4;

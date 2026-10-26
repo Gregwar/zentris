@@ -42,7 +42,7 @@ private:
     std::vector<CellInst> cells_;
     std::vector<SpriteInst> sprites_;
     void cell(float x, float y, float size, int mask, const vec3& col, float alpha, vec2 nc, float crumble, bool ghost,
-              float seed, float moss, const float* blend = nullptr);
+              float seed, float moss, const float* blend = nullptr, float root = 0.f);
     // a neighbour's soil packed in one float for the cell shader's blend (-1: none)
     float packSoil(const vec3& c) const;
     void sprite(float x, float y, float hx, float hy, float rot, int kind, const vec3& col, float alpha, float p0 = 0.f,
