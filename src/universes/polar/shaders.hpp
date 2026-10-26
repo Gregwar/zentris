@@ -462,63 +462,48 @@ vec3 behind(vec2 w) {
     return mix(bg, vec3(dot(bg, vec3(0.2126, 0.7152, 0.0722))), 0.4) * 0.45;
 }
 
-// A piece's cracks: distance (board units) to the nearest one, the borders of a jittered grid, warped, a subset of
-// them shown. plane: 1 on the side where the crack's plane goes down into the ice (it catches light there).
-float crackDist(vec2 w, float seed, out float plane) {
-    const float SC = 0.85;
-    vec2 p = w * SC + seed * 13.0;
-    p += (vec2(texture(uNoise, p * 0.11).r, texture(uNoise, p * 0.11 + 0.5).b) - 0.5) * 0.7;
-    p += (vec2(texture(uNoise, p * 0.6).b, texture(uNoise, p * 0.6 + 0.3).r) - 0.5) * 0.12;
-    vec2 ip = floor(p), fp = fract(p);
-    vec2 mr = vec2(0.0), mc = vec2(0.0);
-    float md = 8.0;
-    for (int j = -1; j <= 1; j++)
-        for (int i = -1; i <= 1; i++) {
-            vec2 c = ip + vec2(float(i), float(j));
-            vec2 r = vec2(float(i), float(j)) + vec2(hash12(c), hash12(c + 19.1)) - fp;
-            float dd = dot(r, r);
-            if (dd < md) { md = dd; mr = r; mc = c; }
-        }
-    float best = 8.0;
-    plane = 0.0;
-    for (int j = -2; j <= 2; j++)
-        for (int i = -2; i <= 2; i++) {
-            vec2 c = ip + vec2(float(i), float(j));
-            vec2 r = vec2(float(i), float(j)) + vec2(hash12(c), hash12(c + 19.1)) - fp;
-            if (dot(r - mr, r - mr) < 1e-5) continue;
-            if (hash12((c + mc) * 0.731 + abs(c - mc) * 3.17 + seed) < 0.6) continue;
-            float e = dot(0.5 * (mr + r), normalize(r - mr));
-            if (e < best) { best = e; plane = step(0.5, hash12(mc * 1.37 + c * 0.21 + seed)); }
-        }
-    return best / SC;
+// Feathery frost crystals (ridges of layered noise), 0..1.
+float fern(vec2 w) {
+    float a = texture(uNoise, w * 0.21).r, b = texture(uNoise, w * 0.57 + 0.3).b, c = texture(uNoise, w * 1.6 + 0.7).r;
+    float f = 1.0 - abs(fract((a * 0.6 + b * 0.3 + c * 0.1) * 6.0) - 0.5) * 2.0;
+    return pow(f, 4.0);
 }
 
-// Lake ice. The water locks clear and vivid, light moving through it; it freezes from where it landed into deep
-// clear ice, milky veils deep in it, drawn by a few thin cracks (a hairline where a crack meets the surface, its plane
-// fading down into the ice on one side). No outline, no relief, no gloss: crisp only at the silhouette.
-// wl: the point in the piece's own frame (board units from where it landed, so its veils and cracks travel with it),
-// d: depth inside the body (cell units), pc: the piece's color, fr: 0 water .. 1 ice, seed: the piece.
-vec4 lakeIce(vec2 wl, float d, vec3 pc, float fr, float seed) {
+// An ice cube freezing. The falling piece is clear colored water: transparent, saturated. Once it lands it freezes
+// over FREEZE s like a cube in a freezer: frost creeps in from its outside faces (a feathery front of white crystals
+// moving inward, a frosted rim thickening behind it), the body clouds over to a milky core, the color going pastel.
+// Old ice: a matte frosted cube, whitish but clearly tinted. No outline, no relief, no gloss.
+// wl: the point in the piece's own frame (board units; its frost travels with it), d: depth inside the body (cell
+// units), pc: the piece's color, k: 0 water .. 1 frozen through, seed: the piece.
+vec4 iceCube(vec2 wl, float d, vec3 pc, float k, float seed) {
     vec3 bg = behind(wl);
-    vec3 pm = mix(pc, vec3(dot(pc, vec3(0.2126, 0.7152, 0.0722))), 0.12);
     vec2 wv = wl + seed * 3.7;
-    float n1 = texture(uNoise, wv * 0.06 + 0.5).r, n2 = texture(uNoise, wv * 0.17 + 0.2).b;
-    float veil = smoothstep(0.4, 0.8, n1 * 0.65 + n2 * 0.35);
-    vec3 ice = bg * pm * 1.5 + pm * (0.24 + 0.05 * n2) + mix(pm, vec3(1.0), 0.2) * veil * 0.22;
-    float side;
-    float cd = crackDist(wl, seed, side);
-    float line = 1.0 - smoothstep(uPx * 0.2, uPx * 1.0, cd);
-    float planeK = exp(-cd / 0.13) * side;
-    // the cracks appear behind the freezing front; at a peak they catch the beat
-    float shown = smoothstep(0.35, 0.75, fr) * smoothstep(0.02, 0.08, d) * (1.0 + 1.6 * uGlint);
-    ice += (mix(pm, vec3(1.0), 0.5) * line * 0.55 + mix(pm, vec3(1.0), 0.25) * planeK * 0.2) * shown;
-    // water: vivid and clear, thin caustics drifting through it
+    float lum = dot(pc, vec3(0.2126, 0.7152, 0.0722));
+    // water: clear and saturated, the night through it (a faint caustic drifting while it falls, still once it has
+    // landed: a landed piece always has a seed > 0)
     float ca = texture(uNoise, wl * 0.07 + vec2(uTime * 0.03, uTime * 0.05)).r;
     float cb = texture(uNoise, wl * 0.09 - vec2(uTime * 0.04, -uTime * 0.02)).b;
-    float caus = smoothstep(0.86, 1.0, 1.0 - abs(ca - cb) * 3.0);
-    vec3 water = bg * pc * 1.2 + pc * 0.44 + mix(pc, vec3(1.0), 0.35) * caus * 0.2;
-    vec3 col = mix(water, ice, smoothstep(0.0, 0.6, fr));
-    return vec4(col, mix(0.85, 0.96, fr));
+    float caus = smoothstep(0.9, 1.0, 1.0 - abs(ca - cb) * 3.0) * (seed > 0.0 ? 0.0 : 1.0);
+    vec3 water = bg * pc * 1.3 + pc * 0.3 + mix(pc, vec3(1.0), 0.4) * caus * 0.1;
+    // the frost: needles of crystals reaching in from the faces, ahead of a frosted band that thickens inward
+    float fe = fern(wv * 0.55), fe2 = fern(wv * 1.2 + 1.7);
+    float n = texture(uNoise, wv * 0.35).r, n2 = texture(uNoise, wv * 0.9 + 0.4).b;
+    float grain = texture(uNoise, wv * 2.7 + 0.2).a;
+    float front = k >= 1.0 ? 9.0 : 0.02 + 0.6 * pow(k, 0.85);
+    float reach = d - (n - 0.5) * 0.12;
+    float band = 1.0 - smoothstep(front - 0.12, front + 0.02, reach + fe * 0.06);
+    float needles = (1.0 - smoothstep(front - 0.02, front + 0.16, reach)) * smoothstep(0.35, 0.8, max(fe, fe2 * 0.8));
+    float frosted = max(band, needles * 0.9) * step(0.001, k);
+    // the cloudy core: the body clouds over to milk as it freezes, densest in the middle
+    float milk = smoothstep(0.2, 0.9, k) * (0.5 + 0.5 * smoothstep(0.05, 0.4, d));
+    vec3 pastel = mix(pc, vec3(lum) * 0.5 + 0.5, 0.4);
+    float core = smoothstep(0.08, 0.5, d + (n - 0.5) * 0.15);
+    vec3 cloudy = mix(water, mix(pastel * (0.66 + 0.1 * n), mix(pastel, vec3(1.0), 0.35) * 0.8, core), milk);
+    // frosted surface: whitish, tinted, a crystalline grain
+    vec3 frost = pastel * (0.64 + 0.1 * n2 + 0.08 * fe) + vec3(0.1) * smoothstep(0.55, 0.85, grain);
+    vec3 col = mix(cloudy, frost, frosted * mix(0.95, 0.55 * (1.0 - core * 0.6), smoothstep(0.75, 1.0, k)));
+    float a = mix(0.8, 0.97, max(frosted, milk));
+    return vec4(col, a);
 }
 // The contact of a cleared or topped-out cell, packed above its neighbour mask (polar.cpp: packContact).
 vec2 unpackContact(float m) {
@@ -554,19 +539,13 @@ void main() {
         float fr = 0.0, seed = 0.0;
         vec2 wl = vWorld;
         if (kind == 0) {
+            // freezing, slowly (FREEZE s, polar.cpp FREEZE_SECONDS): -1 frozen long since
+            const float FREEZE = 7.0;
             seed = v3.x;
             wl = vWorld - (v0.xy + v3.yz);
-            fr = 1.0;
-            if (age >= 0.0) {
-                // freezing, slowly (FREEZE s): the piece locks as clear water and the ice spreads from where it landed,
-                // behind a ragged front, so the fresh pieces read apart from the old ice
-                const float FREEZE = 7.0;
-                float dist = length(wl) + (texture(uNoise, vWorld * 0.5).r - 0.5) * 0.6 + (texture(uNoise, vWorld * 1.3).b - 0.5) * 0.3;
-                float k = clamp(age / FREEZE, 0.0, 1.0);
-                fr = smoothstep(0.0, 1.4, 6.5 * pow(k, 0.75) - 0.3 - dist);
-            }
+            fr = age >= 0.0 ? clamp(age / FREEZE, 0.0, 1.0) : 1.0;
         }
-        vec4 ic = lakeIce(wl, max(d - SEAM, 0.0), pc, fr, seed);
+        vec4 ic = iceCube(wl, max(d - SEAM, 0.0), pc, fr, seed);
         // frozen over (game over): snow white
         float n = texture(uNoise, vWorld * 0.11 + 0.37).r;
         vec3 col = mix(ic.rgb, uFrostCol * (0.9 + 0.15 * n) + uAurLight * 0.3, frost);
@@ -621,7 +600,7 @@ void main() {
         float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, SEAM - d);
         if (cov <= 0.0) discard;
         // the piece's own ice (its frame: where it landed, packed with the mask), carried by the shard
-        vec4 bk = lakeIce(q0 - cc - unpackContact(v2.z), max(d - SEAM, 0.0), pc, 1.0, seed);
+        vec4 bk = iceCube(q0 - cc - unpackContact(v2.z), max(d - SEAM, 0.0), pc, 1.0, seed);
         vec3 col = bk.rgb;
         vec3 crackCol = mix(uFrostCol, pc, 0.3) * 1.05 + uAurLight * 1.5;
         // the crack lines (before it breaks), then the broken faces catching the light
@@ -655,7 +634,7 @@ void main() {
         float whiten = smoothstep(0.0, 0.3, k);
         float th = (k - 0.25) * 1.5;
         float keep = smoothstep(th, th + 0.06, n);
-        vec3 col = mix(lakeIce(p - unpackContact(v2.z), max(d - SEAM, 0.0), pc, 1.0, v3.w).rgb, uFrostCol * (0.9 + 0.15 * n), whiten);
+        vec3 col = mix(iceCube(p - unpackContact(v2.z), max(d - SEAM, 0.0), pc, 1.0, v3.w).rgb, uFrostCol * (0.9 + 0.15 * n), whiten);
         col += uFrostCol * exp(-pow((n - th) / 0.05, 2.0)) * 0.6 * step(0.25, k);
         float a = cov * keep * alpha * (1.0 - uBridge);
         frag = vec4(col * a, a);

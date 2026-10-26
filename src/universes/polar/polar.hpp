@@ -42,6 +42,7 @@ private:
               int mask = 0, float fog = 0.f, float e0 = 1.f, float e1 = 0.f, float e2 = 0.f, float e3 = 0.f);
 
     void simulate(const Game& game, const MusicState& music, float dt, float wdt);
+    float freezeAge(const Game& g, int x, int y) const;
     void buildBoard(const Game& game);
     void buildFx();
     void drawSky();

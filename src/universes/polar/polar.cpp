@@ -706,6 +706,20 @@ void PolarUniverse::simulate(const Game& game, const MusicState& music, float dt
         }
     }
 
+    // Cold vapor: a slight wisp rising off the top faces of the pieces still freezing, thinning as they set.
+    for (int y = Game::HIDDEN; y < Game::H; y++)
+        for (int x = 0; x < Game::W; x++) {
+            const float age = freezeAge(game, x, y);
+            if (age < 0.f) continue;
+            if (y > Game::HIDDEN && game.cell(x, y - 1).type >= 0) continue;
+            const float k = age / FREEZE_SECONDS;
+            const float rate = 1.3f * (1.f - k) * smoothstepf(0.f, 0.08f, k);
+            if (rng_.uniform() > rate * wdt) continue;
+            const vec3 p = layout::cellPos((float)x, y - game.rowOffset(y));
+            powder(v2(p.x + rng_.range(-0.4f, 0.4f), p.y + 0.42f), v2(rng_.range(-0.06f, 0.06f), rng_.range(0.15f, 0.3f)),
+                   rng_.range(0.2f, 0.32f), rng_.range(1.8f, 2.6f), 0.14f + 0.12f * (1.f - k), 0.f, true);
+        }
+
     // Effects age (slowed by the slow motion like the world).
     for (auto& p : powder_) {
         p.t += wdt;
@@ -740,6 +754,20 @@ void PolarUniverse::simulate(const Game& game, const MusicState& music, float dt
 void PolarUniverse::tile(float x, float y, float hw, float hh, const vec3& c, float alpha, int kind, float age,
                          int mask, float fog, float e0, float e1, float e2, float e3) {
     tiles_.push_back({{x, y, hw, hh}, {c.x, c.y, c.z, alpha}, {(float)kind, age, (float)mask, fog}, {e0, e1, e2, e3}});
+}
+
+// Seconds since the piece of a locked cell landed while it is still freezing, else -1.
+float PolarUniverse::freezeAge(const Game& g, int x, int y) const {
+    const IceCell& ic = ice_[y][x];
+    if (ic.id < 0 || g.cell(x, y).type != ic.type) return -1.f;
+    if (const char* e = std::getenv("POLAR_DEMO_AGE"); e && ic.t0 < -50.f) { // TEMP demo
+        const float a = (float)std::atof(e);
+        if (a >= 0.f) return a < FREEZE_SECONDS ? a : -1.f;
+        const float ages[6] = {0.3f, 1.2f, 2.5f, 4.f, 5.5f, -1.f};
+        return ages[(ic.id * 7 + 3) % 6];
+    }
+    const float a = iceClock_ - ic.t0;
+    return a < FREEZE_SECONDS ? a : -1.f;
 }
 
 void PolarUniverse::buildBoard(const Game& g) {
@@ -782,11 +810,11 @@ void PolarUniverse::buildBoard(const Game& g) {
             const int id = idAt(x, y);
             // freezing: seconds since it locked (-1: ice long since); where it landed relative to the cell (board
             // units: the piece's own frame, its veils and cracks travel with it)
-            float age = -1.f, cdx = 0.f, cdy = 0.f;
+            const float age = freezeAge(g, x, y);
+            float cdx = 0.f, cdy = 0.f;
             if (id >= 0) {
                 cdx = ice_[y][x].cx - x;
                 cdy = y - ice_[y][x].cy;
-                if (iceClock_ - ice_[y][x].t0 < FREEZE_SECONDS) age = iceClock_ - ice_[y][x].t0;
             }
             int mask = 0;
             if (id >= 0)
