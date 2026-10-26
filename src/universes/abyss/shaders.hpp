@@ -46,6 +46,10 @@ uniform float uRays;         // light from the far surface (calm)
 uniform float uLights;       // how many distant lights
 uniform float uPlankton;     // plankton clouds (mid, peak)
 uniform float uBloom;        // their flare on a kick
+uniform float uBio;          // peak: the bioluminescence blooms through the water
+uniform float uSurge;        // the drop's first seconds: it blooms brighter still
+uniform float uKick;         // the kick's envelope, at the peak (a brightness pulse)
+uniform float uDrive;        // 0 a chorus' peak .. 1 a drop's: denser, warmer, hit harder by the kicks
 uniform float uBeat;         // creatures' light pulse
 uniform float uFlash;
 uniform float uTetris;       // seconds since a Tetris (the plankton bloom)
@@ -91,7 +95,7 @@ void main() {
     // The water column: black below, the faintest blue of the far surface above, a soft cone of it overhead.
     vec3 col = mix(uDeep, uWater, pow(t, 1.7) * 0.9);
     float cone = exp(-pow(p.x / (11.0 + 10.0 * t), 2.0)) * smoothstep(0.25, 1.0, t);
-    col += uWater * cone * (0.25 + 0.35 * uRays);
+    col += uWater * cone * (0.25 + 0.75 * uRays);
     // Turbid water: slow drifting murk, the depth's texture.
     float murk = fbm(p * 0.075 + vec2(uTime * 0.012, -uTime * 0.005));
     col *= 0.7 + 0.6 * murk;
@@ -101,7 +105,7 @@ void main() {
         float r = pow(vnoise(vec2(x * 0.32 + uTime * 0.025, 0.5)), 3.0)
                 + 0.7 * pow(vnoise(vec2(x * 0.85 - uTime * 0.04, 3.7)), 4.0);
         float fall = exp(-(top - p.y) * 0.13) * (0.6 + 0.4 * murk);
-        col += uSurf * r * fall * uRays * 0.09;
+        col += uSurf * r * fall * uRays * 0.17;
     }
     // Plankton clouds (mid, peak): faint luminous drifts that flare with the kicks.
     if (uPlankton > 0.001) {
@@ -117,6 +121,36 @@ void main() {
         vec3 pc = mix(uGlow, uGlow2, smoothstep(0.55, 0.8, fbm3(p * 0.05 + 2.0)));
         col += pc * cloud * uPlankton * (0.012 + 0.16 * uBloom + 0.02 * uBeat);
         col += pc * spark * cloud * uPlankton * (0.15 + 1.6 * uBloom);
+    }
+    // Peak: the bioluminescence blooms. The water itself lights up in its accent color (a milky sea, in slow living
+    // patches, brighter higher up), and a dense field of plankton lights up all through it. The kicks and beats
+    // pulse its brightness, never its motion: everything still drifts as slowly as in the calm.
+    if (uBio > 0.001) {
+        float sea = fbm(p * vec2(0.055, 0.085) + vec2(uTime * 0.011, uTime * 0.005) + 71.0);
+        float patchy = smoothstep(0.3, 0.8, sea);
+        vec3 warm = mix(uGlow2, uGlow, smoothstep(0.35, 0.75, fbm3(p * 0.035 + 5.0 + uTime * 0.004)) * (1.0 - 0.6 * uDrive));
+        // the same strength of light whatever the palette (pale glows would wash the deep out)
+        float lum = max(dot(warm, vec3(0.2126, 0.7152, 0.0722)), 0.05);
+        vec3 haze = warm * (0.3 / lum);
+        warm *= min(1.0, 0.55 / lum);
+        float pulse = 1.0 + (0.5 + 0.9 * uDrive) * uBloom + 0.45 * uBeat + (0.8 + 1.2 * uDrive) * uKick + 1.2 * uSurge;
+        col += haze * uBio * (0.006 + 0.012 * uDrive + (0.05 + 0.03 * uDrive) * patchy * patchy) * pulse * (0.5 + 0.5 * t);
+        float dens = (0.1 + 0.16 * uDrive + 0.25 * uSurge) * uBio;
+        float sp = 0.0;
+        for (int i = 0; i < 2; i++) {
+            float sc = i == 0 ? 3.1 : 1.7;
+            vec2 g = p * sc + vec2(uTime * 0.04, uTime * 0.025 * (i == 0 ? 1.0 : -0.6)) * sc + float(i) * 17.3;
+            vec2 id = floor(g);
+            float hs = hash12(id + 91.0 + float(i) * 7.0);
+            vec2 o = vec2(hash12(id + 13.0), hash12(id + 29.0)) - 0.5;
+            float dd = length(fract(g) - 0.5 - o * 0.6) / sc;
+            float sz = i == 0 ? 0.035 : 0.05;
+            float tw = 0.45 + 0.55 * pow(0.5 + 0.5 * sin(uTime * (0.7 + 1.6 * hs) + hs * 80.0), 3.0);
+            sp += exp(-dd * dd / (sz * sz)) * step(hs, dens * (0.15 + 1.6 * patchy * patchy)) * tw * (i == 0 ? 0.7 : 1.0);
+        }
+        // the plankton gathers in the patches, and thins out behind the stack so the pieces keep the eye
+        float behindWell = 1.0 - 0.8 * (1.0 - smoothstep(5.0, 6.5, abs(p.x))) * (1.0 - smoothstep(9.5, 11.5, p.y));
+        col += warm * sp * (0.25 + 0.55 * patchy) * pulse * behindWell;
     }
     // Distant lights: far and dim, a nearer sparse layer.
     col += lightField(p, 0.95, 0.05 + 0.06 * uLights, 0.0, 0.5 + 0.3 * uLights);
