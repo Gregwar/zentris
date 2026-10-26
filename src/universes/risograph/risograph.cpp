@@ -3,9 +3,10 @@
 // One world: the whole frame is a print of two spot inks on a paper stock (a third ink joins at the peaks). The
 // pieces are flat ink shapes and screened tints; the background is soft: big flat shapes and broad gradients of
 // ink density on the paper (a riso gradient, a fine grain, no visible screen), kept off the well and the text's
-// side. Calm is a pale gradient disc on the paper; mid deepens it and the second ink's gradient across the sheet;
-// the peak brings the third ink's shape and a broad bloom of it from the shapes' edge, which swells in on the drop
-// (a third of a second in, slow to settle) and breathes with the kicks, by density only. Only the background's
+// side. Calm is a pale gradient disc on the paper; mid deepens it and the second ink's gradient across the sheet,
+// and prints a half sun of the second ink; the peak brings the third ink's shape, a broad bloom of it from the
+// shapes' edge and the drop's print: cut-paper forms in a fourth, hot ink (see DROP_FORMS) that ink in on the drop,
+// stay for the peak and breathe with the kicks, by density only. Only the background's
 // drums are out of register, slightly and slowly: the stack, the pieces and the HUD never move with the music.
 // Lots of paper, little else; no scenery.
 //
