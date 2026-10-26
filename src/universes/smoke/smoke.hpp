@@ -106,7 +106,7 @@ private:
     float iris_ = 0.f;             // extra cone opening (peak, Tetris)
 
     // ---- Effects.
-    struct Puff { vec2 p, v; float r, grow, t, life, alpha, seed, delay, stretch; int kind; float minGlow = 0.f; int tint = -1; }; // tint: a piece type whose color the smoke takes, -1 none
+    struct Puff { vec2 p, v; float r, grow, t, life, alpha, seed, delay, stretch; int kind; float minGlow = 0.f; int tint = -1; float drag = -1.f, fall = 0.f; }; // tint: a piece type whose color the smoke takes, -1 none; drag (< 0: the kind's own) and fall (gravity) for dust that sags back
     std::vector<Puff> puffs_;
     int lastDrop_ = 0; // rows of the last hard drop, until its lock
     struct Dying { float x, y, t, delay; int type; bool over; float seed; };

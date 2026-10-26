@@ -502,8 +502,8 @@ void SmokeUniverse::puff(vec2 p, vec2 v, float r, float grow, float life, float 
 void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
     case GameEvent::Lock: {
-        // Dust kicked up by the impact: it billows up from both ends of the contact under the piece, rising beside
-        // it and drifting a little outward (more after a hard drop).
+        // Dust kicked up by the impact: it shoots up from both ends of the contact under the piece, quickly, then
+        // the air brakes it and it sags back down a little as it thins out (higher after a hard drop).
         if (ev.cells.empty()) break;
         float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f;
         for (auto& q : ev.cells) {
@@ -513,8 +513,10 @@ void SmokeUniverse::onEvent(const GameEvent& ev, const Game&) {
         const float hard = lastDrop_ >= 2 ? 1.f : 0.f;
         for (int s = -1; s <= 1; s += 2) {
             const float ex = s < 0 ? x0 - 0.45f : x1 + 0.45f;
-            puff(v2(ex, y0 - 0.35f), v2(0.3f * s, 0.9f + 0.5f * hard), 0.3f, 1.5f + 0.5f * hard, 1.1f,
+            puff(v2(ex, y0 - 0.35f), v2(0.6f * s, 3.f + 0.8f * hard), 0.3f, 1.5f + 0.5f * hard, 1.4f,
                  0.38f + 0.14f * hard, 0.f, 1.25f);
+            puffs_.back().drag = 2.6f; // braked hard by the air...
+            puffs_.back().fall = 1.9f; // ...then pulled back down while it fades
             puffs_.back().minGlow = 0.45f; // caught in the stray light, even outside the beam
             puffs_.back().tint = std::clamp(ev.cells[0].type, 0, 6); // dust of the piece's own color
         }
@@ -635,7 +637,8 @@ void SmokeUniverse::simulate(const Game& game, const MusicState& music, float dt
         p.t += wdt;
         if (p.t < p.delay) continue;
         p.p = p.p + p.v * wdt;
-        p.v = p.v * std::exp(-(p.kind == 1 ? 0.35f : 0.7f) * wdt);
+        p.v = p.v * std::exp(-(p.drag >= 0.f ? p.drag : p.kind == 1 ? 0.35f : 0.7f) * wdt);
+        p.v.y -= p.fall * wdt;
         if (p.kind == 0) p.v.x += std::sin(p.t * 1.7f + p.seed * 9.f) * 0.35f * wdt; // a curl as it rises
     }
     puffs_.erase(std::remove_if(puffs_.begin(), puffs_.end(), [](const Puff& p) { return p.t > p.delay + p.life; }), puffs_.end());
@@ -770,6 +773,7 @@ void SmokeUniverse::buildFx() {
         const vec3 c = p.tint >= 0 ? cur_.piece[p.tint] * (0.25f + 0.9f * glow) * (0.4f + 0.6f * lightOn)
                                    : cur_.light * cur_.smoke * (0.12f + 1.1f * glow) * gain + cur_.fill * 2.f;
         float a = p.alpha * smoothstepf(0.f, 0.1f, k) * (1.f - smoothstepf(0.3f, 1.f, k));
+        if (p.fall > 0.f) a = p.alpha * smoothstepf(0.f, 0.05f, k) * (1.f - smoothstepf(0.25f, 1.f, k)); // fades as it sags
         if (p.kind == 1) a = p.alpha * smoothstepf(0.f, 0.08f, k) * (1.f - smoothstepf(0.45f, 1.f, k));
         (p.kind == 1 ? blades_ : sprites_).push_back({{p.p.x, p.p.y, r, p.stretch}, {c.x, c.y, c.z, a},
                             {(float)p.kind, p.seed * 11.f, k, (p.seed - 0.5f) * 3.f}});
