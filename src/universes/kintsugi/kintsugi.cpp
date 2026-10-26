@@ -542,7 +542,7 @@ void KintsugiUniverse::walk(Net& n, Rng& r, float x, float y, float ang, float l
 }
 
 // kind 0: a few thin veins creeping into the stone (mid); kind 1: the peak's network, trunks racing in from the edges
-// to the edges of the slab (speed: how fast), branches spreading for many seconds after; kind 2: a Tetris burst.
+// of the slab (speed: how fast), branches spreading for many seconds after; kind 2: a Tetris burst.
 void KintsugiUniverse::growNet(Net& n, int kind, float speed, uint64_t seed) {
     Rng r(seed);
     n.kind = kind;
