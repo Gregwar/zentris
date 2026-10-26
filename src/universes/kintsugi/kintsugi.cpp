@@ -637,6 +637,144 @@ void KintsugiUniverse::buildVeins(bool locks) {
 // Game events
 // =====================================================================================================
 
+namespace {
+// The seams of the ceramic, as in CERAMIC_GLSL: the edges of a Voronoi diagram over piece space scaled by SEAM_SCALE,
+// one site per lattice cell (the same hash as the shader's hash22, so the shards break where the gold is drawn).
+constexpr float SEAM_SCALE = 0.55f;
+vec2 add(vec2 a, vec2 b) { return v2(a.x + b.x, a.y + b.y); }
+vec2 mul(vec2 a, float k) { return v2(a.x * k, a.y * k); }
+float fractf(float x) { return x - std::floor(x); }
+vec2 seamSite(int ix, int iy) {
+    const float px = (float)ix, py = (float)iy;
+    float x = fractf(px * 0.1031f), y = fractf(py * 0.1030f), z = fractf(px * 0.0973f);
+    const float d = x * (y + 33.33f) + y * (z + 33.33f) + z * (x + 33.33f);
+    x += d; y += d; z += d;
+    const vec2 h = v2(fractf((x + y) * z), fractf((x + z) * y));
+    return v2(px + 0.15f + 0.7f * h.x, py + 0.15f + 0.7f * h.y);
+}
+struct PolyV { vec2 p; bool seam; }; // seam: the edge from this vertex to the next is a seam
+// Keeps the part of the polygon on the side of `site` of the bisector between `site` and `other`; the new edge is a seam.
+std::vector<PolyV> clipBisector(const std::vector<PolyV>& in, vec2 site, vec2 other) {
+    const vec2 n = v2(other.x - site.x, other.y - site.y);
+    const vec2 m = v2(0.5f * (other.x + site.x), 0.5f * (other.y + site.y));
+    auto side = [&](vec2 p) { return (p.x - m.x) * n.x + (p.y - m.y) * n.y; }; // <= 0: on the site's side
+    std::vector<PolyV> out;
+    const size_t N = in.size();
+    for (size_t i = 0; i < N; i++) {
+        const PolyV& A = in[i];
+        const PolyV& B = in[(i + 1) % N];
+        const float da = side(A.p), db = side(B.p);
+        if (da <= 0.f) out.push_back(A);
+        if ((da <= 0.f) != (db <= 0.f)) {
+            const float t = da / (da - db);
+            const vec2 q = v2(A.p.x + (B.p.x - A.p.x) * t, A.p.y + (B.p.y - A.p.y) * t);
+            if (da <= 0.f) out.push_back({q, true});   // leaving: the edge along the bisector follows
+            else out.push_back({q, A.seam});           // entering: the rest of A-B keeps its kind
+        }
+    }
+    return out;
+}
+} // namespace
+
+// A cleared row breaks along the gold seams of its pieces: each cell is cut by the seams' Voronoi diagram, and the
+// fragments of one piece that lie between the same seams (across its cells, across rows in a Tetris) fall as one
+// shard, its broken edges gold, its other edges (the piece's outline) plain.
+void KintsugiUniverse::breakRows(const GameEvent& ev, bool tetris) {
+    struct Group { Shard s; float area = 0; vec2 sum = v2(0, 0); int id; };
+    std::vector<Group> groups;
+    std::vector<std::pair<long long, int>> index; // (piece id, site) -> group
+    struct Tri { vec2 a, b, c; vec2 pa, pb, pc; float ea, eb, ec; };
+    std::vector<std::vector<Tri>> tris;
+    int unknownId = -1;
+    for (auto& c : ev.cells) {
+        if (c.y < 0 || c.y >= Game::H || c.x < 0 || c.x >= Game::W) continue;
+        const Owner& o = own_[c.y][c.x];
+        const bool known = o.type == c.type && o.id >= 0;
+        const int id = known ? o.id : unknownId--;
+        const float sx = known ? o.sx : 3.7f + c.x * 0.31f, sy = known ? o.sy : 1.3f + c.y * 0.17f;
+        const vec2 P = v2(c.x + sx, -(float)c.y + sy);  // the cell's center in piece space
+        const vec3 W3 = layout::cellPos((float)c.x, (float)c.y);
+        const vec2 W = v2(W3.x, W3.y);                  // and on the board
+        const float S = SEAM_SCALE;
+        const vec2 q0 = v2((P.x - 0.5f) * S, (P.y - 0.5f) * S), q1 = v2((P.x + 0.5f) * S, (P.y + 0.5f) * S);
+        std::vector<std::pair<vec2, std::pair<int, int>>> sites;
+        for (int iy = (int)std::floor(q0.y) - 2; iy <= (int)std::floor(q1.y) + 2; iy++)
+            for (int ix = (int)std::floor(q0.x) - 2; ix <= (int)std::floor(q1.x) + 2; ix++)
+                sites.push_back({seamSite(ix, iy), {ix, iy}});
+        for (size_t i = 0; i < sites.size(); i++) {
+            std::vector<PolyV> poly = {{q0, false}, {v2(q1.x, q0.y), false}, {q1, false}, {v2(q0.x, q1.y), false}};
+            for (size_t j = 0; j < sites.size() && poly.size() >= 3; j++)
+                if (j != i) poly = clipBisector(poly, sites[i].first, sites[j].first);
+            if (poly.size() < 3) continue;
+            float area = 0.f;
+            vec2 cen = v2(0, 0);
+            for (size_t k = 0; k < poly.size(); k++) {
+                const vec2 a = poly[k].p, b = poly[(k + 1) % poly.size()].p;
+                area += 0.5f * (a.x * b.y - b.x * a.y);
+                cen = add(cen, poly[k].p);
+            }
+            if (std::fabs(area) < 1e-4f * S * S) continue;
+            cen = mul(cen, 1.f / (float)poly.size());
+            // the fragment's group: this piece, this seam cell
+            const long long key = ((long long)(id + (1 << 20)) << 40) ^ ((long long)(sites[i].second.first + (1 << 19)) << 20) ^
+                                  (long long)(sites[i].second.second + (1 << 19));
+            int g = -1;
+            for (auto& e : index)
+                if (e.first == key) { g = e.second; break; }
+            if (g < 0) {
+                g = (int)groups.size();
+                index.push_back({key, g});
+                groups.push_back({});
+                groups.back().id = id;
+                groups.back().s.type = std::clamp(c.type, 0, 6);
+                tris.push_back({});
+            }
+            auto toPiece = [&](vec2 q) { return v2(q.x / S, q.y / S); };
+            auto toBoard = [&](vec2 pp) { return v2(W.x + pp.x - P.x, W.y + pp.y - P.y); };
+            const vec2 pc = toPiece(cen);
+            for (size_t k = 0; k < poly.size(); k++) {
+                const PolyV& A = poly[k];
+                const PolyV& B = poly[(k + 1) % poly.size()];
+                const float e = A.seam ? 0.f : 1.f;
+                const vec2 pa = toPiece(A.p), pb = toPiece(B.p);
+                tris[g].push_back({toBoard(pc), toBoard(pa), toBoard(pb), pc, pa, pb, 1.f, e, e});
+            }
+            const float aw = std::fabs(area) / (S * S);
+            groups[g].area += aw;
+            groups[g].sum = add(groups[g].sum, mul(toBoard(pc), aw));
+        }
+    }
+    // each piece's center, for the shards to fly apart from it
+    for (size_t g = 0; g < groups.size(); g++) {
+        Group& G = groups[g];
+        const vec2 pivot = mul(G.sum, 1.f / std::max(G.area, 1e-4f));
+        vec2 pc = v2(0, 0);
+        float pa = 0.f;
+        for (const Group& H : groups)
+            if (H.id == G.id) { pc = add(pc, H.sum); pa += H.area; }
+        pc = mul(pc, 1.f / std::max(pa, 1e-4f));
+        vec2 out = v2(pivot.x - pc.x, pivot.y - pc.y);
+        float ol = len2(out);
+        if (ol < 0.05f) { const float a = rng_.range(0.f, TAU); out = v2(std::cos(a), std::sin(a)); ol = 1.f; }
+        Shard& s = G.s;
+        s.pivot = pivot;
+        const float sp = rng_.range(0.8f, 2.f) * (tetris ? 1.5f : 1.f);
+        s.v = v2(out.x / ol * sp * 0.45f, out.y / ol * sp * 0.4f - rng_.range(0.8f, 2.2f));
+        s.spin = rng_.range(-2.f, 2.f) / std::max(1.f, std::sqrt(G.area));
+        s.delay = std::fabs(pivot.x) * 0.012f;
+        s.life = 0.4f;
+        for (const Tri& t : tris[g]) {
+            const vec2 vs[3] = {t.a, t.b, t.c}, ps[3] = {t.pa, t.pb, t.pc};
+            const float es[3] = {t.ea, t.eb, t.ec};
+            for (int k = 0; k < 3; k++) {
+                const float f[5] = {vs[k].x - pivot.x, vs[k].y - pivot.y, ps[k].x, ps[k].y, es[k]};
+                s.verts.insert(s.verts.end(), f, f + 5);
+            }
+        }
+        shards_.push_back(std::move(s));
+    }
+}
+
 void KintsugiUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
     case GameEvent::Lock: {
@@ -686,38 +824,10 @@ void KintsugiUniverse::onEvent(const GameEvent& ev, const Game&) {
     case GameEvent::Clear: {
         const bool tetris = ev.count >= 4;
         bool cleared[Game::H] = {};
-        // the row cracks along its seams; its shards fall away into the dark
-        for (auto& c : ev.cells) {
-            if (c.y < 0 || c.y >= Game::H) continue;
-            cleared[c.y] = true;
-            const Owner& o = own_[c.y][c.x];
-            const bool known = o.type == c.type && o.id >= 0;
-            const vec3 p = layout::cellPos((float)c.x, (float)c.y);
-            const float sx = known ? o.sx : 3.7f, sy = known ? o.sy : 1.3f;
-            const float G = 0.035f;
-            const vec2 cn[4] = {v2(-0.5f + G, -0.5f + G), v2(0.5f - G, -0.5f + G), v2(0.5f - G, 0.5f - G), v2(-0.5f + G, 0.5f - G)};
-            const vec2 ctr = v2(rng_.range(-0.22f, 0.22f), rng_.range(-0.22f, 0.22f));
-            for (int i = 0; i < 4; i++) {
-                const vec2 A = cn[i], B = cn[(i + 1) % 4];
-                Shard s;
-                s.ax = ctr.x; s.ay = ctr.y; s.bx = A.x; s.by = A.y; s.cx = B.x; s.cy = B.y;
-                s.ox = p.x; s.oy = p.y;
-                s.sx = c.x + sx; s.sy = -(float)c.y + sy;
-                const vec2 g = v2((ctr.x + A.x + B.x) / 3.f, (ctr.y + A.y + B.y) / 3.f);
-                const vec2 out = g - ctr;
-                const float ol = std::max(1e-3f, len2(out));
-                const float sp = rng_.range(0.8f, 2.f) * (tetris ? 1.5f : 1.f);
-                s.v = v2(out.x / ol * sp * 0.45f, out.y / ol * sp * 0.4f - rng_.range(0.8f, 2.2f));
-                s.rot = 0.f;
-                s.spin = rng_.range(-2.5f, 2.5f);
-                s.t = 0.f;
-                s.delay = std::fabs(c.x - 4.5f) * 0.012f;
-                s.life = 0.4f;
-                s.type = std::clamp(c.type, 0, 6);
-                s.edgeA = 0.f; s.edgeB = 0.f;
-                shards_.push_back(s);
-            }
-        }
+        // the row breaks along the gold seams of its pieces; its shards fall away into the dark
+        for (auto& c : ev.cells)
+            if (c.y >= 0 && c.y < Game::H) cleared[c.y] = true;
+        breakRows(ev, tetris);
         // collapse the bookkeeping like the board
         Owner next[Game::H][Game::W];
         int dst = Game::H - 1;
@@ -910,8 +1020,7 @@ void KintsugiUniverse::simulate(const Game& game, const MusicState& music, float
         s.t += dt;
         if (s.t < s.delay) continue;
         s.v.y -= 16.f * dt;
-        s.ox += s.v.x * dt;
-        s.oy += s.v.y * dt;
+        s.pivot = add(s.pivot, mul(s.v, dt));
         s.rot += s.spin * dt;
     }
     shards_.erase(std::remove_if(shards_.begin(), shards_.end(), [](const Shard& s) { return s.t > s.delay + s.life; }), shards_.end());
@@ -1038,17 +1147,12 @@ void KintsugiUniverse::buildBoard(const Game& g) {
         const float shade = 1.f - 0.45f * k;
         const vec3 c = cur_.piece[s.type] * shade;
         const float cs = std::cos(s.rot), sn = std::sin(s.rot);
-        const vec2 ctr = v2((s.ax + s.bx + s.cx) / 3.f, (s.ay + s.by + s.cy) / 3.f);
-        auto emit = [&](float lx, float ly, float ba, float bb) {
-            const float rx = (lx - ctr.x) * scale, ry = (ly - ctr.y) * scale;
-            const float wx = s.ox + ctr.x + cs * rx - sn * ry, wy = s.oy + ctr.y + sn * rx + cs * ry;
-            const float f[12] = {wx, wy, s.sx + lx, s.sy + ly, c.x, c.y, c.z, alpha, wx, wy, ba, bb};
+        for (size_t i = 0; i + 4 < s.verts.size() + 1; i += 5) {
+            const float rx = s.verts[i] * scale, ry = s.verts[i + 1] * scale;
+            const float wx = s.pivot.x + cs * rx - sn * ry, wy = s.pivot.y + sn * rx + cs * ry;
+            const float f[12] = {wx, wy, s.verts[i + 2], s.verts[i + 3], c.x, c.y, c.z, alpha, wx, wy, s.verts[i + 4], 1.f};
             shardVerts_.insert(shardVerts_.end(), f, f + 12);
-        };
-        // (crack edges: center-A (bb = 0) and center-B (ba = 0); A-B is the cell's own edge)
-        emit(s.ax, s.ay, 1.f, 1.f);
-        emit(s.bx, s.by, 1.f, 0.f);
-        emit(s.cx, s.cy, 0.f, 1.f);
+        }
     }
 }
 

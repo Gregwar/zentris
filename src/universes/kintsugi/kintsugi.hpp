@@ -126,8 +126,12 @@ private:
     float surgeT_ = -1.f, surgeAmp_ = 0.f;
 
     // ---- Effects.
-    struct Shard { float ax, ay, bx, by, cx, cy; float ox, oy, sx, sy; vec2 v; float rot, spin, t, delay, life; int type; float edgeA, edgeB; };
+    // A shard of a cleared row: one fragment of a piece between its gold seams (it may span several cells of the
+    // piece), as triangles around its pivot: per vertex its offset from the pivot (board units), its point in piece
+    // space, and 0 on a broken edge (a seam: gold), 1 elsewhere.
+    struct Shard { std::vector<float> verts; vec2 pivot, v; float rot = 0, spin = 0, t = 0, delay = 0, life = 0; int type = 0; };
     std::vector<Shard> shards_;
+    void breakRows(const GameEvent& ev, bool tetris);
     struct Leaf { vec2 p, v; float rot, spin, turn, turnRate, size, t, life, seed; };
     std::vector<Leaf> leaves_;
     struct Glint { vec2 p; float t, life, size; };
