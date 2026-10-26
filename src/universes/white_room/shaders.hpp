@@ -246,7 +246,7 @@ void main() {
         // in the panel's own color at one steady level, whatever the lamps and the gels do
         vec3 paneCol = uPanel;
         float inside = 1.0 - smoothstep(-uPx * 0.5, uPx * 0.5, sd);
-        col = mix(col, paneCol, inside);
+        col = mix(col, paneCol, 0.8 * inside); // the room shows faintly through it
         float line = 1.0 - smoothstep(0.0, uPx * 1.2, abs(sd));
         col *= 1.0 - 0.22 * line;
     }
@@ -296,6 +296,7 @@ layout(location = 4) in vec4 a3;
 uniform mat4 uVP;
 out vec2 vLocal;
 out vec2 vWorld;
+out vec3 vPos;
 flat out vec4 v0, v1, v2, v3;
 void main() {
     vec2 l = aCorner * a0.zw;
@@ -303,12 +304,24 @@ void main() {
     vLocal = l;
     vWorld = p;
     v0 = a0; v1 = a1; v2 = a2; v3 = a3;
-    gl_Position = uVP * vec4(p, 0.0, 1.0);
+    vec3 w = vec3(p, 0.0);
+    if (int(a2.x + 0.5) == 5) {
+        // a side of a cube: along its edge (u) and back from the front face (v: 0 front .. 1 back)
+        int side = int(a2.y + 0.5);
+        float h = 0.45 * v3.x, depth = 1.8 * v3.x; // deep enough for the camera's perspective to show its sides
+        float u = aCorner.x * h, v = aCorner.y * 0.5 + 0.5;
+        vec2 e = side == 0 ? vec2(-h, u) : side == 1 ? vec2(h, u) : side == 2 ? vec2(u, -h) : vec2(u, h);
+        w = vec3(a0.xy + e, -depth * v);
+        vLocal = vec2(u, v);
+    }
+    vPos = w;
+    gl_Position = uVP * vec4(w, 1.0);
 }
 )";
 inline const char* TILE_FS = R"(#version 330 core
 in vec2 vLocal;
 in vec2 vWorld;
+in vec3 vPos;
 flat in vec4 v0, v1, v2, v3;
 out vec4 frag;
 uniform float uPx, uBridge, uTime;
@@ -324,7 +337,7 @@ vec2 boxGrad(vec2 p, vec2 b, float r) {
 // lit by the room's two lights and its ambient; a faint broad sheen near the key's edge.
 vec3 matte(vec2 p, float s, vec3 alb, vec3 wpos) {
     vec2 b = vec2(0.45 * s);
-    float rr = 0.15 * s;
+    float rr = 0.06 * s;
     float sd = sdRound(p, b, rr);
     float e = clamp(1.0 + sd / rr, 0.0, 1.0);
     e = e * e;
@@ -354,7 +367,7 @@ void main() {
         // a block: v3.x scale, v3.y plaster (0 its color .. 1 white plaster: a cleared block sinking into the
         // wall, the stack at game over)
         float s = v3.x;
-        float sd = sdRound(p, vec2(0.45 * s), 0.15 * s);
+        float sd = sdRound(p, vec2(0.45 * s), 0.06 * s);
         float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, sd);
         if (cov <= 0.0) discard;
         vec3 alb = mix(pc, uPlaster, v3.y);
@@ -362,6 +375,23 @@ void main() {
         col = mix(col, uBridgeInk, bridgeK);
         float a = cov * alpha;
         frag = vec4(col * a, a);
+        return;
+    }
+    if (kind == 5) {
+        // a side of a cube: matte, lit by the room's lights by its own normal, darker toward the back
+        int side = int(v2.y + 0.5);
+        vec3 n = side == 0 ? vec3(-1, 0, 0) : side == 1 ? vec3(1, 0, 0) : side == 2 ? vec3(0, -1, 0) : vec3(0, 1, 0);
+        vec3 alb = mix(pc, uPlaster, v3.y);
+        vec3 col = alb * uAmbB * (side == 3 ? 0.95 : 0.7);
+        for (int i = 0; i < 2; i++) {
+            vec3 l = dirTo(i, vPos);
+            vec3 c = i == 0 ? uC0 : uC1;
+            col += alb * c * max(dot(n, l), 0.0) * sideK(i == 0 ? uSide0 : uSide1, lampPos(i), vPos.x) * lampFall(i, vPos);
+        }
+        col += alb * (side == 3 ? 0.22 : 0.12); // light bounced off the room (never a black face)
+        col *= 1.0 - 0.3 * vLocal.y; // toward the back, in the cube's own shade
+        col = mix(col, uBridgeInk, bridgeK);
+        frag = vec4(col * alpha, alpha);
         return;
     }
     if (kind == 1) {

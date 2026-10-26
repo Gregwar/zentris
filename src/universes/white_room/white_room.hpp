@@ -39,6 +39,8 @@ private:
     struct Occ { float a[4]; };
     struct Vert { float x, y, r, g, b, a; };
     std::vector<Tile> tiles_;
+    std::vector<Tile> sides_;
+    void cube(float x, float y, float s, const vec3& c, float alpha, float plaster); // the blocks' side faces (cubes), drawn before every front face
     std::vector<Occ> occ_;
     void tile(float x, float y, float hw, float hh, const vec3& c, float alpha, int kind, float e0 = 1.f, float e1 = 0.f,
               float e2 = 0.f, float e3 = 0.f);

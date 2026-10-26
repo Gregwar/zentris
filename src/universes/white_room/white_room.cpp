@@ -638,10 +638,18 @@ void WhiteRoomUniverse::tile(float x, float y, float hw, float hh, const vec3& c
     tiles_.push_back({{x, y, hw, hh}, {c.x, c.y, c.z, alpha}, {(float)kind, 0.f, 0.f, 0.f}, {e0, e1, e2, e3}});
 }
 
+// A block is a cube: its front face on the board's plane, its four sides running back from it (the camera's
+// perspective shows the ones turned toward it; the others stay hidden behind the front).
+void WhiteRoomUniverse::cube(float x, float y, float s, const vec3& c, float alpha, float plaster) {
+    for (int side = 0; side < 4; side++)
+        sides_.push_back({{x, y, 0.5f * s, 0.5f * s}, {c.x, c.y, c.z, alpha}, {5.f, (float)side, 0.f, 0.f}, {s, plaster, 0.f, 0.f}});
+    tile(x, y, 0.5f * s, 0.5f * s, c, alpha, 0, s, plaster);
+}
+
 void WhiteRoomUniverse::buildBoard(const Game& g) {
     occ_.clear();
     auto block = [&](float x, float y, float s, const vec3& c, float alpha, float plaster) {
-        tile(x, y, 0.5f * s, 0.5f * s, c, alpha, 0, s, plaster);
+        cube(x, y, s, c, alpha, plaster);
         occ_.push_back({{x, y, 0.46f * s, alpha}});
     };
     for (int y = Game::HIDDEN; y < Game::H; y++)
@@ -707,7 +715,7 @@ void WhiteRoomUniverse::buildBoard(const Game& g) {
         }
         for (auto& c : cells) {
             const float x = center.x + (c[0] - (minx + maxx) * 0.5f) * sc, y = center.y - (c[1] - (miny + maxy) * 0.5f) * sc;
-            tile(x, y, 0.5f * sc, 0.5f * sc, pal_.piece[type], alpha, 0, sc, 0.f); // (no shadow: far from the wall)
+            cube(x, y, sc, pal_.piece[type], alpha, 0.f); // (no shadow: far from the wall)
         }
     };
     preview(g.holdType(), vec2{layout::HOLD_CENTER.x, layout::HOLD_CENTER.y}, layout::previewScale(0), g.holdUsed() ? 0.4f : 1.f);
@@ -1029,6 +1037,10 @@ void WhiteRoomUniverse::render(const Frame& f, GLuint fbo) {
     // ---- The blocks, the ghost, the previews, the gauge.
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    if (!sides_.empty()) {
+        tiles_.insert(tiles_.begin(), sides_.begin(), sides_.end());
+        sides_.clear();
+    }
     if (!tiles_.empty()) {
         glUseProgram(progTile_);
         setMat(progTile_, "uVP", vp_);
