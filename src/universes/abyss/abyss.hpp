@@ -40,7 +40,7 @@ private:
     std::vector<WVert> whaleMesh_;
     void tile(float x, float y, float hw, float hh, const vec3& c, float alpha, int kind, float age, int type,
               int mask, float scale = 1.f, float light = 1.f, float e2 = 0.f, float e3 = 0.f);
-    // kind 0 soft dot, 1 jellyfish, 2 ring, 3 glowing thread (a..b), 4 photophore (a dot with a sharp core)
+    // kind 0 soft dot, 1 jellyfish, 3 glowing thread (a..b), 4 photophore (a dot with a sharp core)
     void sprite(std::vector<Sprite>& out, int kind, vec2 a, vec2 b, float size, const vec3& c, float alpha,
                 float p0 = 0.f, float p1 = 0.f);
 
@@ -110,8 +110,6 @@ private:
     // ---- Music-driven state.
     float worldTime_ = 0.f, beatGlow_ = 0.f, beatPh_ = 0.f, lastPh_ = 0.f;
     float prevKick_ = 0.f, kickIn_ = 0.f, sinceKick_ = 9.f, bloom_ = 0.f, flash_ = 0.f;
-    float ripX_[4] = {0, 0, 0, 0}, ripY_[4] = {0, 0, 0, 0}, ripAge_[4] = {99, 99, 99, 99}, ripAmp_[4] = {0, 0, 0, 0};
-    int ripNext_ = 0;
     float life_ = 0.f, peak_ = 0.f, rays_ = 1.f;
 
     // ---- The deep's inhabitants.
@@ -129,13 +127,9 @@ private:
     // ---- Effects.
     struct Spark { float x, y, vx, vy, t, life, delay, size; vec3 col; float twinkle; int kind; };
     std::vector<Spark> sparks_;
-    struct Ring { float x, y, t, life, r0, r1; vec3 col; };
-    std::vector<Ring> rings_;
     struct Dying { float x, y, t, delay, out, vx, vy; int type, mask; bool sink; };
     std::vector<Dying> dying_;
-    struct RowFlash { float y, t; vec3 col; };
-    std::vector<RowFlash> rowFlash_;
-    float tetrisT_ = 99.f, lockGlow_ = 0.f;
+    float tetrisT_ = 99.f;
 
     // ---- Game state seen by the universe.
     bool slowOn_ = false;

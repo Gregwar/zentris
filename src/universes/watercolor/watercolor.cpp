@@ -10,8 +10,8 @@
 // The song paints: calm is a quick sketch (a pale sky band and a far range on a mostly white sheet), mid fills the
 // painting in (the middle range, the foreground and the trees come in as washes spreading, the sky reaches higher)
 // and the beats drop pigment into the wet sky where it blooms; peak glazes everything deeper and more saturated,
-// the sky up to the top of the sheet, bigger drops, and the kicks flick spatter. A cleared row is lifted with a wet
-// brush (the pigment taken back in streaks, a faint tide mark left on the paper), a Tetris floods the sheet with
+// the sky up to the top of the sheet, bigger drops, and the kicks flick spatter. A cleared row's pigment dissolves
+// back into the paper in a moment (nothing painted over the row, nothing left behind), a Tetris floods the sheet with
 // water (a great backrun blooming out from the well) and a fresh glaze, slow motion is a night glaze of indigo
 // with the moon lifted out of it, game over tilts the wet sheet (the stack runs down in drips and the painting is
 // washed back to paper). A change of universe washes the sheet back to plain paper from the well outward (and
@@ -516,33 +516,23 @@ void WatercolorUniverse::onEvent(const GameEvent& ev, const Game&) {
         for (int i = 0; i < n; i++) {
             Dot d;
             const float a = rng_.range(0.15f, PI - 0.15f);
-            const float dist = rng_.range(0.7f, 2.0f);
-            d.p = v2(cx + std::cos(a) * dist * 1.4f, minY - 0.5f + std::sin(a) * dist * 0.5f);
+            const float dist = rng_.range(0.6f, 1.3f);
+            d.p = v2(cx + std::cos(a) * dist * 1.4f, minY - 0.5f + std::sin(a) * dist * 0.4f);
             if (std::fabs(d.p.x) > 5.f || d.p.y < -10.f) continue;
-            d.r = rng_.range(0.05f, 0.11f); d.t = 0.f; d.life = rng_.range(2.5f, 4.f); d.K = pieceK(type);
+            d.r = rng_.range(0.05f, 0.09f); d.t = 0.f; d.life = rng_.range(0.6f, 0.9f); d.K = pieceK(type);
             dots_.push_back(d);
         }
         break;
     }
     case GameEvent::Clear: {
         const bool tetris = ev.count >= 4;
-        const float dir = ev.x < 4.5f ? 1.f : -1.f; // the brush starts on the side where the piece landed
-        std::vector<int> rows;
+        // each cleared cell's pigment dissolves back into the paper, in a moment; nothing is painted over the row
         for (auto& c : ev.cells) {
             const vec3 p = layout::cellPos((float)c.x, (float)c.y);
             Lifted l;
             l.x = p.x; l.y = p.y; l.t = 0.f; l.type = std::clamp(c.type, 0, 6);
-            const float along = dir > 0.f ? (float)c.x : (float)(Game::W - 1 - c.x);
-            l.delay = along * 0.018f;
+            l.delay = rng_.range(0.f, 0.06f);
             lifted_.push_back(l);
-            if (std::find(rows.begin(), rows.end(), c.y) == rows.end()) rows.push_back(c.y);
-        }
-        for (int y : rows) {
-            vec3 k(0.f);
-            int n = 0;
-            for (auto& c : ev.cells)
-                if (c.y == y) { k += pieceK(c.type); n++; }
-            strokes_.push_back({layout::cellPos(0.f, (float)y).y, 0.f, dir, k * (1.f / std::max(1, n))});
         }
         if (tetris) {
             // water flooded onto the sheet: a great backrun out from the well, and a fresh glaze of the accent
@@ -621,9 +611,7 @@ void WatercolorUniverse::simulate(const Game& game, const MusicState& music, flo
 
     // Effects age.
     for (auto& l : lifted_) l.t += wdt;
-    lifted_.erase(std::remove_if(lifted_.begin(), lifted_.end(), [](const Lifted& l) { return l.t > l.delay + 0.6f; }), lifted_.end());
-    for (auto& s : strokes_) s.t += wdt;
-    strokes_.erase(std::remove_if(strokes_.begin(), strokes_.end(), [](const Stroke& s) { return s.t > 0.9f; }), strokes_.end());
+    lifted_.erase(std::remove_if(lifted_.begin(), lifted_.end(), [](const Lifted& l) { return l.t > l.delay + 0.45f; }), lifted_.end());
     for (auto& r : running_) r.t += dt;
     running_.erase(std::remove_if(running_.begin(), running_.end(), [](const Running& r) { return r.t > r.delay + 3.2f; }), running_.end());
     for (auto& b : blooms_) b.t += wdt;
@@ -679,17 +667,12 @@ void WatercolorUniverse::buildBoard(const Game& g) {
             const float wet = 1.f - smoothstepf(0.1f, 2.2f, age);
             cell(p.x, p.y, 0.5f, maskAt(x, y, same), pieceK(c.type), 1.f, 0, wet, (float)c.type * 1.7f, 0.f, bodyCol(c.type), body);
         }
-    // Cleared cells being lifted by the brush (each cell alone: the row's wash is broken by the stroke).
+    // Cleared cells dissolving back into the paper (each cell alone: the row's wash is broken).
     for (const Lifted& l : lifted_) {
         const float t = l.t - l.delay;
-        const float k = saturate(t / 0.14f);
-        const float a = 1.f - smoothstepf(0.15f, 0.6f, t);
+        const float k = saturate(t / 0.4f);
+        const float a = 1.f - smoothstepf(0.25f, 0.45f, t);
         cell(l.x, l.y, 0.5f, 0, pieceK(l.type), a, 1, 0.f, (float)l.type * 1.7f, k, bodyCol(l.type), body);
-    }
-    // The tide marks of the lifting strokes.
-    for (const Stroke& s : strokes_) {
-        const float a = smoothstepf(0.05f, 0.2f, s.t) * (1.f - smoothstepf(0.35f, 0.9f, s.t)) * 0.5f;
-        cell(0.f, s.y, 0.5f, 0, s.K, a, 5, 0.f, s.y * 0.37f + s.dir, (float)Game::W);
     }
     // Game over: the stack running down the tilted sheet.
     for (const Running& r : running_) {

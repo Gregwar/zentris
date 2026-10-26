@@ -422,43 +422,73 @@ out vec4 frag;
 uniform sampler2D uNoise;
 uniform float uPx;
 uniform vec3 uAurLight, uMoonLight, uFrostCol, uGaugeCol, uGaugeTrack, uShadow;
-uniform float uBridge, uTime, uBeat;
+uniform float uBridge, uTime, uBeat, uGlint;
 uniform vec3 uBridgeInk;
 
-// The block's outline: a rounded square, reaching past the cell's edge on the sides where a block of the same kind
-// touches it (a piece is one body of ice). top: how far the body's upper edge is (far when joined above).
-float iceSd(vec2 p, int mask, float s, out float top) {
-    vec2 lo = vec2(-0.465 * s), hi = vec2(0.465 * s);
-    if ((mask & 1) != 0) lo.x = -0.9 * s;
-    if ((mask & 2) != 0) hi.x = 0.9 * s;
-    if ((mask & 4) != 0) hi.y = 1.6 * s;
-    if ((mask & 8) != 0) lo.y = -0.9 * s;
-    top = (hi.y - p.y) / s;
-    vec2 c = (lo + hi) * 0.5, h = (hi - lo) * 0.5;
-    return sdRound(p - c, h, 0.07 * s);
+// A piece is one body of ice: its outline is computed from the cell's 8 neighbours of the same piece (mask bits: 1 left,
+// 2 right, 4 up, 8 down, 16 up-left, 32 up-right, 64 down-left, 128 down-right), so nothing marks the junctions of its
+// cells. q: the point in cell units (-0.5 .. 0.5). Returns the depth inside the body (the distance to the nearest
+// cell that is not part of the piece; convex corners rounded, inner corners rounded by the seam), and up: how much
+// that nearest outside lies above (the light on the body's upper faces).
+float iceDepth(vec2 q, int m, out float up) {
+    bool L = (m & 1) != 0, R = (m & 2) != 0, U = (m & 4) != 0, D = (m & 8) != 0;
+    float dl = q.x + 0.5, dr = 0.5 - q.x, du = 0.5 - q.y, dd = q.y + 0.5;
+    // a smooth minimum of the distances to every outside face (no creases along the diagonals, corners rounded by it)
+    const float K = 0.05;
+    float S = exp(-1.0 / K);
+    up = 0.0;
+    const float W = 0.15;
+    if (!L) S += exp(-dl / K);
+    if (!R) S += exp(-dr / K);
+    if (!D) S += exp(-dd / K);
+    if (!U) { S += exp(-du / K); up = max(up, exp(-du / W)); }
+    // inner corners: both sides joined, the diagonal cell outside the piece
+    if (L && U && (m & 16) == 0) { float l = length(vec2(dl, du)); S += exp(-l / K); up = max(up, exp(-l / W) * smoothstep(0.3, 0.9, du / max(l, 1e-4))); }
+    if (R && U && (m & 32) == 0) { float l = length(vec2(dr, du)); S += exp(-l / K); up = max(up, exp(-l / W) * smoothstep(0.3, 0.9, du / max(l, 1e-4))); }
+    if (L && D && (m & 64) == 0) S += exp(-length(vec2(dl, dd)) / K);
+    if (R && D && (m & 128) == 0) S += exp(-length(vec2(dr, dd)) / K);
+    // the smooth minimum sits ~K*ln2 inside a hard corner: shift it so a straight face stays where it is
+    return -K * log(S);
 }
-float iceSd(vec2 p, int mask, float s) { float t; return iceSd(p, mask, s, t); }
+// the body's signed distance (cell units): a thin seam (2 x 0.035) between two pieces
+const float SEAM = 0.035;
 
-// Clear ice tinted by its kind: a dense core, light gathered along its edges, a crisp rim of frost, the aurora's
-// light on its upper faces, a faint veil of inner fractures.
-vec3 ice(vec2 p, vec2 w, float sd, float s, float topD, vec3 pc, float frost) {
-    float d = -sd / s;                                   // depth inside (cell units)
+// Clear ice tinted by its kind, lit from its edges: a deep, dark, saturated core (the light passes through it), the
+// light gathered in the ice along its faces in its own color, a crisp hairline rim, inner refraction planes, the
+// aurora mirrored in it (a slow sheen gliding over the faces) and, in the peak, glints of light catching on the beat.
+// d: depth (cell units).
+vec3 ice(vec2 w, float d, float s, float up, vec3 pc, float frost) {
+    d = max(d - SEAM, 0.0);
     float n = texture(uNoise, w * 0.11 + 0.37).r;
     float m = texture(uNoise, w * 0.23 + 0.71).b;
-    vec3 col = pc * (0.6 + 0.16 * (n - 0.5) + 0.1 * (m - 0.5));
-    // light gathered in the ice near its edges
-    float eg = exp(-d / 0.12);
-    col += mix(pc, vec3(1.0), 0.3) * eg * 0.4;
-    // fractures: a faint veil
-    float crack = (1.0 - smoothstep(0.0, 0.03, abs(m - 0.5))) * smoothstep(0.55, 0.7, n);
-    col += mix(pc, vec3(1.0), 0.5) * crack * 0.12 * smoothstep(0.05, 0.15, d);
-    // the sky's light on the upper face: the aurora, the moon
-    float top = exp(-topD / 0.35);
-    col += uAurLight * (0.12 + 1.0 * top);
-    col += uMoonLight * top * 0.15;
-    // a crisp rim of frost, brightest along the top
-    float rim = exp(-d / (1.3 * uPx / s + 0.012));
-    col = mix(col, uFrostCol * (0.9 + 0.5 * top) + uAurLight * 0.6, rim * (0.5 + 0.35 * top));
+    vec3 deep = pc * pc * 0.9 + pc * 0.05;                      // the tint, denser where the ice is thick
+    float core = smoothstep(0.02, 0.32, d);
+    vec3 col = mix(pc * 0.62, deep * 0.5, core) * (0.9 + 0.25 * (n - 0.5));
+    // light gathered in the ice along its faces, in its own color
+    float eg = exp(-d / 0.08);
+    col += pc * eg * 0.55;
+    // refraction: thin inner planes catching the light (deep in the ice only)
+    float f = texture(uNoise, w * 0.17 + vec2(0.31, 0.07)).g;
+    float plane = 1.0 - smoothstep(0.0, 0.025, abs(f - 0.5));
+    col += mix(pc, vec3(1.0), 0.3) * plane * 0.32 * core * (0.6 + 0.6 * m);
+    // the aurora mirrored in the ice: a broad sheen gliding slowly across, stronger on the upper faces
+    float band = 0.5 + 0.5 * sin(w.x * 0.32 + w.y * 0.55 - uTime * 0.35 + n * 2.2);
+    col += uAurLight * (0.5 * pow(band, 6.0) * (0.5 + 0.5 * core) + 0.3 * up) + uMoonLight * up * 0.08;
+    // the light enters from the sky: the body a little clearer near its upper faces, denser toward its base
+    col *= 0.85 + 0.3 * up;
+    // a crisp hairline rim, a little brighter along the top, brighter on the beat
+    float rim = exp(-d / (1.1 * uPx / s + 0.008));
+    col = mix(col, mix(pc, uFrostCol, 0.3 + 0.25 * up) * (1.15 + 0.4 * uBeat), rim * (0.6 + 0.3 * up));
+    // glints (peak, on the beat): a few points of light caught in the ice
+    if (uGlint > 0.001) {
+        vec2 g = w * 2.2;
+        vec2 id = floor(g), fq = fract(g) - 0.5;
+        float h = hash12(id + 17.0);
+        vec2 o = (vec2(hash12(id + 3.1), hash12(id + 7.7)) - 0.5) * 0.5;
+        vec2 dq = fq - o;
+        float star = exp(-dot(dq, dq) / 0.0015) + 0.35 * exp(-abs(dq.x) / 0.012 - abs(dq.y) / 0.2) + 0.35 * exp(-abs(dq.y) / 0.012 - abs(dq.x) / 0.2);
+        col += mix(pc, vec3(1.0), 0.6) * star * step(0.88, h) * uGlint * 1.4 * smoothstep(0.03, 0.1, d);
+    }
     // frozen over (game over): snow white
     col = mix(col, uFrostCol * (0.9 + 0.15 * n) + uAurLight * 0.3, frost);
     return col;
@@ -476,18 +506,18 @@ void main() {
     float bridgeK = smoothstep(0.2, 0.85, uBridge);
     if (kind == 0 || kind == 3) {
         float s = v3.x;
-        float topD;
-        float sd = iceSd(p, mask, s, topD);
+        float up;
+        float d = iceDepth(p / s, mask, up);
+        float sd = (SEAM - d) * s;
         float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, sd);
         if (cov <= 0.0) discard;
-        vec3 col = ice(p, vWorld, sd, s, topD, pc, frost);
+        vec3 col = ice(vWorld, d, s, up, pc, frost);
         if (kind == 0 && age >= 0.0) {
-            // lock: the block freezes, a white breath of frost receding into its edges
-            float fl = exp(-age * 3.5);
-            float d = -sd / s;
-            float reach = 0.5 * fl;
-            float f = 1.0 - smoothstep(reach - 0.06, reach + 0.02, d);
-            col = mix(col, uFrostCol * 1.3, f * fl * 0.85);
+            // lock: the block freezes, a breath of frost receding into its edges
+            float fl = exp(-age * 5.0);
+            float reach = 0.4 * fl;
+            float f = 1.0 - smoothstep(reach - 0.06, reach + 0.02, d - SEAM);
+            col = mix(col, mix(pc, uFrostCol, 0.6), f * fl * 0.6);
         }
         if (kind == 3) col *= 1.0 + 0.06 * uBeat;
         col = mix(col, uBridgeInk, bridgeK);
@@ -497,7 +527,8 @@ void main() {
     }
     if (kind == 1) {
         // ghost: a thin outline of frost on the dark ice, a breath of the piece's color
-        float sd = iceSd(p, mask, 1.0);
+        float up;
+        float sd = SEAM - iceDepth(p, mask, up);
         float line = (1.0 - smoothstep(0.01, 0.01 + px * 1.2, abs(sd + 0.03))) * 0.55;
         float fill = (1.0 - smoothstep(-px, px, sd)) * 0.07;
         vec3 col = mix(pc, uFrostCol, 0.45) * line + pc * fill;
@@ -508,15 +539,16 @@ void main() {
     if (kind == 2) {
         // a cleared cell: it turns to snow, then crumbles to powder (v3.y progress 0..1, v3.z seed)
         float k = v3.y;
-        float topD;
-        float sd = iceSd(p, mask, 1.0, topD);
+        float up;
+        float d = iceDepth(p, mask, up);
+        float sd = SEAM - d;
         float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, sd);
         if (cov <= 0.0) discard;
         float n = texture(uNoise, vWorld * 0.21 + v3.z).g * 0.6 + texture(uNoise, vWorld * 0.53 + v3.z * 1.7).r * 0.4;
         float whiten = smoothstep(0.0, 0.3, k);
         float th = (k - 0.25) * 1.5;
         float keep = smoothstep(th, th + 0.06, n);
-        vec3 col = ice(p, vWorld, sd, 1.0, topD, pc, whiten);
+        vec3 col = ice(vWorld, d, 1.0, up, pc, whiten);
         col += uFrostCol * exp(-pow((n - th) / 0.05, 2.0)) * 0.6 * step(0.25, k);
         float a = cov * keep * alpha * (1.0 - uBridge);
         frag = vec4(col * a, a);

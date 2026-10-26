@@ -12,7 +12,7 @@
 // aurora (several curtains, folds drifting with the tempo, a light ripple on each beat) and the snow falls, peak
 // fills the sky (curtains overhead, tall rays converging upward, the kicks sending surges of light along them,
 // blowing snow skimming over the drifts). A lock freezes the piece (a breath of frost receding into its edges) and
-// puffs powder from under it; a cleared row turns to snow and crumbles into powder blown away by the wind; a Tetris
+// pushes a small puff of powder out from under it; a cleared row turns to snow and crumbles into powder blown away by the wind; a Tetris
 // is an auroral substorm (the whole sky flares and dances); slow motion freezes time (the falling snow hangs in the
 // air and glints, the aurora barely moves, the colors drain to silver, frost creeps in from the edges of the screen);
 // game over freezes the stack white from the bottom up, then it crumbles into powder while the blowing snow buries
@@ -71,6 +71,21 @@ vec2 operator+(vec2 a, vec2 b) { return {a.x + b.x, a.y + b.y}; }
 vec2 operator-(vec2 a, vec2 b) { return {a.x - b.x, a.y - b.y}; }
 vec2 operator*(vec2 a, float k) { return {a.x * k, a.y * k}; }
 
+// A cell's neighbours of the same piece (same(dx, dy), dy in board rows, down): bits 1 left, 2 right, 4 up, 8 down,
+// 16 up-left, 32 up-right, 64 down-left, 128 down-right (the tile shader builds one body of ice from them).
+template <class F> int neighbourMask(F same) {
+    int m = 0;
+    if (same(-1, 0)) m |= 1;
+    if (same(1, 0)) m |= 2;
+    if (same(0, -1)) m |= 4;
+    if (same(0, 1)) m |= 8;
+    if (same(-1, -1)) m |= 16;
+    if (same(1, -1)) m |= 32;
+    if (same(-1, 1)) m |= 64;
+    if (same(1, 1)) m |= 128;
+    return m;
+}
+
 vec3 hex(unsigned v) { return {((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255.f, (v & 255) / 255.f}; }
 
 // The variants: each a designed night (sRGB here, linear once loaded). Colors: zenith, horizon, the twilight glow,
@@ -86,28 +101,28 @@ struct VariantDef {
 };
 const VariantDef VARIANTS[] = {
     {"EMERALD", 0x02060f, 0x0c1a2a, 0x203a50, 0xa8bcd4, 0x1a2a40, 0x34465e, 0xdfe8ff, 0x52ffa8, 0x23d68e, 0x7d4cd8,
-     0xeaf6ff, 0x020812, 0xd8ecff, {0x4fcfe6, 0xeed27a, 0xa286ee, 0x5fe0a0, 0xf07a8c, 0x5a82e6, 0xf2a064},
+     0xeaf6ff, 0x020812, 0xd8ecff, {0x2cc4e8, 0xf0c64e, 0x8e6cf0, 0x3ed68a, 0xf05874, 0x4870f0, 0xf08a3e},
      0.f, 0.f, 0.f, -0.62f, 0.34f, 0.018f, 0.f, 1.0f, 0.75f, 1.f, 0.8f, 0.55f, 0.3f, 0.20f},
     {"VIOLET VEIL", 0x050311, 0x161030, 0x2a1a48, 0xb4b0d8, 0x221a40, 0x3a3460, 0xeee6ff, 0xff7ad2, 0xb052f0, 0x4a56e8,
-     0xf4eeff, 0x06041a, 0xe8e0ff, {0xb4c4ff, 0xffd2e6, 0xd090ff, 0x9ee6dc, 0xff62a8, 0x8a74ff, 0xffaac4},
+     0xf4eeff, 0x06041a, 0xe8e0ff, {0x6c8cff, 0xffc860, 0xb060ff, 0x4cdcc6, 0xff4c90, 0x4a56e8, 0xff9070},
      0.f, 0.f, 0.f, 0.6f, 0.3f, 0.016f, 0.f, 0.95f, 0.85f, 1.f, 0.9f, 0.4f, 0.3f, 0.35f},
     {"CRIMSON", 0x07030a, 0x1a0c14, 0x3a1420, 0xc0aab4, 0x2a1824, 0x3e2a36, 0xffe6e0, 0x6cf0a2, 0xff3c50, 0x9a1c56,
-     0xfff0f0, 0x0a0408, 0xffe8ec, {0x9cd6e8, 0xffcc84, 0xe06c8c, 0x84d6a4, 0xff4646, 0xa058d0, 0xff8656},
+     0xfff0f0, 0x0a0408, 0xffe8ec, {0x5cc4e8, 0xffbc56, 0xe0507c, 0x56cc88, 0xff3636, 0x9048d0, 0xff7840},
      0.f, 0.f, 0.f, -0.6f, 0.3f, 0.016f, 0.f, 1.05f, 1.f, 0.9f, 0.6f, 0.6f, 0.3f, 0.80f},
     {"ARCTIC TEAL", 0x01070e, 0x08202c, 0x0e3448, 0x9ec8dc, 0x123040, 0x2a4a5e, 0xe2f4ff, 0x48f2e2, 0x2e8cff, 0x6a4cf0,
-     0xe6fbff, 0x010810, 0xd6f6ff, {0x86f0ff, 0xe8f0ff, 0x968aff, 0x3ee0c0, 0xff8ca6, 0x3670f0, 0xffc486},
+     0xe6fbff, 0x010810, 0xd6f6ff, {0x4ee4ff, 0xffe070, 0x8a76ff, 0x2ed8b0, 0xff6a90, 0x2e62f0, 0xffac5c},
      0.f, 0.f, 0.f, 0.58f, 0.33f, 0.017f, 0.f, 1.0f, 0.7f, 1.f, 0.7f, 0.7f, 0.35f, 0.25f},
     {"MOONLIT", 0x07122a, 0x2a3c5e, 0x3c5070, 0xd8e2f4, 0x34466a, 0x56688c, 0xf4f6ff, 0x9effcc, 0x7ad8c0, 0x8ca0ff,
-     0xf6f9ff, 0x061026, 0xf2f8ff, {0xa6d2e6, 0xece2c2, 0xc2b6e6, 0xaedac2, 0xe6aeb6, 0x9aaee6, 0xe6c6a6},
+     0xf6f9ff, 0x061026, 0xf2f8ff, {0x5ebce8, 0xeccc78, 0xa68ae8, 0x6ed0a0, 0xec7a8c, 0x6080e8, 0xeca068},
      0.f, 0.f, 1.f, -0.55f, 0.36f, 0.024f, 0.f, 0.45f, 0.5f, 0.5f, 0.2f, 0.65f, 0.45f, 0.20f},
     {"BLUE HOUR", 0x0c1a44, 0x485c94, 0xf09a84, 0xc8cce8, 0x30406e, 0x4a5684, 0xfff0e6, 0x5ef0c8, 0x46b4e0, 0x8a6cf0,
-     0xf6f4ff, 0x0a1438, 0xf0f0ff, {0x78d2ff, 0xffe088, 0xff9ec6, 0x96dec0, 0xff7c6c, 0x8898ff, 0xffae6a},
+     0xf6f4ff, 0x0a1438, 0xf0f0ff, {0x52c2ff, 0xffd858, 0xff7cb4, 0x5ed6a4, 0xff5a48, 0x6676ff, 0xff9644},
      0.75f, 0.85f, 0.f, -0.5f, 0.3f, 0.016f, 0.f, 0.55f, 0.55f, 0.55f, 0.f, 0.6f, 0.45f, 0.20f},
     {"SOLAR STORM", 0x04030e, 0x140f26, 0x241a3c, 0xb0b4d0, 0x1c1a36, 0x342e52, 0xf0eaff, 0x8cff5a, 0xff4fa6, 0x6a4cff,
      0xf2f0ff, 0x050412, 0xeaf0ff, {0x3edcff, 0xffde48, 0xc05cff, 0x5cff98, 0xff4c78, 0x4868ff, 0xff8a38},
      0.f, 0.f, 0.f, 0.6f, 0.3f, 0.016f, 0.f, 1.25f, 1.f, 1.f, 0.5f, 0.5f, 0.25f, 0.65f},
     {"ICE FOG", 0x111c30, 0x3e4c64, 0x52607a, 0xc4ccd8, 0x3a465a, 0x5a6578, 0xf0f4ff, 0xb4ff9e, 0x7cd2c4, 0x8eb0ff,
-     0xf4f7fc, 0x0e1626, 0xf2f6ff, {0x9cc8dc, 0xd8d4c0, 0xb0a8cc, 0x9cc4b4, 0xcca0a8, 0x8ca0c8, 0xd4b49c},
+     0xf4f7fc, 0x0e1626, 0xf2f6ff, {0x64b4e0, 0xdcc480, 0xa08ad4, 0x6cbc98, 0xdc7c88, 0x6280cc, 0xe09c6c},
      0.f, 0.f, 0.85f, -0.6f, 0.4f, 0.02f, 1.f, 0.6f, 0.45f, 0.35f, 0.f, 0.35f, 0.9f, 0.30f},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
@@ -468,15 +483,13 @@ void PolarUniverse::powder(vec2 p, vec2 v, float size, float life, float alpha, 
     powder_.push_back(q);
 }
 
-// A block of ice turned to snow, crumbling: fine powder blown by the wind, a soft billow.
+// A block of ice turned to snow, crumbling: fine powder blown off by the wind, gone in a moment.
 void PolarUniverse::cellToPowder(float x, float y, float delay, float wind, float strength) {
-    const int n = (int)(6 + 4 * strength);
+    const int n = (int)(4 + 3 * strength);
     for (int k = 0; k < n; k++)
         powder(v2(x + rng_.range(-0.45f, 0.45f), y + rng_.range(-0.45f, 0.45f)),
-               v2(wind * rng_.range(0.8f, 3.2f) * strength + rng_.range(-0.4f, 0.4f), rng_.range(0.2f, 2.2f) * strength),
-               rng_.range(0.05f, 0.11f), rng_.range(0.9f, 1.8f), rng_.range(0.6f, 1.f), delay + rng_.range(0.f, 0.1f));
-    powder(v2(x + rng_.range(-0.2f, 0.2f), y), v2(wind * rng_.range(0.8f, 1.8f), rng_.range(0.2f, 0.7f)),
-           rng_.range(0.5f, 0.7f), rng_.range(1.3f, 2.0f), 0.42f, delay + 0.05f, true);
+               v2(wind * rng_.range(0.8f, 3.0f) * strength + rng_.range(-0.4f, 0.4f), rng_.range(0.2f, 1.8f) * strength),
+               rng_.range(0.05f, 0.1f), rng_.range(0.35f, 0.65f), rng_.range(0.6f, 1.f), delay + rng_.range(0.f, 0.08f));
 }
 
 // =====================================================================================================
@@ -491,17 +504,13 @@ void PolarUniverse::onEvent(const GameEvent& ev, const Game&) {
         return ic.type == type ? ic.id : -1;
     };
     auto maskOf = [&](const GameEvent::CellInfo& c) {
-        int m = 0;
         const int id = idAt(c.x, c.y, c.type);
         if (id < 0) return 0;
-        for (auto& o : ev.cells) {
-            if (o.type != c.type || idAt(o.x, o.y, o.type) != id) continue;
-            if (o.y == c.y && o.x == c.x - 1) m |= 1;
-            if (o.y == c.y && o.x == c.x + 1) m |= 2;
-            if (o.x == c.x && o.y == c.y - 1) m |= 4;
-            if (o.x == c.x && o.y == c.y + 1) m |= 8;
-        }
-        return m;
+        return neighbourMask([&](int dx, int dy) {
+            for (auto& o : ev.cells)
+                if (o.x == c.x + dx && o.y == c.y + dy && o.type == c.type && idAt(o.x, o.y, o.type) == id) return true;
+            return false;
+        });
     };
     switch (ev.type) {
     case GameEvent::Lock: {
@@ -511,18 +520,20 @@ void PolarUniverse::onEvent(const GameEvent& ev, const Game&) {
             for (auto& c : ev.cells)
                 if (c.y >= 0 && c.y < Game::H && c.x >= 0 && c.x < Game::W) ice_[c.y][c.x] = {id, c.type};
         }
-        // a puff of powder from under the piece
-        for (auto& q : ev.cells) {
-            bool under = false;
-            for (auto& o : ev.cells)
-                if (o.x == q.x && o.y == q.y + 1) under = true;
-            if (under) continue;
-            const vec3 p = layout::cellPos((float)q.x, (float)q.y);
+        // one small puff of powder pushed out from under the piece, at its contact, to both sides
+        {
+            int bottom = -1;
+            for (auto& q : ev.cells) bottom = std::max(bottom, q.y);
+            float x0 = 1e9f, x1 = -1e9f;
+            for (auto& q : ev.cells)
+                if (q.y == bottom) { x0 = std::min(x0, (float)q.x); x1 = std::max(x1, (float)q.x); }
+            const vec3 a = layout::cellPos(x0, (float)bottom), b = layout::cellPos(x1, (float)bottom);
             for (int s = -1; s <= 1; s += 2) {
-                powder(v2(p.x + 0.3f * s, p.y - 0.5f), v2(0.6f * s + rng_.range(-0.15f, 0.15f), rng_.range(0.0f, 0.15f)),
-                       0.3f, rng_.range(0.7f, 1.0f), 0.32f, 0.f, true);
-                powder(v2(p.x + 0.3f * s, p.y - 0.45f), v2(1.4f * s + rng_.range(-0.4f, 0.4f), rng_.range(0.4f, 1.3f)),
-                       0.05f, rng_.range(0.5f, 0.8f), 0.7f);
+                const float ex = s < 0 ? a.x - 0.5f : b.x + 0.5f;
+                powder(v2(ex, a.y - 0.42f), v2(0.7f * s, 0.05f), 0.24f, rng_.range(0.4f, 0.55f), 0.26f, 0.f, true);
+                for (int k = 0; k < 3; k++)
+                    powder(v2(ex - 0.1f * s, a.y - 0.45f), v2(rng_.range(0.6f, 1.5f) * s, rng_.range(0.3f, 1.0f)), 0.045f,
+                           rng_.range(0.3f, 0.5f), 0.6f);
             }
         }
         break;
@@ -554,7 +565,7 @@ void PolarUniverse::onEvent(const GameEvent& ev, const Game&) {
             d.delay = std::fabs(c.x - 4.5f) * 0.02f + rng_.range(0.f, 0.03f);
             d.seed = rng_.uniform();
             dying_.push_back(d);
-            cellToPowder(p.x, p.y, d.delay + 0.18f, wind, tetris ? 1.4f : 1.f);
+            cellToPowder(p.x, p.y, d.delay + 0.1f, wind, tetris ? 1.3f : 1.f);
         }
         {
             bool cleared[Game::H] = {};
@@ -702,7 +713,7 @@ void PolarUniverse::simulate(const Game& game, const MusicState& music, float dt
         }
     }
     dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) {
-        return d.over ? d.t > d.delay + 2.6f : d.t > d.delay + 0.75f;
+        return d.over ? d.t > d.delay + 2.6f : d.t > d.delay + 0.42f;
     }), dying_.end());
     for (auto& g : glints_) g.t += dt;
     glints_.erase(std::remove_if(glints_.begin(), glints_.end(), [](const Glint& g) { return g.t > g.life; }), glints_.end());
@@ -720,7 +731,30 @@ void PolarUniverse::tile(float x, float y, float hw, float hh, const vec3& c, fl
 }
 
 void PolarUniverse::buildBoard(const Game& g) {
-    // Which piece a locked cell belongs to (-1: unknown, e.g. a stack inherited from another universe: never joined).
+    // Cells whose piece is unknown (a stack inherited from another universe, a prefilled board): grouped into bodies
+    // of ice by kind, at most four cells each (a piece's size), so they read as pieces rather than loose tiles.
+    for (int y = 0; y < Game::H; y++)
+        for (int x = 0; x < Game::W; x++) {
+            const int t = g.cell(x, y).type;
+            if (t < 0 || ice_[y][x].type == t) continue;
+            const int id = pieceCounter_++;
+            int qx[4], qy[4], n = 0, head = 0;
+            ice_[y][x] = {id, t};
+            qx[n] = x; qy[n] = y; n++;
+            while (head < n && n < 4) {
+                const int cx = qx[head], cy = qy[head];
+                head++;
+                const int dx[4] = {-1, 1, 0, 0}, dy[4] = {0, 0, -1, 1};
+                for (int k = 0; k < 4 && n < 4; k++) {
+                    const int nx = cx + dx[k], ny = cy + dy[k];
+                    if (nx < 0 || nx >= Game::W || ny < 0 || ny >= Game::H) continue;
+                    if (g.cell(nx, ny).type != t || ice_[ny][nx].type == t) continue;
+                    ice_[ny][nx] = {id, t};
+                    qx[n] = nx; qy[n] = ny; n++;
+                }
+            }
+        }
+    // Which piece a locked cell belongs to (-1: none).
     auto idAt = [&](int x, int y) {
         if (x < 0 || x >= Game::W || y < Game::HIDDEN || y >= Game::H) return -1;
         const int t = g.cell(x, y).type;
@@ -736,12 +770,11 @@ void PolarUniverse::buildBoard(const Game& g) {
             const float age = c.flash > 0.f ? (1.f - c.flash) * Game::LOCK_FX_SECONDS : -1.f;
             int mask = 0;
             const int id = idAt(x, y);
-            if (id >= 0) {
-                if (idAt(x - 1, y) == id) mask |= 1;
-                if (idAt(x + 1, y) == id) mask |= 2;
-                if (idAt(x, y - 1) == id && std::fabs(g.rowOffset(y - 1) - g.rowOffset(y)) < 0.01f) mask |= 4;
-                if (idAt(x, y + 1) == id && std::fabs(g.rowOffset(y + 1) - g.rowOffset(y)) < 0.01f) mask |= 8;
-            }
+            if (id >= 0)
+                mask = neighbourMask([&](int dx, int dy) {
+                    if (idAt(x + dx, y + dy) != id) return false;
+                    return dy == 0 || std::fabs(g.rowOffset(y + dy) - g.rowOffset(y)) < 0.01f;
+                });
             tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask);
         }
     // Cleared cells turning to snow; a topped-out stack freezing white, then crumbling.
@@ -760,7 +793,7 @@ void PolarUniverse::buildBoard(const Game& g) {
             tile(d.x, d.y, 0.5f, 0.5f, cur_.piece[d.type], 1.f, 0, -1.f, d.mask);
             continue;
         }
-        tile(d.x, d.y, 0.5f, 0.5f, cur_.piece[d.type], 1.f, 2, -1.f, d.mask, 0.f, 1.f, saturate(t / 0.7f), d.seed * 7.f);
+        tile(d.x, d.y, 0.5f, 0.5f, cur_.piece[d.type], 1.f, 2, -1.f, d.mask, 0.f, 1.f, saturate(t / 0.4f), d.seed * 7.f);
     }
     // The falling piece and its ghost.
     if (g.hasPiece()) {
@@ -768,14 +801,11 @@ void PolarUniverse::buildBoard(const Game& g) {
         int cells[4][2];
         g.pieceCells(p, cells);
         auto maskIn = [&](int (*cs)[2], int i) {
-            int m = 0;
-            for (int j = 0; j < 4; j++) {
-                if (cs[j][1] == cs[i][1] && cs[j][0] == cs[i][0] - 1) m |= 1;
-                if (cs[j][1] == cs[i][1] && cs[j][0] == cs[i][0] + 1) m |= 2;
-                if (cs[j][0] == cs[i][0] && cs[j][1] == cs[i][1] - 1) m |= 4;
-                if (cs[j][0] == cs[i][0] && cs[j][1] == cs[i][1] + 1) m |= 8;
-            }
-            return m;
+            return neighbourMask([&](int dx, int dy) {
+                for (int j = 0; j < 4; j++)
+                    if (cs[j][0] == cs[i][0] + dx && cs[j][1] == cs[i][1] + dy) return true;
+                return false;
+            });
         };
         const vec3 col = cur_.piece[p.type];
         Piece gp = p;
@@ -808,13 +838,11 @@ void PolarUniverse::buildBoard(const Game& g) {
             miny = std::min(miny, (float)c[1]); maxy = std::max(maxy, (float)c[1]);
         }
         for (int i = 0; i < 4; i++) {
-            int m = 0;
-            for (int j = 0; j < 4; j++) {
-                if (cells[j][1] == cells[i][1] && cells[j][0] == cells[i][0] - 1) m |= 1;
-                if (cells[j][1] == cells[i][1] && cells[j][0] == cells[i][0] + 1) m |= 2;
-                if (cells[j][0] == cells[i][0] && cells[j][1] == cells[i][1] - 1) m |= 4;
-                if (cells[j][0] == cells[i][0] && cells[j][1] == cells[i][1] + 1) m |= 8;
-            }
+            const int m = neighbourMask([&](int dx, int dy) {
+                for (int j = 0; j < 4; j++)
+                    if (cells[j][0] == cells[i][0] + dx && cells[j][1] == cells[i][1] + dy) return true;
+                return false;
+            });
             const vec2 pos = v2(center.x + (cells[i][0] - (minx + maxx) * 0.5f) * sc, center.y - (cells[i][1] - (miny + maxy) * 0.5f) * sc);
             tile(pos.x, pos.y, 0.5f * sc, 0.5f * sc, cur_.piece[type], alpha, 3, -1.f, m, 0.f, sc);
         }
@@ -1262,6 +1290,7 @@ void PolarUniverse::render(const Frame& f, GLuint fbo) {
         set3f(progTile_, "uBridgeInk", bridge_.ink);
         set1f(progTile_, "uTime", timeGlint_);
         set1f(progTile_, "uBeat", beatGlow_ * wm);
+        set1f(progTile_, "uGlint", beatGlow_ * smoothstepf(1.1f, 2.f, lv_) * (1.f - slow_));
         glBindVertexArray(tileVao_);
         glBindBuffer(GL_ARRAY_BUFFER, tileVbo_);
         glBufferData(GL_ARRAY_BUFFER, tiles_.size() * sizeof(Tile), tiles_.data(), GL_STREAM_DRAW);
