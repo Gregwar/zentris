@@ -474,8 +474,10 @@ float fern(vec2 w) {
 // Old ice: a matte frosted cube, whitish but clearly tinted. No outline, no relief, no gloss.
 // wl: the point in the piece's own frame (board units; its frost travels with it), d: depth inside the body (cell
 // units), pc: the piece's color, k: 0 water .. 1 frozen through, seed: the piece.
-// how far the freeze goes (0..1 of the full process): the old ice keeps its colored heart
-const float FROZEN = 0.64;
+// frozen through (the end of the freeze); the frost only reaches REACH of the way in, and the core clouds over only
+// a little: the old ice keeps its colored heart
+const float FROZEN = 1.0;
+const float REACH = 0.34;
 
 vec4 iceCube(vec2 wl, float d, vec3 pc, float k, float seed) {
     vec3 bg = behind(wl);
@@ -494,19 +496,19 @@ vec4 iceCube(vec2 wl, float d, vec3 pc, float k, float seed) {
     float fe = fern(wv * 0.55), fe2 = fern(wv * 1.2 + 1.7);
     float n = texture(uNoise, wv * 0.35).r, n2 = texture(uNoise, wv * 0.9 + 0.4).b;
     float grain = texture(uNoise, wv * 2.7 + 0.2).a;
-    float front = k >= 1.0 ? 9.0 : 0.02 + 0.6 * pow(k, 0.85);
+    float front = 0.02 + 0.6 * pow(k * REACH, 0.85);
     float reach = d - (n - 0.5) * 0.12;
     float band = 1.0 - smoothstep(front - 0.12, front + 0.02, reach + fe * 0.06);
     float needles = (1.0 - smoothstep(front - 0.02, front + 0.16, reach)) * smoothstep(0.35, 0.8, max(fe, fe2 * 0.8));
     float frosted = max(band, needles * 0.9) * step(0.001, k);
     // the cloudy core: the body clouds over to milk as it freezes, densest in the middle
-    float milk = smoothstep(0.2, 0.9, k) * (0.5 + 0.5 * smoothstep(0.05, 0.4, d));
+    float milk = smoothstep(0.2, 0.9, k * 0.55) * (0.5 + 0.5 * smoothstep(0.05, 0.4, d));
     vec3 pastel = mix(pc, vec3(lum) * 0.5 + 0.5, 0.3);
     float core = smoothstep(0.08, 0.5, d + (n - 0.5) * 0.15);
     vec3 cloudy = mix(water, mix(pastel * (0.8 + 0.1 * n), mix(pastel, vec3(1.0), 0.35) * 0.95, core), milk);
     // frosted surface: whitish, tinted, a crystalline grain
     vec3 frost = mix(pastel, vec3(1.0), 0.25) * (0.82 + 0.1 * n2 + 0.08 * fe) + vec3(0.1) * smoothstep(0.55, 0.85, grain);
-    vec3 col = mix(cloudy, frost, frosted * mix(0.95, 0.55 * (1.0 - core * 0.6), smoothstep(0.75, 1.0, k)));
+    vec3 col = mix(cloudy, frost, frosted * 0.95);
     float a = mix(0.9, 0.97, max(frosted, milk));
     return vec4(col, a);
 }
@@ -544,8 +546,7 @@ void main() {
         float fr = 0.0, seed = 0.0;
         vec2 wl = vWorld;
         if (kind == 0) {
-            // freezing, slowly (at the pace of a FREEZE s freeze, stopping at FROZEN: white frost outside, the color
-            // still deep inside; polar.cpp FREEZE_SECONDS = FREEZE * FROZEN): -1 frozen long since
+            // freezing, slowly (FREEZE s, polar.cpp FREEZE_SECONDS): -1 frozen long since
             const float FREEZE = 7.0;
             seed = v3.x;
             wl = vWorld - (v0.xy + v3.yz);
