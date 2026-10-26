@@ -40,6 +40,10 @@ song, and songs change universe with a transition on the beat.
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/laser.jpg"><br><b>LASER SHOW</b>: every piece projected by its own laser</td>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/garden.jpg"><br><b>GARDEN</b>: clods of earth that grow grass and flowers</td>
 </tr>
+<tr>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/main/docs/universes/fluo.jpg"><br><b>FLUO</b>: fluorescent paint splashed on a dark wall, glowing under a blacklight on drops</td>
+<td></td>
+</tr>
 </table>
 
 Disabled for now (not built; their code stays in the repository):

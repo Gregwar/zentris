@@ -151,3 +151,5 @@ tools/universesheet.sh <id> sheet.png 2      # every variant in one contact shee
 - Check a few transitions with a dark and a light universe, both ways (`--universe A --to B` and back).
 - `ZEN_TEST_OVER=9` before a shot command hard-drops every piece from 9 s into the shot's settle (the shot then
   shows the game over).
+- `ZEN_WARMUP=60` before a shot or `--clip` command plays 60 s (default 12) before the picture is taken or the
+  recording starts, so that a universe that accumulates (FLUO's paint) has time to build up.
