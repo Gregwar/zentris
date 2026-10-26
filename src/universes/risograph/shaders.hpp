@@ -323,7 +323,9 @@ void main() { frag = uColor; }
 inline const char* COMPOSITE_FS = R"(#version 330 core
 in vec2 vUv;
 out vec4 frag;
-uniform sampler2D uInk;              // the stack, the well's marks and the HUD: always in register
+uniform sampler2D uInk;              // the well's marks and the HUD: always in register
+uniform sampler2D uPiece;            // the pieces (A and B drums, structure): always in register
+uniform vec3 uPieceA, uPieceB;       // the pieces' inks: the variant's A and B, or the drop's pair (linear)
 uniform sampler2D uBg;               // the background's gradients
 uniform vec2 uOffA, uOffB, uOffC;    // registration of each drum on the background only (uv)
 uniform vec3 uPaper, uInkA, uInkB, uInkC, uInkD; // linear (D: the peak's hot ink, background only)
@@ -336,7 +338,9 @@ uniform float uDim, uFade;
 void main() {
     vec2 bp = uView.xy + (vUv * 2.0 - 1.0) * uView.zw; // board units
     vec4 fg = texture(uInk, vUv);
-    float a = fg.r, b = fg.g, c = fg.b, s = fg.a;
+    vec4 fp = texture(uPiece, vUv);
+    float a = fg.r, b = fg.g, c = fg.b, s = max(fg.a, fp.a);
+    float pa = fp.r, pb = fp.g;
     // the riso grain: the ink laid unevenly (a soft mottle, a fine tooth, the odd missing speck), fixed in the paper
     vec2 g = bp * 34.0;
     float mott = vnoise(bp * 1.3) * 0.5 + vnoise(bp * 3.7 + 7.0) * 0.5;
@@ -345,7 +349,7 @@ void main() {
     float ga = 1.0 - uGrain * (0.10 * mott + 0.16 * smoothstep(0.45, 0.95, tooth) + 0.35 * spk);
     float gb = 1.0 - uGrain * (0.10 * (1.0 - mott) + 0.16 * smoothstep(0.45, 0.95, vnoise(g + 17.0)) + 0.35 * step(0.93, vnoise(g * 0.67 + 29.0)));
     float gc = 1.0 - uGrain * (0.08 * mott + 0.14 * smoothstep(0.45, 0.95, vnoise(g + 41.0)));
-    a *= ga; b *= gb; c *= gc;
+    a *= ga; b *= gb; c *= gc; pa *= ga; pb *= gb;
     // the background's gradients, slightly out of register, with a fine grain (a pixel-scale tooth, nearly
     // invisible: the gradient stays smooth at viewing size)
     float ba = texture(uBg, vUv - uOffA).r;
@@ -374,8 +378,10 @@ void main() {
     float tex = 0.03 * (form - 0.5) + 0.018 * (toothP - 0.5) - 0.015 * fibers;
     vec3 col = uPaper * (1.0 + tex * mix(1.0, 4.0, uDark));
     // white paper: the inks multiply (overprints darken); black paper: the inks lie like light
-    vec3 w = col * (vec3(1.0) - a * (vec3(1.0) - uInkA)) * (vec3(1.0) - b * (vec3(1.0) - uInkB)) * (vec3(1.0) - c * (vec3(1.0) - uInkC)) * (vec3(1.0) - bd * (vec3(1.0) - uInkD));
-    vec3 k = vec3(1.0) - (vec3(1.0) - col) * (vec3(1.0) - a * uInkA) * (vec3(1.0) - b * uInkB) * (vec3(1.0) - c * uInkC) * (vec3(1.0) - bd * uInkD);
+    vec3 w = col * (vec3(1.0) - a * (vec3(1.0) - uInkA)) * (vec3(1.0) - b * (vec3(1.0) - uInkB)) * (vec3(1.0) - c * (vec3(1.0) - uInkC)) * (vec3(1.0) - bd * (vec3(1.0) - uInkD))
+           * (vec3(1.0) - pa * (vec3(1.0) - uPieceA)) * (vec3(1.0) - pb * (vec3(1.0) - uPieceB));
+    vec3 k = vec3(1.0) - (vec3(1.0) - col) * (vec3(1.0) - a * uInkA) * (vec3(1.0) - b * uInkB) * (vec3(1.0) - c * uInkC) * (vec3(1.0) - bd * uInkD)
+                              * (vec3(1.0) - pa * uPieceA) * (vec3(1.0) - pb * uPieceB);
     col = mix(w, k, uDark);
     // the bridge: the world gone, the stack plain
     vec3 plain = mix(uBridgeColor, uBridgeInk, s);
