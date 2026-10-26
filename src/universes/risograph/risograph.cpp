@@ -6,7 +6,9 @@
 // side. Calm is a pale gradient disc on the paper; mid deepens it and the second ink's gradient across the sheet,
 // and prints a half sun of the second ink; the peak brings the third ink's shape, a broad bloom of it from the
 // shapes' edge and the drop's print: cut-paper forms in a fourth, hot ink (see DROP_FORMS) that ink in on the drop,
-// stay for the peak and breathe with the kicks, by density only. Only the background's
+// stay for the peak and breathe with the kicks. The background floats on a slow current (still at calm, drifting at
+// mid, clearly moving at the peak, gathering pace on the drop): the forms wander and turn, and smaller printed forms
+// (see GLIDERS) glide across the sheet, faint behind the play area. Only the background's
 // drums are out of register, slightly and slowly: the stack, the pieces and the HUD never move with the music.
 // Lots of paper, little else; no scenery.
 //
@@ -1048,7 +1050,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
             B[k * 4] = (d.rot + d.rsw * std::sin(fl * d.wr + d.ph) + d.rs * fl) * side_; B[k * 4 + 1] = d.type; B[k * 4 + 2] = d.drum;
             B[k * 4 + 3] = std::min(1.f, d.dens * (0.82f + 0.18f * breath)) * in * world * tame * (1.f - 0.7f * slow_);
             C[k * 4] = (side_ > 0 ? d.gang : PI - d.gang) + d.gs * fl * side_; C[k * 4 + 1] = d.gamt;
-            C[k * 4 + 2] = 0.65f; // faint where it crosses the play area
+            C[k * 4 + 2] = 0.7f + 0.15f * dark_; // faint where it crosses the play area
         }
         // the gliders (slots 8..): along their lane, entering from one edge and leaving by the other
         for (int i = 0; i < GLIDER_COUNT; i++) {
@@ -1072,7 +1074,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
             B[k * 4] = (g.rot0 + g.spin * fl + 0.25f * std::sin(fl * 0.3f + i)) * side_; B[k * 4 + 1] = g.type; B[k * 4 + 2] = g.drum;
             B[k * 4 + 3] = std::min(1.f, g.dens * (0.85f + 0.15f * breath)) * glideIn_ * world * tame * (1.f - 0.7f * slow_);
             C[k * 4] = (side_ > 0 ? g.gang : PI - g.gang) + 0.2f * fl; C[k * 4 + 1] = g.gamt;
-            C[k * 4 + 2] = 0.8f; C[k * 4 + 3] = g.prm;
+            C[k * 4 + 2] = 0.9f + 0.06f * dark_; C[k * 4 + 3] = g.prm; // nearly gone behind the play area
         }
         glUseProgram(progWorld_);
         set4f(progWorld_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
