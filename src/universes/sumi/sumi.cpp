@@ -305,6 +305,7 @@ void SumiUniverse::drop(float strength) {
         branchT_ = 0.f;
     }
     petalBurst_ = std::max(petalBurst_, strength);
+    gust_ = std::max(gust_, strength);
     skySwell_ = std::max(skySwell_, strength);
     for (int i = 0; i < 2; i++) spawnBloom(randomSidePoint(), rng_.range(2.4f, 3.2f), 0.9f, i ? verm_ : inkC_);
 }
@@ -412,7 +413,7 @@ void SumiUniverse::spawnPetal(vec2 pos, bool fromBranch) {
     p.flip = rng_.range(0.f, TAU);
     p.flipRate = rng_.range(0.7f, 1.5f) * (rng_.chance(0.5f) ? 1.f : -1.f);
     p.red = rng_.chance(fromBranch ? 0.45f : 0.25f);
-    p.speed = 1.f + 4.f * drive_ * rng_.range(0.75f, 1.25f); // a drop's gust: much faster
+    p.gustVar = rng_.range(0.75f, 1.25f);
     petals_.push_back(p);
 }
 
@@ -657,11 +658,12 @@ void SumiUniverse::simulate(const Game&, const MusicState& music, float dt, floa
         i++;
     }
 
-    // Plum petals on a gentle wind: a few at mid, a steady fall at peak, and in a drop many more on a strong wind
-    // (falling much faster), with a flurry from the branch's open blossoms on the drop.
+    // Plum petals on a gentle wind: a few at mid, a steady fall at peak, and in a drop more on a stronger wind. The
+    // drop's gust hurls them all down very fast, with a flurry from the branch's open blossoms, and dies down over a
+    // few seconds: the petals visibly slow to the drop's steady fall.
     {
         const float peakW = smoothstepf(1.f, 2.f, lv);
-        const float rate = petalPresence_ * (0.12f + peakW * (0.45f + 0.25f * e + 7.f * drive_)) + 9.f * petalBurst_;
+        const float rate = petalPresence_ * (0.12f + peakW * (0.45f + 0.25f * e + 3.f * drive_)) + 9.f * petalBurst_ + 40.f * gust_;
         petalAcc_ += rate * wdt;
         const float top = viewC_.y + viewH_.y, right = viewC_.x + viewH_.x;
         while (petalAcc_ >= 1.f) {
@@ -682,6 +684,7 @@ void SumiUniverse::simulate(const Game&, const MusicState& music, float dt, floa
     for (size_t i = 0; i < petals_.size();) {
         Petal& p = petals_[i];
         p.age += wdt;
+        p.speed = 1.f + (9.f * gust_ + 0.8f * drive_) * p.gustVar;
         const float sway = std::sin(p.age * 0.8f + p.seed) * 0.3f;
         const float bob = std::sin(p.age * 1.1f + p.seed * 1.7f) * 0.12f;
         p.pos = add(p.pos, mul(add(mul(p.vel, p.speed), v2(sway, bob)), wdt));
@@ -1094,6 +1097,7 @@ void SumiUniverse::render(const Frame& f, GLuint fbo) {
     if (peak > 0.f) branchT_ += dt;
     else if (branchPresence_ < 0.01f) { branch_.clear(); blossoms_.clear(); branchT_ = 0.f; }
     petalBurst_ = approach(petalBurst_, 0.f, 0.2f, dt);
+    gust_ = approach(gust_, 0.f, 0.8f, dt);
     // A drop's peak against a chorus' one: the drop's sections drive harder (the song structure's pace). It
     // colors the sky: a steady wash for the whole drop, one swell on the drop's downbeat settling over seconds.
     drive_ = approach(drive_, peak * smoothstepf(1.27f, 1.42f, music.hasSong ? music.speed : 1.4f), 0.8f, dt);

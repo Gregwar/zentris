@@ -30,7 +30,7 @@ private:
     enum { K_BLOCK = 0, K_GHOST = 1, K_DROP = 2, K_STROKE = 3, K_SEAL = 4, K_ENSO = 5, K_SUN = 6, K_PETAL = 7,
            K_BLOOM = 8, K_BLOSSOM = 9, K_BEHIND = 100 };
     struct Bloom { vec2 pos; float age, life, size, inner, tide, rough, seed; vec3 col; };
-    struct Petal { vec2 pos, vel; float rot, spin, size, age, life, seed, flip, flipRate; bool red; float speed = 1.f; };
+    struct Petal { vec2 pos, vel; float rot, spin, size, age, life, seed, flip, flipRate; bool red; float gustVar = 1.f, speed = 1.f; };
     // The peak's plum branch: brushed limbs and shoots (painted one after another, from the paper's edge) and
     // the blossoms opening along them once the brush has passed.
     struct BranchSeg { vec2 a, b; float width, t0, dur, dry, taper, seed; };
@@ -87,6 +87,7 @@ private:
     float dropWait_ = 0;   // rising into a drop: the enso and the branch wait for its first downbeat
     float petalBurst_ = 0; // the drop's flurry of petals, settling to the peak's steady fall
     float petalAcc_ = 0;
+    float gust_ = 0;       // the drop's gust: the petals hurled down on the drop, slowing over a few seconds
     float drive_ = 0;      // a drop's peak (the song driving harder) against a chorus' one
     float skyWash_ = 0, skySwell_ = 0; // the drop's colored wash in the sky: steady, one swell on the drop
     vec3 skyCol_{0.784f, 0.251f, 0.165f};
