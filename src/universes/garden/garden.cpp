@@ -25,7 +25,6 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
-#include <cstdlib>
 
 #include "layout.hpp"
 #include "universes/garden/shaders.hpp"
@@ -71,7 +70,7 @@ constexpr float WELL_X = 5.15f, WELL_Y = 10.1f;
 float groundY(float x, float seed) {
     const float a = std::fabs(x);
     const float side = smoothstepf(6.f, 12.f, a);
-    return -10.05f + 0.3f * smoothstepf(5.4f, 11.f, a) + 3.4f * std::pow(smoothstepf(11.f, 24.f, a), 1.3f) +
+    return -10.05f + 0.9f * smoothstepf(5.5f, 7.6f, a) + 0.25f * smoothstepf(7.6f, 11.f, a) + 3.f * std::pow(smoothstepf(11.f, 24.f, a), 1.3f) +
            (0.22f * std::sin(x * 0.37f + seed) + 0.12f * std::sin(x * 0.91f + seed * 1.7f)) * side;
 }
 
@@ -93,31 +92,31 @@ const VariantDef VARIANTS[] = {
      0x5a7a30, 0x3b3226, 0xd9607e, 0xf2c230, 0x3c3a6a,
      {0xfbfaf4, 0xf6d23e, 0xf0a0b8}, {0xfbfaf4, 0xf6d23e, 0xec7f9e, 0xa88ae0},
      {0xc49a56, 0x8c6242, 0xc06a3e, 0x6a6638, 0x9e3c2c, 0x3e2b22, 0x7c7c84},
-     -16.f, 6.5f, 1.2f, 0.f, 0.f, 0.6f},
-    // A summer dusk: a low sun in an apricot haze under a dusky blue, cream and coral flowers; the drop glows coral.
-    {"SUMMER DUSK", 0x34406c, 0xf2a676, 0xffd6a6, 0xff7e5a, 0x2c1f1c, 0x150e0e, 0x6a4030, 0x6a8a3a, 0x4a7a32, 0xc8a060,
+     -16.f, 6.5f, 1.2f, 0.f, 0.f, 0.f},
+    // A summer dusk: a low sun in an apricot haze under a dusky blue, cream and coral flowers; the drop glows magenta.
+    {"SUMMER DUSK", 0x34406c, 0xf2a676, 0xffd6a6, 0xd8589c, 0x2c1f1c, 0x150e0e, 0x6a4030, 0x6a8a3a, 0x4a7a32, 0xc8a060,
      0x4a6a2c, 0xf6e6d4, 0xff9a6a, 0xffc23a, 0x1e1e48,
      {0xfff0dc, 0xf3895e, 0xe0b8f0}, {0xfff0dc, 0xff8a5c, 0xffc84a, 0xd890e0},
      {0xae7e44, 0x6e4a34, 0xa85232, 0x5c5c34, 0x862e26, 0x2e201c, 0x60606e},
-     16.5f, -5.f, 2.f, 0.f, 0.f, 0.5f},
+     16.5f, -5.f, 2.f, 0.f, 0.f, 0.f},
     // An autumn field: an overcast pale sky, rust, gold and aster violet; the drop glows amber.
     {"AUTUMN FIELD", 0xa9b8c8, 0xebe0c8, 0xfff2dc, 0xf0a048, 0x3e2c1e, 0x21170f, 0x7a5a36, 0x8a9244, 0x6a8a3a, 0xbf9658,
      0x6a6a2a, 0x3c2c20, 0xc0602a, 0x6a3a1a, 0x2e2c50,
      {0xc8642a, 0xe6b440, 0x8c6ab4}, {0xd06a2a, 0xe8b23c, 0x9a70c0, 0xf4ead8},
      {0xd0a050, 0x96643c, 0xcc7034, 0x7a6c30, 0xa8402a, 0x4a2e1e, 0x8a8478},
-     -15.5f, 7.f, 1.4f, 0.f, 0.f, 0.6f},
+     -15.5f, 7.f, 1.4f, 0.f, 0.f, 0.f},
     // A night garden: a deep blue sky, the moon, white moonflowers and pale blue; the drop glows violet.
-    {"NIGHT GARDEN", 0x0a1024, 0x26304c, 0xe6ebf4, 0x7a56c0, 0x15131a, 0x08070b, 0x3a3440, 0x3a5a4a, 0x2e6a52, 0x6a6a64,
+    {"NIGHT GARDEN", 0x0a1024, 0x26304c, 0xe6ebf4, 0x6a4ab8, 0x15131a, 0x08070b, 0x3a3440, 0x3a5a4a, 0x2e6a52, 0x6a6a64,
      0x2e4a3a, 0xdde3ee, 0xb8c8ff, 0xf4e0a0, 0x0a0a20,
      {0xf2f5ff, 0xa4c0ff, 0xcaa8f4}, {0xf2f5ff, 0xa4c0ff, 0xd0a8f8, 0xf8e0a0},
      {0xbca47c, 0x8e7462, 0xb47452, 0x80805c, 0xa0564a, 0x645250, 0x9096a8},
      15.5f, 6.f, 1.f, 1.f, 1.f, 0.f},
-    // A misty dawn: lavender grey over a pink horizon, sage grass, white and lilac flowers; the drop glows rose.
-    {"MISTY DAWN", 0xb4b6d4, 0xf4d8cc, 0xfff2e6, 0xee8ab2, 0x3e3232, 0x1e1818, 0x7a6464, 0x84a07e, 0x5e8c68, 0xbcae9c,
+    // A misty dawn: lavender grey over a pink horizon, sage grass, white and lilac flowers; the drop glows gold.
+    {"MISTY DAWN", 0xb4b6d4, 0xf4d8cc, 0xfff2e6, 0xffc25a, 0x3e3232, 0x1e1818, 0x7a6464, 0x84a07e, 0x5e8c68, 0xbcae9c,
      0x5a7a5e, 0x3a3044, 0xb070c0, 0xf4d070, 0x2a2850,
      {0xffffff, 0xc4a0e8, 0xf4b0b8}, {0xffffff, 0xc89cf0, 0xf2a0b4, 0xf4d070},
      {0xbc9a6a, 0x80604e, 0xb46a50, 0x606a4a, 0x9a4a46, 0x3e2e2e, 0x70728a},
-     -15.f, -3.5f, 1.5f, 0.f, 0.f, 0.6f},
+     -15.f, -3.5f, 1.5f, 0.f, 0.f, 0.f},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 constexpr int NIGHT = 3;
@@ -661,7 +660,7 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
     drive_ = approach(drive_, bloomTarget, bloomTarget > drive_ ? 1.5f : 0.4f, dt);
     // the bloom: quickly at first, then slowing; closing slowly after the drop
     bloom_ = approach(bloom_, bloomTarget * 1.12f, bloomTarget * 1.12f > bloom_ ? 0.75f : 0.3f, dt);
-    glow_ = approach(glow_, 0.5f * drive_, drive_ > glow_ ? 1.2f : 0.35f, dt);
+    glow_ = approach(glow_, 0.62f * drive_, drive_ > glow_ ? 1.2f : 0.35f, dt);
     swell_ = approach(swell_, 0.f, 0.45f, dt);
     flurry_ = approach(flurry_, 0.f, 0.65f, dt);
     gust_ = approach(gust_, 0.f, 0.45f, dt);
@@ -675,7 +674,7 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
     const float world = 1.f - smoothstepf(0.f, 0.6f, bridge_.amount);
     // Petals on the breeze: a flurry off the opening flowers on the drop's downbeat, then a steady few.
     if (bloom_ > 0.2f && world > 0.3f && !gflowers_.empty()) {
-        petalAcc_ += (60.f * flurry_ + 4.f * smoothstepf(0.4f, 1.f, bloom_)) * wdt;
+        petalAcc_ += (130.f * flurry_ + 9.f * smoothstepf(0.4f, 1.f, bloom_)) * wdt;
         int guard = 0;
         while (petalAcc_ >= 1.f && guard++ < 40) {
             petalAcc_ -= 1.f;
@@ -688,8 +687,8 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
             const float y = groundY(f.x, seedF_) + f.stem * sc * (0.5f + 0.5f * grassH_);
             Particle p{};
             p.p = v2(f.x + rng_.range(-0.1f, 0.1f), y);
-            p.v = v2(side * rng_.range(0.2f, 0.9f) + rng_.range(-0.3f, 0.3f), rng_.range(0.4f, 1.3f) * (0.5f + gust_));
-            p.life = rng_.range(4.f, 7.f); p.size = rng_.range(0.06f, 0.1f); p.grav = 0.12f; p.drag = 0.5f;
+            p.v = v2(side * rng_.range(0.2f, 1.1f) * (1.f + gust_) + rng_.range(-0.3f, 0.3f), rng_.range(0.5f, 1.2f) + rng_.range(1.5f, 4.5f) * gust_);
+            p.life = rng_.range(6.f, 9.f); p.size = rng_.range(0.09f, 0.15f); p.grav = 0.1f; p.drag = 0.55f;
             p.rot = rng_.range(0.f, TAU); p.spin = rng_.range(-2.5f, 2.5f); p.kind = P_PETAL;
             p.col = pal_.bloom[f.color]; p.seed = rng_.uniform() * 50.f;
             parts_.push_back(p);
@@ -1162,28 +1161,36 @@ void GardenUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<
         glBufferData(GL_ARRAY_BUFFER, v.size() * sizeof(Vert), v.data(), GL_STREAM_DRAW);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)v.size());
     }
-    const vec3 skyInk = lerp(pal_.ink, vec3(0.92f, 0.9f, 0.86f), slow_ * (ugl::luma(pal_.ink) < 0.3f ? 0.8f : 0.f));
-    const vec3 skyAccent = lerp(pal_.accent, skyInk, 0.2f);
+    // the sky's ink follows the sky behind the letters: dark on a pale sky, pale on a dark one
+    const bool inkDark = ugl::luma(pal_.ink) < 0.2f;
+    const vec3 darkInk = inkDark ? pal_.ink : ugl::toLinear(hex(0x2c2430));
+    const vec3 lightInk = inkDark ? ugl::toLinear(hex(0xf4efe4)) : pal_.ink;
+    auto skyLumaAt = [&](float by) {
+        const float hh = saturate((by + 10.f) / 23.f);
+        const vec3 sky = lerp(pal_.skyLow, pal_.skyTop, smoothstepf(0.f, 1.f, std::pow(hh, 0.75f)));
+        return ugl::luma(lerp(sky, pal_.dusk, 0.85f * slow_));
+    };
     const vec3 earthInk = lerp(pal_.dry, vec3(1.f), 0.45f) * (1.f - 0.3f * slow_);
     std::vector<float> q;
     for (const HudText& h : hud) {
         if (h.alpha <= 0.01f || h.text.empty()) continue;
         const float base = h.scale * 12.f;
         // letters over the ground line are set in the earth, pale like dry grass; the others in the sky's ink
-        auto earthAt = [&](float px, float py) {
+        auto inkAt = [&](float px, float py) {
             const float bx = viewC_.x + (px / width_ * 2.f - 1.f) * viewH_.x;
             const float by = viewC_.y - (py / height_ * 2.f - 1.f) * viewH_.y;
-            return by < groundY(bx, seedF_) - 0.1f;
+            if (by < groundY(bx, seedF_) - 0.1f) return earthInk;
+            return skyLumaAt(by) > 0.3f ? darkInk : lightInk;
         };
-        vec3 ink = skyInk, accent = skyAccent;
+        vec3 ink = inkAt(h.x < 0.f ? width_ + h.x : h.x, h.y + base * 0.5f);
+        vec3 accent = lerp(pal_.accent, ink, 0.2f);
         const float alpha = saturate(h.alpha);
         q.clear();
         auto place = [&](const Font& f, const std::string& text, float size, float track, float dy = 0.f) {
             const float w = textWidth(f, text, size, track);
             const float x = ugl::hudLeft(h, w, width_);
-            const bool e = earthAt(x + w * 0.5f, h.y + dy + size * 0.5f);
-            ink = e ? earthInk : skyInk;
-            accent = e ? earthInk : skyAccent;
+            ink = inkAt(x + w * 0.5f, h.y + dy + size * 0.8f);
+            accent = lerp(pal_.accent, ink, 0.2f);
             textQuads(f, text, x, h.y + dy, size, track, q);
         };
         switch (h.role) {
@@ -1202,12 +1209,11 @@ void GardenUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<
             const float x = ugl::hudLeft(h, wName + (var.empty() ? 0.f : gap + wVar), width_);
             textQuads(fontItalic_, name, x, h.y - base * 0.12f, sz, 0.f, q);
             const float a = saturate(0.35f + h.alpha * 1.6f);
-            drawText(fontItalic_, q, earthAt(x + wName * 0.5f, h.y + sz * 0.4f) ? earthInk : skyInk, a, 0.03f);
+            drawText(fontItalic_, q, inkAt(x + wName * 0.5f, h.y + sz * 0.4f), a, 0.03f);
             if (!var.empty()) {
                 q.clear();
                 textQuads(fontRoman_, var, x + wName + gap, h.y + base * 0.22f, vsz, vtr, q);
-                drawText(fontRoman_, q, earthAt(x + wName + gap + wVar * 0.5f, h.y + base * 0.22f + vsz * 0.5f) ? earthInk : skyInk,
-                         a * 0.85f, 0.02f);
+                drawText(fontRoman_, q, inkAt(x + wName + gap + wVar * 0.5f, h.y + base * 0.22f + vsz * 0.5f), a * 0.85f, 0.02f);
             }
             continue;
         }
@@ -1332,14 +1338,11 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     // ---- The ground line's plants and the air's things (behind the stack).
-    static int SKIP = getenv("GARDEN_SKIP") ? atoi(getenv("GARDEN_SKIP")) : 0;
-    if (!(SKIP & 1)) drawGround(music, world);
+    drawGround(music, world);
     drawParticles(false, world);
-    if (SKIP & 2) sprites_.clear();
     flushSprites();
     // ---- The stack, its growth, the falling piece.
     drawBoard(game, world);
-    if (SKIP & 4) cells_.clear();
     flushCells();
     drawStackGrowth(game, world);
     flushSprites();

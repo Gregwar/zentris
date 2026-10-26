@@ -37,7 +37,7 @@ uniform float uGlowAmt, uSlow, uBridge, uSeed, uPx, uStars, uVeil, uDry, uHaze, 
 float groundY(float x) {
     float a = abs(x);
     float side = smoothstep(6.0, 12.0, a);
-    return -10.05 + 0.3 * smoothstep(5.4, 11.0, a) + 3.4 * pow(smoothstep(11.0, 24.0, a), 1.3)
+    return -10.05 + 0.9 * smoothstep(5.5, 7.6, a) + 0.25 * smoothstep(7.6, 11.0, a) + 3.0 * pow(smoothstep(11.0, 24.0, a), 1.3)
            + (0.22 * sin(x * 0.37 + uSeed) + 0.12 * sin(x * 0.91 + uSeed * 1.7)) * side;
 }
 void main() {
@@ -50,7 +50,7 @@ void main() {
     sky = mix(sky, mix(vec3(grey), uSkyLow, 0.55) * 1.04, uHaze * 0.5);
     sky = mix(sky, sky * mix(vec3(1.0), uSkyTop / max(dot(uSkyTop, vec3(0.33)), 1e-3) * 0.33, 0.25), uLush * smoothstep(-6.0, 12.0, w.y));
     // the drop: a glow of the flowers' color rising from the horizon, steady for the whole drop
-    float glow = uGlowAmt * exp(-max(w.y + 9.0, 0.0) / 11.0);
+    float glow = uGlowAmt * exp(-max(w.y + 9.0, 0.0) / 13.0);
     sky = mix(sky, uGlow, clamp(glow, 0.0, 0.8));
     // slow motion: dusk falls over the garden
     vec3 dusk = mix(uDusk * 0.55, uDusk, smoothstep(-10.0, 6.0, -w.y));
