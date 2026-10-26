@@ -429,8 +429,7 @@ uniform vec3 uBridgeInk;
 // A piece is one body of ice: its outline is computed from the cell's 8 neighbours of the same piece (mask bits: 1 left,
 // 2 right, 4 up, 8 down, 16 up-left, 32 up-right, 64 down-left, 128 down-right), so nothing marks the junctions of its
 // cells. q: the point in cell units (-0.5 .. 0.5). Returns the depth inside the body (the distance to the nearest
-// cell that is not part of the piece; convex corners rounded, inner corners rounded by the seam), and up: how much
-// that nearest outside lies above (the light on the body's upper faces).
+// cell that is not part of the piece; convex corners rounded, inner corners rounded by the seam).
 float iceDepth(vec2 q, int m) {
     bool L = (m & 1) != 0, R = (m & 2) != 0, U = (m & 4) != 0, D = (m & 8) != 0;
     float dl = q.x + 0.5, dr = 0.5 - q.x, du = 0.5 - q.y, dd = q.y + 0.5;
