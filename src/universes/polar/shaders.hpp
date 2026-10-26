@@ -591,7 +591,8 @@ void main() {
         float u = vWorld.x - v0.x + 0.5;            // 0..1 across the face
         float dy = v3.y - vWorld.y;                 // below the face
         if (u < 0.02 || u > 0.98 || dy < -0.06) discard;
-        float fs = floor(v0.x + 0.5) * 7.0 + v3.x * 3.1 + v3.y * 1.37;
+        // seeded by the column and the piece only: the face slides down when rows collapse
+        float fs = floor(v0.x + 0.5) * 7.0 + v3.x * 3.1;
         float cov = 0.0, tt = 0.0, side = 0.0;
         for (int layer = 0; layer < 2; layer++) {
             float fl = float(layer);
