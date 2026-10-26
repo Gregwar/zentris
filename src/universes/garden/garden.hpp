@@ -87,6 +87,9 @@ private:
     struct GFlower { float x, stem, head, u, lean, seed; int color, petals; bool open; };
     std::vector<Blade> blades_;
     std::vector<GFlower> gflowers_;
+    struct KeepOut { float x0, x1, y0, y1; };   // HUD text near the ground line (board space): plants stay below it
+    std::vector<KeepOut> keepOut_;
+    float plantCap(float x, float y0, float len) const;
     void buildGround();
     void drawGround(const MusicState& music, float world);
     void drawStackGrowth(const Game& game, float world);

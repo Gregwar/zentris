@@ -861,6 +861,7 @@ void GardenUniverse::drawGround(const MusicState& music, float world) {
         // under the HUD columns, the plants stay below the text
         if (b.x > layout::LEFT_COLUMN[0] - 0.5f && b.x < layout::LEFT_COLUMN[2] + 0.5f) len = std::min(len, layout::LEFT_COLUMN[1] - 0.6f - y0);
         if (b.x > layout::RIGHT_COLUMN[0] - 0.5f && b.x < layout::RIGHT_COLUMN[2] + 0.5f) len = std::min(len, layout::RIGHT_COLUMN[1] - 0.6f - y0);
+        len = plantCap(b.x, y0, len);
         if (len <= 0.02f) continue;
         vec3 col = lerp(pal_.grass, pal_.lush, saturate(b.h3 * 0.6f + 0.6f * wp));
         col = lerp(col, pal_.dry * (0.85f + 0.3f * b.h4) * (stem ? 0.55f : 1.f), saturate(dry_ * (0.65f + 0.35f * b.h3) + (stem ? 0.35f * dry_ : 0.f)));
@@ -890,6 +891,7 @@ void GardenUniverse::drawGround(const MusicState& music, float world) {
             const float y0 = groundY(f.x, seedF_) - 0.05f;
             float len = f.stem * side * (0.5f + 0.5f * grassH_) * stemG;
             if (f.x > layout::LEFT_COLUMN[0] - 0.5f && f.x < layout::LEFT_COLUMN[2] + 0.5f) len = std::min(len, layout::LEFT_COLUMN[1] - 0.8f - y0);
+            len = plantCap(f.x, y0, len + f.head * side * 1.2f) - f.head * side * 1.2f;
             if (len <= 0.02f) continue;
             const float rot = f.lean + sway(f.x, f.seed) * 1.3f;
             const vec3 stemCol = pal_.lush * 0.8f * dusk;
@@ -917,6 +919,13 @@ void GardenUniverse::drawGround(const MusicState& music, float world) {
             }
         }
     }
+}
+
+// A plant at x rooted at y0 stays below the HUD letters near the ground line.
+float GardenUniverse::plantCap(float x, float y0, float len) const {
+    for (const KeepOut& k : keepOut_)
+        if (x > k.x0 && x < k.x1 && k.y1 > y0) len = std::min(len, std::max(0.f, k.y0 - 0.15f - y0));
+    return len;
 }
 
 // Grass and flowers on the open tops of the stack.
@@ -1282,6 +1291,18 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
         const Palette target = paletteOf(variant_);
         if (!palSet_) { pal_ = target; palSet_ = true; }
         else lerpPalette(pal_, target, 1.f - std::exp(-dt * 1.0f));
+    }
+    // the HUD letters in the lower part of the picture: the plants keep below them
+    keepOut_.clear();
+    for (const HudText& h : f.hud) {
+        if (h.alpha <= 0.01f || h.text.empty()) continue;
+        const float base = h.scale * 12.f;
+        const float w = (float)h.text.size() * base * 0.75f;
+        const float x0 = ugl::hudLeft(h, w, width_), y0 = h.y - base * 0.3f, y1 = h.y + base * 1.6f;
+        const float bx0 = viewC_.x + (x0 / width_ * 2.f - 1.f) * viewH_.x, bx1 = viewC_.x + ((x0 + w) / width_ * 2.f - 1.f) * viewH_.x;
+        const float byTop = viewC_.y - (y0 / height_ * 2.f - 1.f) * viewH_.y, byBot = viewC_.y - (y1 / height_ * 2.f - 1.f) * viewH_.y;
+        if (byBot > -4.f) continue;
+        keepOut_.push_back({bx0 - 0.3f, bx1 + 0.3f, byBot, byTop});
     }
     // the section, from the HUD (a drop blooms, a chorus stays green)
     sectionKnown_ = false;

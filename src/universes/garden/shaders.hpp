@@ -47,7 +47,7 @@ void main() {
     vec3 sky = mix(uSkyLow, uSkyTop, smoothstep(0.0, 1.0, pow(h, 0.75)));
     // dry spells: a pale, dusty haze; the peak: a deeper, clearer sky
     float grey = dot(sky, vec3(0.3, 0.5, 0.2));
-    sky = mix(sky, mix(vec3(grey), uSkyLow, 0.55) * 1.04, uHaze * 0.5);
+    sky = mix(sky, mix(vec3(grey), uSkyLow, 0.6) * 1.05, uHaze * 0.38);
     sky = mix(sky, sky * mix(vec3(1.0), uSkyTop / max(dot(uSkyTop, vec3(0.33)), 1e-3) * 0.33, 0.25), uLush * smoothstep(-6.0, 12.0, w.y));
     // the drop: a glow of the flowers' color rising from the horizon, steady for the whole drop
     float glow = uGlowAmt * exp(-max(w.y + 9.0, 0.0) / 13.0);
