@@ -52,6 +52,10 @@ float layerTop(int k, float x) {
 float layerBase(int k) { return uLevel + L_OFF[k] * uSpread; }
 // the sandy bed under the sea: low dunes (sea.cpp's sandTop is the same function)
 float sandTop(float x) { return -9.35 + 0.55 * sin(x * 0.21 + 1.3) + 0.3 * sin(x * 0.53 + 0.4) + 0.1 * sin(x * 1.37 + 2.0); }
+// how dark the water is this far under the surface (sea.cpp's darkAt)
+float darkAt(float depth) { return smoothstep(0.5, 10.0, depth); }
+// the well's panel: more opaque over the dark depths, so the glass stays easy to read there
+float panelK(float pa, vec2 w) { return mix(pa, 0.88, smoothstep(2.0, 10.0, layerTop(2, w.x) - w.y)); }
 
 )";
 
@@ -70,7 +74,7 @@ uniform vec4 uSun;           // x, y, radius, moon (0 / 1)
 uniform vec3 uSea0, uSea1, uSea2, uDeep, uFoam, uHaze, uStormSea;
 uniform vec3 uPanel, uSand;
 uniform float uPanelA;
-uniform float uStorm, uCaps, uGlint, uRain, uFlash, uFlashX, uSlow, uBridge, uStars, uClouds;
+uniform float uStorm, uCaps, uGlint, uRain, uFlash, uFlashX, uSlow, uBridge, uStars, uClouds, uLifeGlow;
 uniform vec3 uBridgeCol;
 
 
@@ -142,10 +146,32 @@ void main() {
             c = mix(c, uHaze, 0.22 * exp(-max(depth, 0.0) / 0.3) * (1.0 - 0.3 * float(k)));
             c = mix(c, uDeep, smoothstep(0.0, 8.0, depth) * 0.75 * float(k) * 0.5);
             // long soft streaks on the water
-            c *= 0.96 + 0.08 * vnoise(vec2(w.x * 0.5 - uWaveT * 0.3 * uDir, w.y * 9.0 + float(k) * 5.0));
-            // the storm: darker, greyer water
-            c = mix(c, uStormSea * (1.35 - 0.3 * float(k)), uStorm * 0.6);
-            c = mix(c, uDusk * (0.55 - 0.1 * float(k)), uSlow * 0.7);
+            c *= 0.96 + 0.08 * vnoise(vec2(w.x * 0.5 - uWaveT * 0.3 * uDir, w.y * 9.0 + float(k) * 5.0)) * exp(-max(depth, 0.0) / 4.0);
+            // the storm: darker, greyer water (near the surface: the depths are dark already)
+            float dk = k == 2 ? darkAt(depth) : 0.0;
+            c = mix(c, uStormSea * (1.35 - 0.3 * float(k)), uStorm * 0.6 * (1.0 - dk));
+            c = mix(c, uDusk * (0.55 - 0.1 * float(k)), uSlow * 0.7 * (1.0 - dk));
+            if (k == 2) {
+                // light from the surface: long soft shafts slanting down, fading with depth
+                float ray = vnoise(vec2((w.x + (w.y - top) * 0.35) * 0.8 + uWaveT * 0.04, 0.5));
+                c += uHaze * 0.08 * smoothstep(0.55, 0.9, ray) * exp(-max(depth, 0.0) / 3.0) * (1.0 - uStorm) * (1.0 - uSlow);
+                // the deep: darker and darker, to a near-black blue
+                c = mix(c, uDeep * 0.2, dk * 0.92);
+                // a few points of light living in the dark, each drifting and glowing at its own slow pace
+                if (dk > 0.4) {
+                    vec2 g = w * 1.1 + vec2(uTime * 0.02, 0.0);
+                    vec2 gc = floor(g);
+                    float r = hash12(gc + 31.0);
+                    if (r > 0.9) {
+                        vec2 o = vec2(hash12(gc + 4.1), hash12(gc + 8.3)) * 0.6 + 0.2 +
+                                 0.1 * vec2(sin(uTime * 0.3 + r * 30.0), cos(uTime * 0.23 + r * 17.0));
+                        float d = length(fract(g) - o);
+                        float tw = 0.55 + 0.45 * sin(uTime * (0.3 + r * 0.5) + r * 60.0);
+                        vec3 bc = mix(vec3(0.35, 0.9, 1.0), vec3(0.6, 1.0, 0.75), hash12(gc + 2.2));
+                        c += bc * (smoothstep(0.06, 0.02, d) * 0.8 + exp(-d * 16.0) * 0.18) * tw * smoothstep(0.4, 0.9, dk) * uLifeGlow;
+                    }
+                }
+            }
             // glints: short sparks of light on the water, most under the sun
             if (uGlint > 0.01) {
                 vec2 g = vec2(w.x * 2.4 + float(k) * 7.0, w.y * 10.0);
@@ -157,7 +183,7 @@ void main() {
                     vec2 gq = fract(g) - 0.5;
                     float tw = 0.5 + 0.5 * sin(uTime * (0.9 + r * 1.3) + r * 40.0);
                     float dash = smoothstep(0.42, 0.1, abs(gq.x)) * smoothstep(0.22, 0.0, abs(gq.y));
-                    float fade = exp(-max(depth, 0.0) / (1.2 + 2.0 * float(k)));
+                    float fade = exp(-max(depth, 0.0) / (1.2 + 2.0 * float(k))) * (1.0 - dk);
                     c = mix(c, mix(uSunCol, vec3(1.0), 0.3), dash * tw * tw * uGlint * fade * (0.5 + 0.5 * under));
                 }
             }
@@ -167,7 +193,7 @@ void main() {
                 float fn = vnoise(vec2(w.x * 3.0 - uWaveT * uDir * 1.5, w.y * 6.0 + float(k) * 3.0));
                 float cap = smoothstep(0.3, 0.85, hgt) * smoothstep(0.08 + 0.25 * A, 0.0, depth) * smoothstep(0.35, 0.6, fn);
                 float streak = smoothstep(0.66, 0.85, vnoise(vec2(w.x * 0.8 - uWaveT * uDir * 0.8, w.y * 5.0 + float(k) * 9.0))) * uStorm * 0.35 *
-                               exp(-max(depth, 0.0) / 1.5);
+                               exp(-max(depth, 0.0) / 0.8);
                 c = mix(c, uFoam, clamp((cap + streak) * uCaps, 0.0, 0.9) * flatAt(w.x));
             }
             // a fine bright line along the crest
@@ -189,6 +215,7 @@ void main() {
             float wTop = tops[2];
             float wet = smoothstep(-uPx, uPx, wTop - w.y);
             sc = mix(sc, mix(uSea2, uDeep, 0.4) * 0.9 + uSand * 0.12, wet * 0.7);
+            sc = mix(sc, uDeep * 0.22, wet * darkAt(wTop - w.y) * 0.9);
             sc = mix(sc, uSand * 0.6, smoothstep(0.12, 0.0, abs(w.y - (wTop - 0.06))) * smoothstep(-0.05, 0.1, sT - wTop) * 0.5);
             sc = mix(sc, uDusk * 0.5, uSlow * 0.5);
             sc = mix(sc, uStormSea * 0.7, uStorm * 0.3);
@@ -205,11 +232,11 @@ void main() {
         float line = smoothstep(uPx * 1.2, 0.0, abs(fract(r.x * 4.0) - 0.5) / 4.0) * smoothstep(0.0, 0.02, v) * smoothstep(0.09, 0.03, v);
         line *= step(0.55, hash12(vec2(colI, floor(r.y * 0.12 + uTime * (1.4 + off) + off * 7.0))));
         float hudCol = abs(w.x) > 5.8 && abs(w.x) < 11.5 && w.y > -7.0 ? 0.45 : 1.0;
-        col = mix(col, mix(uFoam, uSkyLow, 0.5), line * uRain * 0.16 * hudCol * (1.0 - inWell));
+        col = mix(col, mix(uFoam, uSkyLow, 0.5), line * uRain * 0.16 * hudCol * (1.0 - inWell) * smoothstep(-0.05, 0.1, w.y - tops[2]));
     }
     // the well: a calm, subdued panel over the sea and the sky, with a fine edge
     float wellE = smoothstep(uPx * 1.5, 0.0, abs(wellD + uPx));
-    col = mix(col, uPanel, inWell * uPanelA);
+    col = mix(col, uPanel, inWell * panelK(uPanelA, w));
     col = mix(col, mix(uPanel, uHaze, 0.5), wellE * 0.35);
     col = mix(col, uBridgeCol, uBridge);
     frag = vec4(enc(col), 1.0);
@@ -383,21 +410,21 @@ void main() {
     if (abs(vW.x) > 6.0 && vW.y > -6.8) a *= 0.55;
     vec2 wd = abs(vW) - vec2(5.08, 10.08);
     float wellD = length(max(wd + 0.25, 0.0)) + min(max(wd.x + 0.25, wd.y + 0.25), 0.0) - 0.25;
-    bc = mix(bc, uPanel, smoothstep(uPx, -uPx, wellD) * uPanelA);
+    bc = mix(bc, uPanel, smoothstep(uPx, -uPx, wellD) * panelK(uPanelA, vW));
     frag = vec4(enc(bc), a);
 }
 )";
 
 // ---------------------------------------------------------------- the glass cubes of water
-// One instance per cell. The cells of one piece make one glass vessel (the shape is the distance to the empty squares
-// around the cell, those of its 8 neighbours that are not the same piece): a clear shell with a fine wall, a light
-// line along its upper left inside, and water in it up to one level for the whole vessel (it levels out when the
-// piece turns, tilts when it moves).
+// One instance per cell: every cell is its own small glass cube, completely full of water, with a small gap to its
+// neighbours. A clear shell with some thickness (a lit top, a shaded right side and bottom), the cube's back edges
+// seen faintly through the water, a bright specular at the upper left; water darker toward the bottom, slow
+// caustics, a few bubbles. A cube about to burst cracks.
 inline const char* CELL_VS = R"(#version 330 core
 layout(location = 0) in vec2 aQ;
-layout(location = 1) in vec4 a0;   // x, y, size, neighbour mask (L R D U LD RD LU RU)
+layout(location = 1) in vec4 a0;   // x, y, size, rotation
 layout(location = 2) in vec4 a1;   // linear rgb, alpha
-layout(location = 3) in vec4 a2;   // water level above the cell's bottom (cells), slope, ghost, -
+layout(location = 3) in vec4 a2;   // ghost, crack, -, -
 layout(location = 4) in vec4 a3;   // seed, -, -, -
 uniform mat4 uVP;
 out vec2 vP;
@@ -405,7 +432,9 @@ flat out vec4 v0, v1, v2, v3;
 void main() {
     vP = aQ * 0.5;
     v0 = a0; v1 = a1; v2 = a2; v3 = a3;
-    gl_Position = uVP * vec4(a0.xy + vP * a0.z, 0.0, 1.0);
+    float c = cos(a0.w), s = sin(a0.w);
+    vec2 d = vP * a0.z;
+    gl_Position = uVP * vec4(a0.xy + vec2(c * d.x - s * d.y, s * d.x + c * d.y), 0.0, 1.0);
 }
 )";
 inline const char* CELL_FS = R"(#version 330 core
@@ -414,121 +443,281 @@ flat in vec4 v0, v1, v2, v3;
 out vec4 frag;
 uniform float uPx, uTime, uBridge, uLightPanel;
 uniform vec3 uBridgeInk;
-float boxD(vec2 p, vec2 o) {
-    vec2 q = abs(p - o) - 0.5;
-    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+float rbox(vec2 p, vec2 h, float r) {
+    vec2 q = abs(p) - h + r;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 void main() {
-    int m = int(v0.w + 0.5);
     float size = v0.z;
-    vec2 offs[8] = vec2[8](vec2(-1.0, 0.0), vec2(1.0, 0.0), vec2(0.0, -1.0), vec2(0.0, 1.0),
-                           vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0));
-    float dE = 9.0, dTL = 9.0, dBR = 9.0;
-    for (int i = 0; i < 8; i++) {
-        if (((m >> i) & 1) != 0) continue;
-        float d = boxD(vP, offs[i]);
-        dE = min(dE, d);
-        // the upper left sides (L, U, LU) catch the light, the lower right ones (R, D, RD) are in shade
-        if ((offs[i].x < -0.5 && offs[i].y > -0.5) || (offs[i].y > 0.5 && offs[i].x < 0.5)) dTL = min(dTL, d);
-        if ((offs[i].x > 0.5 && offs[i].y < 0.5) || (offs[i].y < -0.5 && offs[i].x > -0.5)) dBR = min(dBR, d);
-    }
-    // rounded outer corners (both sides open)
-    const float R = 0.16;
-    for (int c = 0; c < 4; c++) {
-        vec2 s = vec2(c == 0 || c == 2 ? -1.0 : 1.0, c < 2 ? -1.0 : 1.0);
-        int sx = s.x < 0.0 ? 0 : 1, sy = s.y < 0.0 ? 2 : 3;
-        if (((m >> sx) & 1) != 0 || ((m >> sy) & 1) != 0) continue;
-        vec2 q = vP * s - vec2(0.5 - R);
-        if (q.x > 0.0 && q.y > 0.0) {
-            float d = R - length(q);
-            dE = min(dE, d);
-            if (s.x < 0.0 && s.y > 0.0) dTL = min(dTL, d);
-            if (s.x > 0.0 && s.y < 0.0) dBR = min(dBR, d);
-        }
-    }
     float px = uPx / size;
-    const float inset = 0.045;
-    float shape = smoothstep(inset - px, inset + px, dE);
-    float e = dE - inset;   // depth inside the glass
-    bool ghost = v2.z > 0.5;
-    vec3 tint = v1.rgb;
+    vec2 p = vP;
+    const float H = 0.455;   // the cube's half size (a gap of 0.09 between neighbours)
+    const float WT = 0.07;   // the glass's thickness
+    float d = rbox(p, vec2(H), 0.075);
+    float shape = smoothstep(px, -px, d);
+    if (shape <= 0.0) discard;
+    float e = -d;            // depth inside the glass
     bool lightP = uLightPanel > 0.5;
-    // the glass: a wall with some thickness (an outer and an inner edge), clear, darker along the lower right
-    const float WT = 0.09;
-    float wall = smoothstep(WT + px, WT - px, e);
-    float outerL = smoothstep(px * 1.6, 0.0, abs(e)) ;
-    float innerL = smoothstep(px * 1.4, 0.0, abs(e - WT));
-    vec3 edgeC = lightP ? tint * 0.35 : mix(tint, vec3(1.0), 0.7);
-    vec3 wallC = mix(tint, vec3(1.0), lightP ? 0.62 : 0.5);
-    float shadeBR = dBR < dTL ? 0.82 : 1.0;
-    if (ghost) {
-        frag = vec4(enc(mix(edgeC, uBridgeInk, uBridge)), shape * (max(outerL, innerL) * 0.45 + wall * 0.08 + 0.04) * v1.a);
+    vec3 tint = v1.rgb;
+    vec3 edgeC = lightP ? tint * 0.32 : mix(tint, vec3(1.0), 0.75);
+    float outerL = smoothstep(px * 1.6, 0.0, abs(e));
+    if (v2.x > 0.5) {
+        // the ghost: only the cube's outline, faint
+        float innerG = smoothstep(px * 1.4, 0.0, abs(e - WT));
+        frag = vec4(enc(mix(edgeC, uBridgeInk, uBridge)), (max(outerL, innerG * 0.6) * 0.5 + 0.05) * shape * v1.a);
         return;
     }
-    // the water: one level for the vessel, one clean surface with a gentle ripple
-    vec2 wp = v0.xy + vP * size;
-    float s = v2.x - 0.5 + v2.y * vP.x + (0.012 * sin(uTime * 1.6 + wp.x * 4.0 + v3.x) + 0.006 * sin(uTime * 2.7 - wp.x * 7.0)) / size;
-    float depth = s - vP.y;
-    float inner = smoothstep(WT - px, WT + px, e);
-    float wm = smoothstep(-px, px, depth) * inner;
-    // the air in the glass: nearly clear, a breath of the water's color
-    vec3 col = mix(tint, vec3(1.0), lightP ? 0.7 : 0.5);
-    float a = lightP ? 0.12 : 0.1;
-    // the water: one body, slowly darker with depth, soft caustics moving slowly
-    vec3 wc = tint * (1.12 - 0.3 * smoothstep(0.0, 2.6, depth));
-    float cs = vnoise(wp * 2.2 + vec2(uTime * 0.25, -uTime * 0.18)) + vnoise(wp * 3.1 - vec2(uTime * 0.2, uTime * 0.12));
-    wc *= 0.93 + 0.14 * smoothstep(0.75, 1.25, cs) * (1.0 - smoothstep(0.0, 3.0, depth) * 0.5);
-    // a darker rim where the water meets the glass (light bending at the wall)
-    wc *= 0.72 + 0.28 * smoothstep(WT, WT + 0.09, e);
-    // small bubbles rising slowly through the water, each column its own pace
+    float wall = smoothstep(WT + px, WT - px, e);
+    float inner = 1.0 - wall;
+    float seed = v3.x;
+    // ---- the water, filling the cube: lighter just under the top, darker toward the bottom
+    vec3 wc = tint * (1.12 - 0.4 * smoothstep(0.4, -0.45, p.y));
+    wc = mix(wc, mix(tint, vec3(1.0), 0.35), smoothstep(H - WT - 0.1, H - WT, p.y) * 0.5);
+    // slow caustics (in the cube's own frame, each cube its own)
+    vec2 cp = p * 3.2 + seed;
+    float cs = vnoise(cp + vec2(uTime * 0.35, -uTime * 0.22)) + vnoise(cp * 1.4 - vec2(uTime * 0.27, uTime * 0.16) + 5.0);
+    wc *= 0.9 + 0.22 * smoothstep(0.9, 1.3, cs) * smoothstep(-0.45, 0.2, p.y);
+    // a darker rim where the water meets the glass
+    wc *= 0.74 + 0.26 * smoothstep(WT, WT + 0.08, e);
+    // the cube's back edges, seen through the water (a little up and to the right: a hint of depth)
     {
-        vec2 g = vec2(wp.x * 4.0, 0.0);
-        float ci = floor(g.x);
-        float r = hash12(vec2(ci, v3.x * 1.7));
-        if (r > 0.45) {
-            float sp = 0.18 + 0.25 * hash12(vec2(ci, 3.3));
-            float ph = wp.y * 0.6 - uTime * sp * 0.6 + r * 9.0;
-            float by = (fract(ph) - 0.5) / 0.6;
-            float bx = (fract(g.x) - 0.5) / 4.0 + 0.025 * sin(uTime * 2.0 + wp.y * 5.0 + r * 20.0);
-            float br = 0.028 + 0.03 * hash12(vec2(ci, floor(ph) + 1.1));
-            float bd = length(vec2(bx, by)) - br;
-            float ring = smoothstep(uPx * 1.3, 0.0, abs(bd)) + smoothstep(0.0, -br, bd) * 0.15;
-            float hi = smoothstep(br * 0.6, 0.0, length(vec2(bx, by) + br * 0.35)) * step(bd, 0.0);
-            wc = mix(wc, mix(tint, vec3(1.0), 0.75), clamp(ring * 0.7 + hi * 0.8, 0.0, 1.0) * smoothstep(WT, WT + 0.06, e));
-        }
+        float db = rbox(p - vec2(0.055, 0.055), vec2(H - WT - 0.035), 0.05);
+        float back = smoothstep(px * 1.3, 0.0, abs(db)) * step(0.0, -rbox(p, vec2(H - WT), 0.05));
+        // only the back's top and right edges show (the front's hide the others)
+        back *= step(0.0, max(p.y - (H - WT - 0.1), p.x - (H - WT - 0.1)));
+        wc = mix(wc, mix(tint, vec3(1.0), 0.55), back * 0.45);
     }
-    col = mix(col, wc, wm);
-    a = mix(a, 0.9, wm);
-    // the surface: one thin bright line
-    float men = smoothstep(px * 1.6, 0.0, abs(depth)) * inner;
-    col = mix(col, mix(tint, vec3(1.0), 0.8), men * 0.9);
-    a = max(a, men * 0.95);
-    // the glass wall over it: clear and pale, its two edges drawn, the lower right in shade
-    col = mix(col, wallC * shadeBR, wall * 0.7);
-    a = max(a, wall * (lightP ? 0.6 : 0.5));
-    float edges = max(outerL, innerL * 0.6);
-    col = mix(col, edgeC * shadeBR, edges);
-    a = max(a, edges * 0.9);
-    // reflections on the glass: two diagonal streaks across the whole vessel (in world space, so they run on across
-    // its cells), and a bright rim along the upper left
-    float dg = (wp.x + wp.y) * 0.7071;
-    float st = fract(dg / 3.4 + 0.37);
-    float streak = smoothstep(0.05, 0.0, abs(st - 0.5)) * 0.8 + smoothstep(0.018, 0.0, abs(st - 0.57)) * 0.6;
-    streak *= smoothstep(WT * 0.5, WT * 1.5, e);
-    col = mix(col, vec3(1.0), streak * 0.35);
-    a = max(a, streak * 0.35);
-    float hl = smoothstep(px * 1.8, 0.0, abs(dTL - inset - WT * 0.5)) * step(dTL, dBR + 0.2);
-    col = mix(col, vec3(1.0), hl * 0.8);
-    a = max(a, hl * 0.85);
+    // two or three small bubbles rising slowly
+    for (int i = 0; i < 3; i++) {
+        float fi = float(i);
+        float r = hash12(vec2(seed, fi * 7.1));
+        float sp = 0.06 + 0.06 * r;
+        float ph = fract(uTime * sp + r * 3.0);
+        vec2 bc = vec2(-0.25 + 0.5 * hash12(vec2(seed + 2.0, fi)) + 0.03 * sin(uTime * 1.7 + r * 20.0), -0.33 + 0.62 * ph);
+        float br = 0.022 + 0.022 * hash12(vec2(fi, seed + 4.0));
+        float bd = length(p - bc) - br;
+        float ring = smoothstep(px * 1.3, 0.0, abs(bd)) * 0.8 + smoothstep(0.0, -br, bd) * 0.12;
+        float hi = smoothstep(br * 0.5, 0.0, length(p - bc + br * 0.35)) * step(bd, 0.0);
+        wc = mix(wc, mix(tint, vec3(1.0), 0.8), clamp(ring + hi, 0.0, 1.0) * smoothstep(0.3, 0.6, 1.0 - ph) * smoothstep(0.0, 0.15, ph));
+    }
+    vec3 col = wc;
+    float a = 0.92;
+    // ---- the glass: clear and pale, its top lit, its right side and bottom in shade
+    vec3 wallC = mix(tint, vec3(1.0), lightP ? 0.6 : 0.55);
+    float topLit = smoothstep(0.0, 0.1, p.y - abs(p.x) * 0.0 - (H - WT - 0.02));
+    float shade = (p.x > abs(p.y) || -p.y > abs(p.x)) ? (lightP ? 0.7 : 0.78) : 1.0;
+    vec3 gc = wallC * shade;
+    gc = mix(gc, vec3(1.0), topLit * 0.5);
+    col = mix(col, gc, wall * 0.85);
+    a = mix(a, lightP ? 0.75 : 0.65, wall);
+    // the wall's two edges
+    float innerL = smoothstep(px * 1.3, 0.0, abs(e - WT));
+    col = mix(col, edgeC * shade, outerL * 0.95);
+    col = mix(col, mix(edgeC, tint, 0.5) * shade, innerL * 0.55);
+    a = max(a, outerL * 0.95);
+    // ---- the specular: a bright soft spot at the upper left and a thin diagonal glint across the face
+    float spec = exp(-length((p - vec2(-0.27, 0.27)) * vec2(1.0, 1.6)) * 11.0);
+    // a broad soft sheen across the upper left half of the face
+    float dg = (p.x - p.y) * 0.7071;
+    float streak = smoothstep(0.12, 0.0, abs(dg + 0.2)) * 0.22 * smoothstep(-0.05, 0.12, e - WT);
+    float rim = smoothstep(px * 1.8, 0.0, abs(e - WT * 0.45)) * smoothstep(0.1, 0.25, -p.x + p.y) * 0.8;
+    float hl = clamp(spec * 0.85 + streak + rim, 0.0, 1.0);
+    col = mix(col, vec3(1.0), hl);
+    // ---- cracks, spreading from a point of impact as the cube is about to burst
+    float cr = v2.y;
+    if (cr > 0.001) {
+        vec2 o = vec2(hash12(vec2(seed, 1.0)), hash12(vec2(seed, 2.0))) * 0.3 - 0.15;
+        vec2 q = p - o;
+        float ang = atan(q.y, q.x);
+        float n = 7.0;
+        float k = floor(ang / 6.2832 * n + 0.5);
+        float aj = (k + 0.3 * (hash12(vec2(k, seed)) - 0.5)) / n * 6.2832;
+        vec2 dir = vec2(cos(aj), sin(aj));
+        float along = dot(q, dir);
+        float off = abs(q.x * dir.y - q.y * dir.x) + 0.02 * sin(along * 30.0 + k);
+        float len = cr * (0.5 + 0.4 * hash12(vec2(k, seed + 3.0)));
+        float line = smoothstep(px * 1.6, 0.0, off) * step(0.0, along) * smoothstep(len, len - 0.05, along);
+        col = mix(col, vec3(1.0), line * 0.9);
+        a = max(a, line);
+        col = mix(col, mix(tint, vec3(1.0), 0.5), cr * cr * 0.3);
+    }
     col = mix(col, uBridgeInk, uBridge);
     a = mix(a, 1.0, uBridge);
     frag = vec4(enc(col), a * shape * v1.a);
 }
 )";
 
+// ---------------------------------------------------------------- life in the sea
+// One quad per critter (sea.cpp's drawLife), cut at the sea's surface and veiled by the well's panel like the sea
+// behind it. Flat cut-paper shapes: a small fish (its tail beating), a jellyfish (a pulsing translucent bell, trailing
+// tentacles, a soft glow), an anglerfish (a near-black shape, a lit lure), a siphonophore (a chain of lit beads).
+inline const char* LIFE_VS = R"(#version 330 core
+layout(location = 0) in vec2 aQ;
+layout(location = 1) in vec4 a0;   // x, y, half extents
+layout(location = 2) in vec4 a1;   // direction, kind, animation, glow
+layout(location = 3) in vec4 a2;   // linear rgb, alpha
+layout(location = 4) in vec4 a3;   // glow rgb, seed
+uniform mat4 uVP;
+out vec2 vQ;
+out vec2 vW;
+flat out vec4 v0, v1, v2, v3;
+void main() {
+    vQ = aQ;
+    vW = a0.xy + aQ * a0.zw;
+    v0 = a0; v1 = a1; v2 = a2; v3 = a3;
+    gl_Position = uVP * vec4(vW, 0.0, 1.0);
+}
+)";
+inline const char* LIFE_FS = R"(#version 330 core
+in vec2 vQ;
+in vec2 vW;
+flat in vec4 v0, v1, v2, v3;
+out vec4 frag;
+uniform float uPx, uPanelA, uSlow;
+uniform vec3 uPanel, uDusk;
+float sdEll(vec2 p, vec2 r) {
+    float k = length(p / r);
+    return (k - 1.0) * min(r.x, r.y);
+}
+float sdSeg(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a, ba = b - a;
+    return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
+}
+void main() {
+    int kind = int(v1.y + 0.5);
+    float t = v1.z, glowK = v1.w;
+    vec2 ext = v0.zw;
+    // the critter's own frame, in board units, facing +x
+    vec2 q = vQ * ext;
+    q.x *= v1.x;
+    float px = uPx;
+    vec3 col = v2.rgb;
+    float a = 0.0;
+    vec3 glow = v3.rgb;
+    float g = 0.0;   // additive glow
+    if (kind == 0) {
+        // a small fish: an almond body, a forked tail beating
+        float L = ext.x / 1.25;
+        vec2 b = q / L;
+        float wag = sin(t) * 0.18 * smoothstep(0.1, -0.9, b.x);
+        b.y -= wag;
+        float body = sdEll(b - vec2(0.15, 0.0), vec2(0.62, 0.27));
+        vec2 tq = b - vec2(-0.55, 0.0);
+        float tail = max(max(-tq.x - 0.42, tq.x - 0.08 + abs(tq.y) * 0.3), abs(tq.y) - (0.05 - tq.x * 0.7));
+        float fork = -(abs(tq.y) - (-tq.x - 0.24) * 0.5);
+        tail = max(tail, -max(fork, -tq.x - 0.42));
+        float dd = min(body, tail) * L;
+        a = smoothstep(px, -px, dd);
+        // an eye, and a slightly darker back
+        col *= 1.0 - 0.12 * smoothstep(-0.05, 0.15, b.y);
+        float eye = smoothstep(px * 0.9, -px * 0.9, length(b - vec2(0.52, 0.05)) * L - 0.025);
+        col = mix(col, col * 0.35, eye);
+    } else if (kind == 1) {
+        // a jellyfish: a bell contracting and opening slowly, tentacles trailing under it
+        float R = ext.x / 1.2;
+        vec2 b = (q - vec2(0.0, ext.y - R * 1.0)) / R;   // the bell's center near the top of the quad
+        float c = pow(0.5 + 0.5 * sin(t * 3.0), 3.0);    // the contraction
+        vec2 br = vec2(0.85 - 0.18 * c, 0.62 + 0.12 * c);
+        float bell = max(sdEll(b, br), -b.y - 0.05 * (1.0 - c));
+        float bellA = smoothstep(px / R, -px / R, bell);
+        float rimL = smoothstep(2.5 * px / R, 0.0, abs(bell));
+        float inside = smoothstep(0.0, -0.4, bell);
+        // tentacles: a few wavy threads and two frilled oral arms
+        float ten = 1.0;
+        float tl = 0.0;
+        for (int i = 0; i < 5; i++) {
+            float fi = float(i);
+            float x0 = (fi - 2.0) / 2.0 * br.x * 0.8;
+            float yy = -b.y;
+            float len = 2.4 + 0.6 * fract(fi * 0.37 + v3.w);
+            if (yy > 0.0 && yy < len) {
+                float wx = x0 * (1.0 - 0.15 * yy) + 0.12 * sin(yy * 2.6 - t * 2.0 + fi * 1.7) * yy * 0.6;
+                float w = (i == 1 || i == 3) ? 0.06 : 0.025;
+                float dd = abs(b.x - wx) - w * (1.0 - yy / len);
+                ten = min(ten, dd);
+                tl = max(tl, smoothstep(px * 1.2 / R, 0.0, dd) * (1.0 - yy / len));
+            }
+        }
+        a = max(bellA * (0.45 + 0.35 * (1.0 - inside)), rimL * 0.85);
+        a = max(a, tl * 0.6);
+        col = mix(col, vec3(1.0), rimL * 0.4);
+        // the glow around it
+        float gd = length(b * vec2(1.0, 1.2));
+        g = exp(-gd * 2.2) * 0.35 + bellA * 0.25;
+        g *= glowK;
+    } else if (kind == 2) {
+        // an anglerfish: a round dark body, a wide jaw with pale teeth, a stalk bent forward, a lit lure
+        float S = ext.y / 1.25;
+        vec2 b = q / S;
+        float body = sdEll(b - vec2(-0.05, -0.05), vec2(0.62, 0.5));
+        // the tail
+        vec2 tq = b - vec2(-0.75, 0.0);
+        float tail = max(-tq.x - 0.35, max(tq.x - 0.1, abs(tq.y) - (0.08 - tq.x * 0.8)));
+        // the open mouth: a wedge cut from the front
+        vec2 mq = b - vec2(0.62, -0.12);
+        float mouth = max(-mq.x - 0.45, abs(mq.y + mq.x * 0.1) - (0.02 + (mq.x + 0.45) * 0.35));
+        float dd = max(min(body, tail), -mouth) * S;
+        a = smoothstep(px, -px, dd);
+        // teeth along the jaws
+        float teeth = 0.0;
+        if (mouth < 0.06 && mq.x > -0.4 && mq.x < 0.05) {
+            float u = fract((mq.x + 0.4) / 0.09);
+            teeth = smoothstep(0.03, 0.0, abs(abs(mq.y + mq.x * 0.1) - (0.02 + (mq.x + 0.45) * 0.35) + (0.5 - abs(u - 0.5)) * 0.1 - 0.02));
+        }
+        col = mix(col, mix(glow, vec3(1.0), 0.5) * 0.35, teeth * a);
+        // the stalk, bending forward, the lure bobbing at its end
+        vec2 lure = vec2(0.82 + 0.05 * sin(t * 0.9), 0.62 + 0.06 * sin(t * 1.3));
+        vec2 mid = vec2(0.45, 0.85);
+        float stalk = min(sdSeg(b, vec2(0.15, 0.42), mid), sdSeg(b, mid, lure)) * S - 0.008;
+        float sa = smoothstep(px, -px, stalk);
+        a = max(a, sa);
+        // the body catches a little of the lure's light
+        float lit = exp(-length(b - lure) * 2.5) * 0.6;
+        col += glow * lit * 0.12 * a;
+        float ld = length(b - lure) * S;
+        float lo = smoothstep(0.05, 0.02, ld);
+        col = mix(col, mix(glow, vec3(1.0), 0.5), lo);
+        a = max(a, lo);
+        g = (exp(-ld * 9.0) * 0.6 + exp(-ld * 2.5) * 0.15) * glowK * (0.85 + 0.15 * sin(t * 0.7));
+    } else {
+        // a siphonophore: a long chain of small beads on a thread, curving slowly
+        float L = ext.x - 0.3;
+        float x = clamp(q.x, -L, L);
+        float yc = 0.22 * sin(x * 1.3 + t) + 0.1 * sin(x * 2.9 - t * 0.7);
+        float thread = abs(q.y - yc);
+        float on = step(abs(q.x), L);
+        float pitch = 0.16;
+        float k = floor(q.x / pitch + 0.5);
+        float bx = k * pitch;
+        float by = 0.22 * sin(bx * 1.3 + t) + 0.1 * sin(bx * 2.9 - t * 0.7);
+        float taper = 1.0 - 0.6 * abs(bx) / L;
+        float bead = length(q - vec2(bx, by)) - 0.045 * taper * (0.8 + 0.4 * hash12(vec2(k, v3.w)));
+        float beadA = smoothstep(px, -px, bead) * step(abs(bx), L);
+        float th = smoothstep(px, 0.0, thread - 0.004) * on;
+        a = max(beadA * 0.85, th * 0.35);
+        col = mix(col, vec3(1.0), beadA * 0.3);
+        g = (exp(-max(bead, 0.0) * 30.0) * 0.4 * step(abs(bx), L) + exp(-thread * 9.0) * 0.08 * on) * glowK;
+    }
+    // under the water only; behind the well, veiled by its panel as the sea is
+    float cut = smoothstep(px, -px, vW.y - layerTop(2, vW.x));
+    vec2 wd = abs(vW) - vec2(5.08, 10.08);
+    float wellD = length(max(wd + 0.25, 0.0)) + min(max(wd.x + 0.25, wd.y + 0.25), 0.0) - 0.25;
+    float veil = smoothstep(uPx, -uPx, wellD) * panelK(uPanelA, vW);
+    col = mix(col, uDusk * 0.6, uSlow * 0.4);
+    // the glow fades out before the quad's edges; behind the well, the life is quieter still
+    g *= smoothstep(1.0, 0.6, max(abs(vQ.x), abs(vQ.y)));
+    veil = mix(veil, 1.0, smoothstep(uPx, -uPx, wellD) * 0.4);
+    cut *= 1.0 - 0.7 * smoothstep(uPx, -uPx, wellD);
+    // premultiplied (blended ONE, ONE_MINUS_SRC_ALPHA): the shape over the water, its glow added on top
+    float k = cut * v2.a;
+    vec3 outC = enc(mix(col, uPanel, veil)) * a + enc(glow) * g * (1.0 - veil * 0.8);
+    frag = vec4(outC * k, a * k);
+}
+)";
+
 // ---------------------------------------------------------------- sprites
 // Kinds: 0 a soft droplet (stretched along its rotation), 1 a shard of glass, 2 the bonus gauge (a round glass
-// filling with water).
+// filling with water), 3 a bubble.
 inline const char* SPRITE_VS = R"(#version 330 core
 layout(location = 0) in vec2 aQ;
 layout(location = 1) in vec4 a0;   // x, y, half x, half y
@@ -577,6 +766,12 @@ void main() {
         float pxl = uPx / max(min(v0.z, v0.w), 1e-3);
         a = smoothstep(pxl, -pxl, d);
         col = mix(col, vec3(1.0), smoothstep(-pxl * 3.0, 0.0, d) * 0.6);
+    } else if (kind == 3) {
+        // a bubble: a thin bright ring, a speck of light at its upper left
+        float pxl = uPx / max(v0.z, 1e-3);
+        float r = length(vQ);
+        a = smoothstep(pxl * 1.5, 0.0, abs(r - 0.82)) * 0.9 + smoothstep(1.0, 0.0, r) * 0.15;
+        a = max(a, smoothstep(0.3, 0.0, length(vQ - vec2(-0.35, 0.35))));
     } else {
         // the bonus gauge: a round glass, water rising inside it; ready: it brims over with light
         float R = 0.92;
