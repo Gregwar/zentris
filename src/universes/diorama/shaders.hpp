@@ -517,7 +517,11 @@ void main() {
         float g2 = sin(vUV.y * 2.3 + vUV.x * 0.013) * 0.5 + 0.5;
         c *= 0.9 + 0.12 * g + 0.06 * g2;
         float edge = smoothstep(-uWood * 2.2, -0.5, d);
-        c = mix(c, c * (vUV.y < 0.0 ? 1.55 : 0.7), edge * 0.8);
+        // the rim's outward direction: lit along the top, shaded along the bottom, neutral on the sides
+        vec2 q = abs(vUV) - uHalf + uRadius, s = sign(vUV);
+        vec2 nn = (q.x > 0.0 && q.y > 0.0) ? normalize(q) * s : (q.x > q.y ? vec2(s.x, 0.0) : vec2(0.0, s.y));
+        float k = nn.y < 0.0 ? mix(1.0, 1.55, -nn.y) : mix(1.0, 0.7, nn.y);
+        c = mix(c, c * k, edge * 0.8);
     }
     float outA = a + sa * (1.0 - a);
     vec3 outC = (c * a + uShadowCol * sa * (1.0 - a)) / max(outA, 1e-4);
