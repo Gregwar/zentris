@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "layout.hpp"
@@ -67,21 +68,48 @@ vec3 hex(unsigned v) { return {((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255
 // of the peaks (C), on white paper or, for two, on black paper where the inks lie like light. weakB: B alone does
 // not stand out from the paper (yellow on white, purple on black), so the pieces always back it with A.
 // Inks after the riso ink library (blue, fluorescent pink, yellow, teal, bright red, federal blue, sunflower...).
+// D is the peak's hot ink: a fourth drum, fluorescent, that only prints the drop's forms in the background.
 struct VariantDef {
     const char* name;
-    unsigned paper, a, b, c;
+    unsigned paper, a, b, c, d;
     bool dark, weakB;
 };
 const VariantDef VARIANTS[] = {
     // papers: neutral stocks, never cream (a cool white, light grey, pale blue, pink and mint, two blacks)
-    {"FLUO PINK & BLUE", 0xeef0f1, 0x0078bf, 0xff48b0, 0xffe800, false, false},
-    {"TEAL & YELLOW", 0xe9eaeb, 0x00838a, 0xffe800, 0xff48b0, false, true},
-    {"RED & FEDERAL BLUE", 0xe3eaf0, 0x3d5588, 0xf15060, 0xffb511, false, false},
-    {"BLACK & FLUO PINK", 0xf3e5ea, 0x222222, 0xff48b0, 0x0078bf, false, false},
-    {"VIOLET & GREEN", 0xe2eee8, 0x765ba7, 0x00a95c, 0xff7477, false, false},
-    {"BURGUNDY & MINT", 0xe6e6e9, 0x914e72, 0x82d8d5, 0xffb511, false, true},
-    {"YELLOW & PURPLE", 0x15161c, 0xffe800, 0x9d7ad2, 0xff48b0, true, true},
-    {"AQUA & ORANGE", 0x1a1a1a, 0x5ec8e5, 0xff6c2f, 0xffe800, true, false},
+    {"FLUO PINK & BLUE", 0xeef0f1, 0x0078bf, 0xff48b0, 0xffe800, 0xff7477, false, false},
+    {"TEAL & YELLOW", 0xe9eaeb, 0x00838a, 0xffe800, 0xff48b0, 0xff6c2f, false, true},
+    {"RED & FEDERAL BLUE", 0xe3eaf0, 0x3d5588, 0xf15060, 0xffb511, 0xff48b0, false, false},
+    {"BLACK & FLUO PINK", 0xf3e5ea, 0x222222, 0xff48b0, 0x0078bf, 0xffe800, false, false},
+    {"VIOLET & GREEN", 0xe2eee8, 0x765ba7, 0x00a95c, 0xff7477, 0xff48b0, false, false},
+    {"BURGUNDY & MINT", 0xe6e6e9, 0x914e72, 0x82d8d5, 0xffb511, 0xff48b0, false, true},
+    {"YELLOW & PURPLE", 0x15161c, 0xffe800, 0x9d7ad2, 0xff48b0, 0xff6c2f, true, true},
+    {"AQUA & ORANGE", 0x1a1a1a, 0x5ec8e5, 0xff6c2f, 0xffe800, 0xff48b0, true, false},
+};
+
+// The drop's print: a new layer of big flat forms that inks in on the drop (each a beat-ish after the other,
+// growing a little as it inks, never sliding), stays for the whole peak and breathes with the kicks by density.
+// anchor: 0 x is absolute (board units), +1/-1 x is the distance from the right/left edge of the screen.
+// drum: 0 A, 1 B, 2 C, 3 D (the hot ink). keep: how much lighter it prints over the well (0..1).
+struct DropForm { float anchor, x, y, sx, sy, rot, type, drum, dens, gang, gamt, keep, delay; };
+constexpr int DROP_ALTS = 3;
+const DropForm DROP_FORMS[DROP_ALTS][6] = {
+    // 0 SUN: a huge sun of the third ink rising behind the well, a horizon band of the hot ink across the sheet
+    {{0, 0.f, -4.f, 14.5f, 0, 0, 0, 2, 0.7f, PI * 0.5f, 0.75f, 0.7f, 0.f},
+     {0, 0.f, -9.6f, 40.f, 2.4f, 0, 1, 3, 0.75f, PI * 0.5f, 0.25f, 0.65f, 0.12f},
+     {0, 0.f, -13.4f, 40.f, 1.3f, 0, 1, 1, 0.55f, 0, 0, 0.65f, 0.24f},
+     {}, {}, {}},
+    // 1 CUT PAPER: overprinted cut forms on both sides of the well (circles, a block, a rising half sun, a ring)
+    {{-1, 3.5f, 6.5f, 7.5f, 0, 0, 0, 3, 0.8f, -0.3f, 0.5f, 0.f, 0.f},
+     {-1, 9.f, -3.5f, 2.6f, 9.5f, 0.1f, 1, 2, 0.75f, PI * 0.5f, 0.5f, 0.f, 0.12f},
+     {1, 5.5f, -12.4f, 8.5f, 0, 0, 2, 3, 0.8f, PI * 0.5f, 0.5f, 0.f, 0.24f},
+     {}, {}, {}},
+    // 2 HOT SHEET: the hot ink floods in from both edges, concentric arcs of the third ink rise behind the well
+    {{-1, 0.f, 0.f, 13.f, 16.f, 0, 1, 3, 0.8f, 0.f, 1.f, 0.f, 0.f},
+     {1, 0.f, 0.f, 13.f, 16.f, 0, 1, 3, 0.8f, PI, 1.f, 0.f, 0.f},
+     {0, 0.f, -13.4f, 9.f, 1.2f, 0, 4, 2, 0.85f, 0, 0, 0.7f, 0.12f},
+     {0, 0.f, -13.4f, 13.f, 1.2f, 0, 4, 1, 0.75f, 0, 0, 0.7f, 0.24f},
+     {0, 0.f, -13.4f, 17.f, 1.2f, 0, 4, 2, 0.85f, 0, 0, 0.7f, 0.36f},
+     {}},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 
@@ -493,6 +521,13 @@ void RisographUniverse::simulate(const Game& game, const MusicState& music, floa
     pres_[0] = approach(pres_[0], 1.f, 1.f, dt);
     pres_[1] = approach(pres_[1], wm, 0.8f, dt);
     pres_[2] = approach(pres_[2], level_ >= 2 ? wp : 0.f, dropT_ < 1.f ? 3.f : 0.8f, dt);
+
+    // The drop's print: inks in when the peak comes (fast on a drop), stays for the whole peak, lifts slowly after.
+    if (level_ >= 2 || dropT_ < 2.f) {
+        if (layer_ <= 0.001f) layerT_ = 0.f;
+        layer_ = approach(layer_, 1.f, 20.f, dt);
+    } else layer_ = approach(layer_, 0.f, 0.7f, dt);
+    layerT_ += dt;
 
     // The third ink's gradient: in with the peak (a fast but smooth bloom on the drop), out slowly with it.
     {
@@ -909,6 +944,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         inkA_ = lerp(inkA_, ugl::toLinear(hex(d.a)), k);
         inkB_ = lerp(inkB_, ugl::toLinear(hex(d.b)), k);
         inkC_ = lerp(inkC_, ugl::toLinear(hex(d.c)), k);
+        inkD_ = lerp(inkD_, ugl::toLinear(hex(d.d)), k);
         dark_ = k >= 1.f ? (d.dark ? 1.f : 0.f) : approach(dark_, d.dark ? 1.f : 0.f, 0.8f, dt);
     }
     slow_ = approach(slow_, slowOn_ ? 1.f : 0.f, 1.4f, dt);
@@ -925,7 +961,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
     {
-        float A[16], B[16], C[16];
+        float A[40] = {}, B[40] = {}, C[40] = {};
         const float breath = kickEnv_; // 0..1, smooth
         const float dropSwell = dropT_ < 9.f ? smoothstepf(0.f, 0.35f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.35f) * 0.45f) * dropAmp_ : 0.f;
         const float tame = 1.f - 0.25f * dark_; // inks laid like light on black paper glow more: keep them lower
@@ -953,11 +989,27 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         A[12] = 0.f; A[13] = 0.6f; A[14] = 12.5f; A[15] = 12.5f;
         B[12] = 0.f; B[13] = 0.f; B[14] = 2.f; B[15] = 0.4f * stamp * world * tame;
         C[12] = -PI * 0.5f; C[13] = 0.8f; C[14] = 0.f; C[15] = 0.f;
+        // the drop's print (slots 4..9)
+        static const int alt = [] { const char* e = std::getenv("ZEN_RISO_ALT"); return e ? std::atoi(e) % DROP_ALTS : 0; }();
+        for (int i = 0; i < 6; i++) {
+            const DropForm& d = DROP_FORMS[alt][i];
+            const int k = 4 + i;
+            if (d.dens <= 0.f) continue;
+            const float in = smoothstepf(d.delay, d.delay + 0.3f, layerT_) * layer_;
+            const float grow = 0.9f + 0.1f * smoothstepf(d.delay, d.delay + 0.45f, layerT_);
+            const float x = d.anchor == 0.f ? d.x : d.anchor * (viewH_.x - d.x);
+            A[k * 4] = viewC_.x + x; A[k * 4 + 1] = viewC_.y + d.y;
+            A[k * 4 + 2] = d.sx * (d.type == 1.f ? 1.f : grow);
+            A[k * 4 + 3] = d.type == 1.f ? d.sy * grow : d.sy;
+            B[k * 4] = d.rot; B[k * 4 + 1] = d.type; B[k * 4 + 2] = d.drum;
+            B[k * 4 + 3] = std::min(1.f, d.dens * (0.82f + 0.18f * breath)) * in * world * tame * (1.f - 0.7f * slow_);
+            C[k * 4] = d.gang; C[k * 4 + 1] = d.gamt; C[k * 4 + 2] = d.keep;
+        }
         glUseProgram(progWorld_);
         set4f(progWorld_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
-        glUniform4fv(ugl::U(progWorld_, "uShapeA"), 4, A);
-        glUniform4fv(ugl::U(progWorld_, "uShapeB"), 4, B);
-        glUniform4fv(ugl::U(progWorld_, "uShapeC"), 4, C);
+        glUniform4fv(ugl::U(progWorld_, "uShapeA"), 10, A);
+        glUniform4fv(ugl::U(progWorld_, "uShapeB"), 10, B);
+        glUniform4fv(ugl::U(progWorld_, "uShapeC"), 10, C);
         set1f(progWorld_, "uPx", px_);
         // the sheet: B's faint gradient from the shapes' side (deeper from mid), and the peak's bloom of C, which
         // swells on the drop and breathes with the kicks (density only)
@@ -1014,6 +1066,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     set3f(progComp_, "uInkA", inkA_);
     set3f(progComp_, "uInkB", lerp(inkB_, monoB, slow_));
     set3f(progComp_, "uInkC", lerp(inkC_, monoC, slow_));
+    set3f(progComp_, "uInkD", lerp(inkD_, monoB, slow_));
     set1f(progComp_, "uDark", dark_);
     set4f(progComp_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
     set1f(progComp_, "uGrain", 1.f);
