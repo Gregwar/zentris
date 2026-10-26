@@ -618,13 +618,18 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
     beatPh_ = ph;
     const float beatW = music.hasSong ? (0.35f + 0.65f * wm) : 0.4f;
     beatGlow_ = std::exp(-ph * 4.5f) * beatW * (0.6f + 0.4f * wp) + 0.3f * saturate(music.beatPulse) * wp;
+    const bool beatHit = music.hasSong && ph < lastPh_;
     lastPh_ = ph;
+    // the bar's downbeat a little stronger
+    const bool downbeat = music.hasSong && ((long long)std::floor(music.beat + 0.5) % 4 + 4) % 4 == 0;
+    const float accent = downbeat ? 1.f : 0.7f;
 
-    // Kicks (peak): the plankton flares (no ring of light: nothing expanding).
+    // The peak pulses on the beat grid (steady, every beat, the downbeat stronger; the detected kicks are irregular):
+    // the plankton flares (no ring of light: nothing expanding).
     sinceKick_ += dt;
-    const float kick = std::max(music.kick, kickIn_);
+    const float kick = std::max(beatHit ? accent : 0.f, kickIn_);
     kickIn_ = approach(kickIn_, 0.f, 6.f, dt);
-    if (kick > 0.55f && prevKick_ <= 0.55f && sinceKick_ > 0.25f && peak_ > 0.3f) {
+    if ((beatHit || (kickIn_ > 0.55f && prevKick_ <= 0.55f)) && peak_ > 0.3f) {
         sinceKick_ = 0.f;
         const float side = rng_.chance(0.5f) ? -1.f : 1.f;
         const float cx = rng_.chance(0.3f) ? rng_.range(-3.f, 3.f) : side * rng_.range(9.f, viewH_.x - 2.f);
@@ -642,7 +647,8 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
         }
     }
     prevKick_ = kick;
-    kickEnv_ = std::max(saturate(kick), approach(kickEnv_, 0.f, 5.f, dt)); // soft: ~0.3 s, never a strobe
+    // the pulse's envelope, from the beat phase itself (the same shape on every beat)
+    kickEnv_ = std::max(music.hasSong ? std::exp(-ph * 5.f) * accent : 0.f, kickIn_);
     bloom_ = approach(bloom_, 0.f, 1.2f, dt);
     surge_ = approach(surge_, 0.f, 0.45f, dt); // a few seconds
     // A drop's peak against a chorus' one (both the top level): the drop's sections drive harder (the song
