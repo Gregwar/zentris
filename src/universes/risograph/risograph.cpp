@@ -223,6 +223,7 @@ void RisographUniverse::resize(int width, int height) {
     vp_ = mat4::ortho(viewC_.x - hw, viewC_.x + hw, viewC_.y - hh, viewC_.y + hh, -1.f, 1.f);
     px_ = 2.f * hh / height_;
     inkT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
+    bgT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
     // the compositions are placed from the screen's edges
     composition(comp_, next_);
     for (int i = 0; i < 3; i++)
@@ -231,6 +232,7 @@ void RisographUniverse::resize(int width, int height) {
 
 RisographUniverse::~RisographUniverse() {
     inkT_.destroy();
+    bgT_.destroy();
     for (GLuint p : {progWorld_, progMark_, progText_, progPanel_, progComp_}) glDeleteProgram(p);
     for (GLuint v : {markVao_, textVao_, panelVao_}) glDeleteVertexArrays(1, &v);
     for (GLuint b : {quadVbo_, markVbo_, textVbo_, panelVbo_}) glDeleteBuffers(1, &b);
@@ -317,17 +319,16 @@ void RisographUniverse::setLevel(int level, float, float seconds, float impact) 
     }
 }
 
-// The drop: the drums slam out of register and spring back, the third ink lands at once.
+// The drop: the third ink's gradient blooms in over a third of a second and swells, then settles (nothing moves).
 void RisographUniverse::drop(float strength) {
-    slamT_ = 0.f;
-    slamAmp_ = 0.6f + 0.4f * saturate(strength);
+    dropT_ = 0.f;
+    dropAmp_ = 0.6f + 0.4f * saturate(strength);
     lv_ = std::max(lv_, 1.6f);
-    floodT_ = 0.f;
 }
 
-void RisographUniverse::refresh(float strength) { hitB_ = std::max(hitB_, 0.5f * strength); }
+void RisographUniverse::refresh(float strength) { kickTgt_ = std::max(kickTgt_, 0.5f * strength); }
 
-void RisographUniverse::levelUp() { hitC_ = std::max(hitC_, 0.8f); hitB_ = std::max(hitB_, 0.6f); }
+void RisographUniverse::levelUp() { kickTgt_ = std::max(kickTgt_, 0.7f); }
 
 vec2 RisographUniverse::project(const vec3& p) const { return layout::project(vp_, p, width_, height_); }
 
@@ -375,9 +376,20 @@ void RisographUniverse::onEvent(const GameEvent& ev, const Game&) {
         break;
     case GameEvent::Lock: {
         const int id = pieceCounter_++;
+        float sx = 0.f, by = 1e9f;
+        int n = 0;
         for (auto& c : ev.cells) {
             if (c.y < 0 || c.y >= Game::H || c.x < 0 || c.x >= Game::W) continue;
             ink_[c.y][c.x] = {id, c.type, lastHard_};
+            const vec3 w = layout::cellPos((float)c.x, (float)c.y);
+            sx += w.x;
+            by = std::min(by, w.y);
+            n++;
+        }
+        if (n > 0) { // a soft blot of ink pressed out under the piece
+            blotPos_ = v2(sx / n, by - 0.5f);
+            blotT_ = 0.f;
+            blotK_ = 0.22f + 0.25f * lastHard_;
         }
         lastHard_ = 0.f;
         break;
@@ -414,7 +426,6 @@ void RisographUniverse::onEvent(const GameEvent& ev, const Game&) {
         }
         if (ev.count >= 4) { // the Tetris: the third ink stamped over the whole sheet
             stampT_ = 0.f;
-            slamCT_ = 0.f;
         }
         // collapse the bookkeeping like the board
         InkCell next[Game::H][Game::W];
@@ -429,7 +440,7 @@ void RisographUniverse::onEvent(const GameEvent& ev, const Game&) {
         break;
     }
     case GameEvent::BonusStart:
-        hitB_ = std::max(hitB_, 0.7f);
+        kickTgt_ = std::max(kickTgt_, 0.7f);
         break;
     case GameEvent::TopOut: {
         // game over: the drum runs dry, the stack fades in streaks from the top
@@ -474,78 +485,50 @@ void RisographUniverse::simulate(const Game& game, const MusicState& music, floa
         lv_ = lerpf(lvFrom_, lvTo_, smoothstepf(0.f, 1.f, lvT_));
     }
     const float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 1.9f, lv_);
-    const float world = 1.f - saturate(bridge_.amount);
 
-    // The shapes follow the level: B's disc always, A's band from mid, C's shape at the peak (it lands at once on a
-    // drop). They come and go by their dots growing and shrinking.
+    // The shapes follow the level: B's disc always, A's band from mid, C's shape at the peak. They come and go by
+    // their density, slowly; they never jump or re-compose.
+    dropT_ += dt;
     pres_[0] = approach(pres_[0], 1.f, 1.f, dt);
     pres_[1] = approach(pres_[1], wm, 0.8f, dt);
-    pres_[2] = approach(pres_[2], level_ >= 2 ? wp : 0.f, slamT_ < 0.5f ? 6.f : 1.2f, dt);
+    pres_[2] = approach(pres_[2], level_ >= 2 ? wp : 0.f, dropT_ < 1.f ? 3.f : 0.8f, dt);
 
-    // The peak's flood: in with the peak (at once on the drop), out with it.
-    floodT_ += dt;
-    if (floodT_ < 2.f) flood_ = 1.f;
-    else flood_ = approach(flood_, level_ >= 2 ? wp : 0.f, 0.7f, dt);
-
-    // Beats and bars.
-    pulse_ = approach(pulse_, 0.f, 4.f, dt);
-    if (music.hasSong) {
-        const double beat = std::floor(music.beat + 1e-4);
-        if (lastBeat_ < 0.0 || beat < lastBeat_ - 8.0) lastBeat_ = beat;
-        if (beat > lastBeat_) {
-            lastBeat_ = beat;
-            beatCount_++;
-            const int inBar = (int)std::fmod(beat, 4.0);
-            if (wp > 0.5f) pulse_ = 1.f;
-            // the peak re-prints the shapes on the bars: a new composition every two bars, one shape per beat
-            if (level_ >= 2 && wp > 0.7f && bridge_.amount < 0.3f && slow_ < 0.5f) {
-                if (inBar == 0 && ((int)std::floor(beat / 4.0) & 1) == 0 && reprintState_[0] == 0 && reprintState_[1] == 0 &&
-                    reprintState_[2] == 0) {
-                    comp_ = (comp_ + 1) & 3;
-                    composition(comp_, next_);
-                    reprintState_[0] = 1;
-                } else if (inBar == 1 && reprintState_[1] == 0 && (next_[1].x != shape_[1].x || next_[1].y != shape_[1].y)) {
-                    reprintState_[1] = 1;
-                } else if (inBar == 2 && reprintState_[2] == 0 && (next_[2].x != shape_[2].x || next_[2].y != shape_[2].y)) {
-                    reprintState_[2] = 1;
-                }
-            }
-        }
+    // The third ink's gradient: in with the peak (a fast but smooth bloom on the drop), out slowly with it.
+    {
+        const float target = level_ >= 2 ? wp : 0.f;
+        const float hold = dropT_ < 3.f ? 1.f : 0.f;
+        const float tgt = std::max(target, hold);
+        bloom_ = approach(bloom_, tgt, tgt > bloom_ ? 6.f : 0.6f, dt);
     }
-    for (int i = 0; i < 3; i++) {
+
+    for (int i = 0; i < 3; i++) { // a new song: the shapes fade out and back in at their new places
         if (reprintState_[i] == 1) {
-            reprint_[i] = std::max(0.f, reprint_[i] - dt * 6.f);
+            reprint_[i] = std::max(0.f, reprint_[i] - dt * 1.5f);
             if (reprint_[i] <= 0.f) { shape_[i] = next_[i]; reprintState_[i] = 2; }
         } else if (reprintState_[i] == 2) {
-            reprint_[i] = std::min(1.f, reprint_[i] + dt * 4.f);
+            reprint_[i] = std::min(1.f, reprint_[i] + dt * 1.f);
             if (reprint_[i] >= 1.f) reprintState_[i] = 0;
         }
     }
-    // the screens drift gently from mid on
-    drift_.x += wdt * 0.035f * wm;
-    drift_.y += wdt * 0.021f * wm;
+    drift_ += wdt * (0.02f + 0.05f * wm); // the ink's cloud drifts very slowly
 
-    // Registration: slightly off at rest; mid breathes with the tempo; the peak's kicks knock the drums out; the
-    // drop slams them and they spring back.
+    // The kicks breathe the ink's density (from mid, fully at the peak): ~0.2 s in, ~0.5 s out, never a jump.
     const float kick = std::max(music.kick, kickIn_);
     kickIn_ = approach(kickIn_, 0.f, 6.f, dt);
-    if (kick > 0.5f && prevKick_ <= 0.5f && wp > 0.3f) {
-        hitB_ = std::max(hitB_, kick * wp);
-        hitC_ = std::max(hitC_, 0.7f * kick * wp);
-    }
+    if (kick > 0.5f && prevKick_ <= 0.5f) kickTgt_ = std::max(kickTgt_, kick * (0.35f * wm + 0.65f * wp));
     prevKick_ = kick;
-    hitB_ *= std::exp(-dt * 7.f);
-    hitC_ *= std::exp(-dt * 6.f);
-    slamT_ += dt;
-    slamCT_ += dt;
+    kickTgt_ *= std::exp(-dt * 6.f);
+    kickEnv_ = approach(kickEnv_, kickTgt_, kickTgt_ > kickEnv_ ? 9.f : 2.5f, dt);
     stampT_ += wdt;
-    const float ph = music.hasSong ? (float)std::fmod(music.beat, 2.0) / 2.f : worldTime_ * 0.25f;
-    const float breathe = std::sin(TAU * ph) * (0.035f * wm + 0.015f * wp);
-    const float slam = slamAmp_ * std::exp(-slamT_ * 4.5f) * std::cos(slamT_ * 15.f);
-    const float slamC = std::exp(-slamCT_ * 4.f) * std::cos(slamCT_ * 13.f);
+    blotT_ += wdt;
+
+    // The background's registration: a little off, drifting slowly (a period of several seconds); the stack and the
+    // HUD always print in register.
+    const float world = 1.f - saturate(bridge_.amount);
     const float lock = (1.f - slow_) * world;
-    const float mB = (0.028f + breathe + 0.17f * hitB_ + 0.3f * slam) * lock;
-    const float mC = (0.03f - breathe * 0.7f + 0.15f * hitC_ + 0.22f * slam + 0.3f * slamC) * lock;
+    const float sway = std::sin(worldTime_ * 0.35f);
+    const float mB = (0.03f + 0.015f * sway * wm) * lock;
+    const float mC = (0.035f - 0.015f * sway * wm) * lock;
     offB_ = v2(std::cos(dirB_) * mB, std::sin(dirB_) * mB);
     offC_ = v2(std::cos(dirC_) * mC, std::sin(dirC_) * mC);
 
@@ -616,17 +599,13 @@ void RisographUniverse::adoptUnknown(const Game& g) {
 void RisographUniverse::buildBoard(const Game& g) {
     adoptUnknown(g);
     const float wp = smoothstepf(1.1f, 1.9f, lv_);
-    // Locked cells; a fresh lock knocks the piece's inks a hair down at the impact (the second drum more).
+    // Locked cells, always in register (the lock's reaction is a soft blot of ink in the background).
     for (int y = Game::HIDDEN; y < Game::H; y++)
         for (int x = 0; x < Game::W; x++) {
             const Cell& c = g.cell(x, y);
             if (c.type < 0) continue;
             const vec3 p = layout::cellPos((float)x, y - g.rowOffset(y));
-            const float age = c.flash > 0.f ? (1.f - c.flash) * Game::LOCK_FX_SECONDS : 9.f;
-            const float hard = ink_[y][x].type == c.type ? ink_[y][x].hard : 0.f;
-            float k = age < 0.32f ? (1.f - age / 0.32f) : 0.f;
-            k = k * k * (0.6f + 0.6f * hard) * (1.f - slow_ * 0.7f);
-            cell(v2(p.x, p.y), 1.f, 0.f, c.type, maskAt(g, x, y), 1.f, v2(0.f, -0.035f * k), v2(0.012f * k, -0.1f * k));
+            cell(v2(p.x, p.y), 1.f, 0.f, c.type, maskAt(g, x, y), 1.f, v2(0, 0), v2(0, 0));
         }
     // Cleared rows torn off: each strip lifts from its trailing end, slides away, its edges ripped and its dots
     // shrinking; gone in under half a second.
@@ -729,7 +708,7 @@ void RisographUniverse::buildBoard(const Game& g) {
     rule(v2(X + 0.06f, -Y - 0.06f), v2(X + 0.06f, Y), 0.022f, trim);
     rule(v2(-X - 0.06f, -Y - 0.06f), v2(X + 0.06f, -Y - 0.06f), 0.022f, trim);
 
-    // The bonus gauge: a keyline circle whose disc fills by its dots growing (B), solid B + C once ready.
+    // The bonus gauge: a keyline circle whose disc fills as a deepening tint of B, solid B + C once ready.
     {
         const vec3 gc = layout::GAUGE_CENTER;
         const float R = layout::GAUGE_R;
@@ -939,54 +918,61 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     const float world = 1.f - bridge;
     const float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 1.9f, lv_);
 
-    // ---- The world's shapes, screened, straight into the ink buffer.
-    inkT_.bind();
+    // ---- The background: the world's shapes and the sheet's gradients, as soft ink densities, in their own buffer.
+    bgT_.bind();
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
     {
         float A[16], B[16], C[16];
-        const float beat = 1.f + 0.22f * pulse_ * wp;
-        const float dens[3] = {(0.42f + 0.16f * wm + 0.18f * wp) * pres_[0] * beat, 0.36f * pres_[1],
-                               0.88f * pres_[2] * beat};
+        const float breath = kickEnv_; // 0..1, smooth
+        const float dropSwell = dropT_ < 9.f ? smoothstepf(0.f, 0.35f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.35f) * 0.45f) * dropAmp_ : 0.f;
+        const float tame = 1.f - 0.25f * dark_; // inks laid like light on black paper glow more: keep them lower
+        const float dens[3] = {(0.30f + 0.10f * wm + 0.14f * wp + 0.08f * breath + 0.1f * dropSwell) * pres_[0] * tame,
+                               0.f, // A's band: retired (it read as a grey bar); the key ink stays for the stack and the HUD
+                               (0.55f + 0.12f * breath + 0.15f * dropSwell) * pres_[2] * tame};
         const float drum[3] = {1.f, 0.f, 2.f};
-        const float grad[3] = {0.92f, 0.55f, 0.5f};
+        const float grad[3] = {0.95f, 0.7f, 0.85f};
         for (int i = 0; i < 3; i++) {
             const Shape& s = shape_[i];
-            // a slow float of the shapes from mid on
-            const float fy = std::sin(worldTime_ * 0.21f + i * 2.1f) * 0.35f * wm;
-            // the peak's shape beats with the music
-            const float sz = i == 2 ? 1.f + 0.06f * pulse_ * wp : 1.f;
+            // a slow float of the shapes from mid on (a period of ~30 s)
+            const float fy = std::sin(worldTime_ * 0.21f + i * 2.1f) * 0.3f * wm;
+            // the shapes swell a little with the kicks' breath (smooth, a few percent)
+            const float sz = 1.f + 0.025f * breath * wp;
             A[i * 4] = s.x; A[i * 4 + 1] = s.y + fy; A[i * 4 + 2] = s.sx * sz; A[i * 4 + 3] = (s.type == 1 ? s.sy : s.sx) * sz;
             B[i * 4] = s.rot; B[i * 4 + 1] = s.type; B[i * 4 + 2] = drum[i];
             B[i * 4 + 3] = std::min(1.f, dens[i]) * reprint_[i] * world;
             // full density at the outer side, fading toward the well
-            C[i * 4] = std::atan2(-(s.y - viewC_.y) * 0.4f, -s.x); C[i * 4 + 1] = grad[i]; C[i * 4 + 2] = i == 1 ? 1.f : 0.f;
+            C[i * 4] = std::atan2(-(s.y - viewC_.y) * 0.4f, -s.x); C[i * 4 + 1] = grad[i]; C[i * 4 + 2] = 0.f;
             C[i * 4 + 3] = 0.f;
         }
-        // the Tetris stamp: one huge disc of the third ink over the sheet, its dots growing in and shrinking away
+        // the Tetris stamp: one huge soft disc of the third ink over the sheet, fading in and out
         const float st = stampT_;
-        const float stamp = st < 0.15f ? smoothstepf(0.f, 0.15f, st) : 1.f - smoothstepf(0.45f, 1.9f, st);
+        const float stamp = st < 0.25f ? smoothstepf(0.f, 0.25f, st) : 1.f - smoothstepf(0.45f, 2.2f, st);
         A[12] = 0.f; A[13] = 0.6f; A[14] = 12.5f; A[15] = 12.5f;
-        B[12] = 0.f; B[13] = 0.f; B[14] = 2.f; B[15] = 0.55f * stamp * world;
-        C[12] = -PI * 0.5f; C[13] = 0.55f; C[14] = 0.f; C[15] = 0.f;
+        B[12] = 0.f; B[13] = 0.f; B[14] = 2.f; B[15] = 0.4f * stamp * world * tame;
+        C[12] = -PI * 0.5f; C[13] = 0.8f; C[14] = 0.f; C[15] = 0.f;
         glUseProgram(progWorld_);
         set4f(progWorld_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
         glUniform4fv(ugl::U(progWorld_, "uShapeA"), 4, A);
         glUniform4fv(ugl::U(progWorld_, "uShapeB"), 4, B);
         glUniform4fv(ugl::U(progWorld_, "uShapeC"), 4, C);
-        set2f(progWorld_, "uDrift", drift_.x, drift_.y);
         set1f(progWorld_, "uPx", px_);
-        // the sheet's tints: B's faint wash away from the shapes; the peak's flood of C, slammed in solid on the
-        // drop and settling, its dots swelling on the kicks
-        const float slam = smoothstepf(0.f, 0.05f, floodT_) * std::exp(-floodT_ * 1.1f);
-        const float flood = (0.26f + 0.6f * slam) * (1.f - 0.3f * dark_) * flood_ * world * (1.f - 0.7f * slow_);
-        const float wash = (0.1f + 0.03f * wm) * world;
-        set1f(progWorld_, "uFloodSide", (float)side_);
+        // the sheet: B's faint gradient from the shapes' side (deeper from mid), and the peak's bloom of C, which
+        // swells on the drop and breathes with the kicks (density only)
+        const float bloom = (0.20f + 0.10f * breath + 0.22f * dropSwell) * bloom_ * world * (1.f - 0.6f * slow_) * tame;
+        const float wash = (0.07f + 0.07f * wm + 0.03f * breath) * world * tame;
+        set1f(progWorld_, "uSide", (float)side_);
         set4f(progWorld_, "uWell", 0.f, 0.f, 5.f, 10.f);
-        set4f(progWorld_, "uFlood", flood, wash, std::atan2(-0.55f, -0.85f * side_), 1.f + 0.55f * hitB_ * wp);
+        set4f(progWorld_, "uSheet", bloom, wash, std::atan2(-0.35f, 1.f * side_), drift_);
+        const float bt = saturate(blotT_ / 0.45f);
+        set4f(progWorld_, "uBlot", blotPos_.x, blotPos_.y, bt, bt < 1.f ? blotK_ * world * (1.f - 0.5f * slow_) : 0.f);
         ugl::drawFullscreen();
     }
+
+    inkT_.bind();
+    glClearColor(0.f, 0.f, 0.f, 0.f);
+    glClear(GL_COLOR_BUFFER_BIT);
 
     // ---- Marks and pieces, the HUD: each drum's coverage, the most ink wins.
     inst_.clear();
@@ -1013,6 +999,10 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, inkT_.tex);
     set1i(progComp_, "uInk", 0);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, bgT_.tex);
+    set1i(progComp_, "uBg", 1);
+    glActiveTexture(GL_TEXTURE0);
     const float ux = 0.5f / viewH_.x, uy = 0.5f / viewH_.y;
     set2f(progComp_, "uOffA", 0.f, 0.f);
     set2f(progComp_, "uOffB", offB_.x * ux, offB_.y * uy);
