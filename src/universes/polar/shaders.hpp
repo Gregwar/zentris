@@ -419,7 +419,8 @@ in vec2 vLocal;
 in vec2 vWorld;
 flat in vec4 v0, v1, v2, v3;
 out vec4 frag;
-uniform sampler2D uNoise;
+uniform sampler2D uNoise, uSky;
+uniform vec2 uRes;
 uniform float uPx;
 uniform vec3 uAurLight, uMoonLight, uFrostCol, uGaugeCol, uGaugeTrack, uShadow;
 uniform float uBridge, uTime, uBeat, uGlint;
@@ -453,45 +454,134 @@ float iceDepth(vec2 q, int m, out float up) {
 // the body's signed distance (cell units): a thin seam (2 x 0.035) between two pieces
 const float SEAM = 0.035;
 
-// Clear ice tinted by its kind, lit from its edges: a deep, dark, saturated core (the light passes through it), the
-// light gathered in the ice along its faces in its own color, a crisp hairline rim, inner refraction planes, the
-// aurora mirrored in it (a slow sheen gliding over the faces) and, in the peak, glints of light catching on the beat.
-// d: depth (cell units).
-vec3 ice(vec2 w, float d, float s, float up, vec3 pc, float frost) {
-    d = max(d - SEAM, 0.0);
+vec2 rot2(vec2 v, float a) { float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }
+
+// Feathery frost crystals (ridges of layered noise), 0..1.
+float fern(vec2 w) {
+    float a = texture(uNoise, w * 0.21).r, b = texture(uNoise, w * 0.57 + 0.3).b, c = texture(uNoise, w * 1.6 + 0.7).r;
+    float f = 1.0 - abs(fract((a * 0.6 + b * 0.3 + c * 0.1) * 6.0) - 0.5) * 2.0;
+    return pow(f, 5.0);
+}
+
+// Ice, lit by the night. w: the point (board), d: depth inside the body (cell units, the seam taken off), g: the
+// depth's gradient (cell units, pointing inward), s: the cell's size (board units). frozen: 0 still liquid (a smooth,
+// glossy swell of tinted water glowing from within, the world rippling through it) .. 1 ice (a clear slab chamfered
+// along its faces, its top cut in broad facets: the world bent through it and tinted by its thickness, the core
+// dense, the edges clear, the chamfers catching the light, fracture planes and bubbles caught inside). frost: white
+// over (game over).
+vec3 ice(vec2 w, float d, vec2 g, float s, vec3 pc, float frozen, float frost) {
     float n = texture(uNoise, w * 0.11 + 0.37).r;
-    float m = texture(uNoise, w * 0.23 + 0.71).b;
-    vec3 deep = pc * pc * 0.9 + pc * 0.05;                      // the tint, denser where the ice is thick
-    float core = smoothstep(0.02, 0.32, d);
-    vec3 col = mix(pc * 0.62, deep * 0.5, core) * (0.9 + 0.25 * (n - 0.5));
-    // light gathered in the ice along its faces, in its own color
-    float eg = exp(-d / 0.08);
-    col += pc * eg * 0.55;
-    // refraction: thin inner planes catching the light (deep in the ice only)
+    float aa = uPx / s;
+    // the surface
+    const float B = 0.075;
+    float cham = 1.0 - smoothstep(B - aa * 0.7, B + aa * 0.7, d);
+    vec2 nIce = -g * cham * 1.2;
+    {
+        // broad facets on the top (Voronoi cells in board space: they run across the piece's cells)
+        vec2 fw = w * 0.8 + 0.5;
+        vec2 fi = floor(fw), ff = fract(fw);
+        float best = 9.0;
+        vec2 bid = fi;
+        for (int j = -1; j <= 1; j++)
+            for (int i = -1; i <= 1; i++) {
+                vec2 o = vec2(float(i), float(j));
+                vec2 sp = o + vec2(hash12(fi + o), hash12(fi + o + 19.1));
+                float dd = dot(ff - sp, ff - sp);
+                if (dd < best) { best = dd; bid = fi + o; }
+            }
+        nIce += (vec2(hash12(bid + 3.7), hash12(bid + 8.3)) - 0.5) * 0.16 * (1.0 - cham);
+    }
+    vec2 rip = (vec2(texture(uNoise, w * 0.3 + vec2(uTime * 0.05, -uTime * 0.08)).r,
+                     texture(uNoise, w * 0.3 + vec2(0.5 - uTime * 0.06, uTime * 0.04)).b) - 0.5) * 0.3;
+    vec2 nLiq = -g * 1.1 * exp(-d / 0.09) + rip;
+    vec3 N = normalize(vec3(mix(nLiq, nIce, frozen), 1.0));
+
+    // the world behind (dimmed by the well's dark ice), bent through it
+    vec2 suv = gl_FragCoord.xy / uRes;
+    vec3 bg = textureLod(uSky, suv - N.xy * 0.05 - (0.5 - n) * 0.01, 3.5).rgb;
+    bg = mix(bg, vec3(dot(bg, vec3(0.2126, 0.7152, 0.0722))), 0.3) * 0.5;
+    float core = smoothstep(0.0, 0.45, d);
+    vec3 absorb = (1.0 - pc) * 2.6 + 0.1;
+
+    // ice: clear at its edges (the night through it, barely tinted), the tint deepening into the thick of it
+    vec3 trans = exp(-absorb * (0.2 + 1.4 * core));
+    vec3 deepTint = pc * pc * 0.7 + pc * 0.04;
+    vec3 solid = bg * trans * 1.4 + deepTint * (0.12 + 0.7 * pow(core, 1.3)) * (0.85 + 0.3 * n) + pc * 0.03;
+    // the light caught inside: a bright line along the inner faces away from the light (total reflection)
+    {
+        vec2 gn = g / max(length(g), 1e-4);
+        float away = smoothstep(-0.2, 0.7, dot(gn, normalize(vec2(-0.55, 0.85))));
+        float inner = exp(-pow((d - 0.11) / 0.022, 2.0));
+        solid += mix(pc, vec3(1.0), 0.45) * inner * away * 0.32;
+    }
+    // fracture planes and a few bubbles caught in the thick of it
     float f = texture(uNoise, w * 0.17 + vec2(0.31, 0.07)).g;
-    float plane = 1.0 - smoothstep(0.0, 0.025, abs(f - 0.5));
-    col += mix(pc, vec3(1.0), 0.3) * plane * 0.32 * core * (0.6 + 0.6 * m);
-    // the aurora mirrored in the ice: a broad sheen gliding slowly across, stronger on the upper faces
-    float band = 0.5 + 0.5 * sin(w.x * 0.32 + w.y * 0.55 - uTime * 0.35 + n * 2.2);
-    col += uAurLight * (0.5 * pow(band, 6.0) * (0.5 + 0.5 * core) + 0.3 * up) + uMoonLight * up * 0.08;
-    // the light enters from the sky: the body a little clearer near its upper faces, denser toward its base
-    col *= 0.85 + 0.3 * up;
-    // a crisp hairline rim, a little brighter along the top, brighter on the beat
-    float rim = exp(-d / (1.1 * uPx / s + 0.008));
-    col = mix(col, mix(pc, uFrostCol, 0.3 + 0.25 * up) * (1.15 + 0.4 * uBeat), rim * (0.6 + 0.3 * up));
+    float plane = 1.0 - smoothstep(0.0, 0.012, abs(f - 0.45));
+    solid += mix(pc, vec3(1.0), 0.7) * plane * 0.28 * core;
+    {
+        vec2 bq = w * 2.6, bi = floor(bq);
+        vec2 bo = vec2(hash12(bi + 1.3), hash12(bi + 4.1)) * 0.6 + 0.2;
+        float br = length(fract(bq) - bo);
+        float ring = smoothstep(0.1, 0.07, br) * (0.4 + 0.6 * smoothstep(0.03, 0.08, br));
+        solid += mix(pc, vec3(1.0), 0.7) * ring * step(0.9, hash12(bi + 9.7)) * 0.3 * core;
+    }
+    // a cloudy heart (the air trapped as it froze), feathered
+    {
+        float cl = texture(uNoise, w * 0.23 + 1.7).r * 0.6 + texture(uNoise, w * 0.61 + 0.4).b * 0.4;
+        float heart = smoothstep(0.2, 0.5, d) * smoothstep(0.35, 0.75, cl);
+        solid += mix(pc, vec3(1.0), 0.4) * heart * 0.1;
+    }
+
+    // liquid: tinted water glowing from within, caustics drifting through it
+    float ca = texture(uNoise, w * 0.09 + vec2(uTime * 0.03, uTime * 0.05)).r;
+    float cb = texture(uNoise, w * 0.13 - vec2(uTime * 0.04, -uTime * 0.02)).b;
+    float caus = smoothstep(0.75, 1.0, 1.0 - abs(ca - cb) * 3.0);
+    vec3 liquid = bg * exp(-absorb * 0.4) + pc * (0.3 + 0.22 * core) + mix(pc, vec3(1.0), 0.4) * caus * 0.18;
+
+    vec3 col = mix(liquid, solid, frozen);
+
+    // light: the chamfers and facets facing the sky bright, the others in shade; the aurora mirrored in them
+    vec3 Ln = normalize(vec3(-0.45, 0.7, 0.55));
+    float lam = dot(N, Ln) - Ln.z;
+    col *= max(1.0 + mix(0.5, 1.2, frozen) * lam, 0.2);
+    vec3 H = normalize(Ln + vec3(0.0, 0.0, 1.0));
+    float spec = pow(max(dot(N, H), 0.0), mix(30.0, 60.0, frozen));
+    vec3 lightCol = uFrostCol * 0.6 + uMoonLight * 0.5 + uAurLight * 3.0;
+    col += lightCol * spec * mix(0.7, 2.0, frozen);
+    // the sky mirrored in the polished top (one reflection for the whole stack, broken by the facets), a soft sheen
+    {
+        vec2 ruv = vec2(suv.x + N.x * 0.6, 1.0 - suv.y * 0.45 + N.y * 0.4);
+        vec3 refl = textureLod(uSky, ruv, 3.0).rgb;
+        // two thin parallel streaks of light (the reflection of a bright fold of the sky), stepped by the facets
+        float u = (w.x + w.y) * 0.7071 + N.x * 2.5 + N.y * 2.0;
+        float su = fract(u / 3.1) * 3.1;
+        float streak = exp(-pow((su - 0.6) / 0.05, 2.0)) + 0.55 * exp(-pow((su - 0.85) / 0.025, 2.0));
+        vec3 sc = uFrostCol * 0.28 + uMoonLight * 0.3 + uAurLight * 2.0;
+        col += (refl * 0.3 + sc * streak * smoothstep(0.06, 0.2, d)) * frozen + refl * 0.15 * (1.0 - frozen);
+    }
+    float tilt = smoothstep(0.05, 0.5, 1.0 - N.z);
+    vec3 sky = textureLod(uSky, vec2(0.5 + N.x * 0.7, 0.8 + N.y * 0.15), 4.0).rgb;
+    col += (sky * 0.6 + uAurLight * 1.5) * tilt * 0.6;
     // glints (peak, on the beat): a few points of light caught in the ice
     if (uGlint > 0.001) {
-        vec2 g = w * 2.2;
-        vec2 id = floor(g), fq = fract(g) - 0.5;
+        vec2 gq = w * 2.2;
+        vec2 id = floor(gq), fq = fract(gq) - 0.5;
         float h = hash12(id + 17.0);
         vec2 o = (vec2(hash12(id + 3.1), hash12(id + 7.7)) - 0.5) * 0.5;
         vec2 dq = fq - o;
         float star = exp(-dot(dq, dq) / 0.0015) + 0.35 * exp(-abs(dq.x) / 0.012 - abs(dq.y) / 0.2) + 0.35 * exp(-abs(dq.y) / 0.012 - abs(dq.x) / 0.2);
-        col += mix(pc, vec3(1.0), 0.6) * star * step(0.88, h) * uGlint * 1.4 * smoothstep(0.03, 0.1, d);
+        col += mix(pc, vec3(1.0), 0.6) * star * step(0.88, h) * uGlint * 1.2 * smoothstep(0.03, 0.1, d) * frozen;
     }
     // frozen over (game over): snow white
     col = mix(col, uFrostCol * (0.9 + 0.15 * n) + uAurLight * 0.3, frost);
     return col;
+}
+
+// The shards of a cleared row: board-space Voronoi regions (they run across the cells of one piece), each flying off
+// on its own path once the crack front has reached it. S: the regions' spacing.
+const float SHARD = 0.5;
+vec2 shardSeed(vec2 gi, float seed) {
+    return (gi + 0.15 + 0.7 * vec2(hash12(gi * 1.31 + seed), hash12(gi * 2.17 + seed + 5.0))) * SHARD;
 }
 
 void main() {
@@ -508,20 +598,89 @@ void main() {
         float s = v3.x;
         float up;
         float d = iceDepth(p / s, mask, up);
+        vec2 g = vec2(dFdx(d), dFdy(d)) * s / px;
         float sd = (SEAM - d) * s;
         float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, sd);
         if (cov <= 0.0) discard;
-        vec3 col = ice(vWorld, d, s, up, pc, frost);
+        float frozen = kind == 0 ? 1.0 : 0.0;
+        float rime = 0.0;
         if (kind == 0 && age >= 0.0) {
-            // lock: the block freezes, a breath of frost receding into its edges
-            float fl = exp(-age * 5.0);
-            float reach = 0.4 * fl;
-            float f = 1.0 - smoothstep(reach - 0.06, reach + 0.02, d - SEAM);
-            col = mix(col, mix(pc, uFrostCol, 0.6), f * fl * 0.6);
+            // freezing: a front of frost crystallising from the contact across the piece, the water turning to ice
+            // behind it, the frost clearing as it goes
+            vec2 contact = v0.xy + v3.yz;
+            float cr = fern(vWorld * 0.9);
+            float dist = length(vWorld - contact) + (texture(uNoise, vWorld * 0.5).r - 0.5) * 0.6 - cr * 0.25;
+            float k = clamp(age / 0.4, 0.0, 1.0);
+            float front = 4.8 * (1.0 - (1.0 - k) * (1.0 - k)) - 0.2 - dist;
+            frozen = smoothstep(-0.03, 0.12, front);
+            rime = frozen * exp(-max(front, 0.0) / 0.6) * (1.0 - smoothstep(0.35, 0.8, age)) * (0.45 + 0.55 * cr);
+            rime = max(rime, exp(-pow(front / 0.07, 2.0)) * (1.0 - smoothstep(0.3, 0.45, age)));
         }
-        if (kind == 3) col *= 1.0 + 0.06 * uBeat;
+        vec3 col = ice(vWorld, max(d - SEAM, 0.0), g, s, pc, frozen, frost);
+        col = mix(col, mix(uFrostCol, pc, 0.2) * 1.15 + uAurLight, rime * 0.85);
         col = mix(col, uBridgeInk, bridgeK);
-        float a = cov * alpha * 0.95;
+        float a = cov * alpha * mix(0.92, 0.97, frozen);
+        frag = vec4(col * a, a);
+        return;
+    }
+    if (kind == 5) {
+        // a cleared cell: its ice cracks (the cracks running from where the piece landed), then shatters
+        float t = age, power = frost;
+        vec2 cc = v3.xy;
+        float ox = v3.z, seed = v3.w;
+        vec2 w = vWorld;
+        vec2 gc = floor(cc / SHARD);
+        bool found = false;
+        vec2 q0 = vec2(0.0);
+        float edge = 1.0, tr = 0.0;
+        for (int j = -2; j <= 1; j++)
+            for (int i = -2; i <= 1; i++) {
+                if (found) continue;
+                vec2 gi = gc + vec2(float(i), float(j));
+                vec2 sp = shardSeed(gi, seed);
+                float tt = max(t - 0.1 - abs(sp.x - ox) * 0.012, 0.0);
+                vec3 h = vec3(hash12(gi + seed * 1.3), hash12(gi * 1.7 + seed), hash12(gi * 2.3 + seed + 4.0));
+                float side = sp.x >= ox ? 1.0 : -1.0;
+                vec2 vel = vec2(side * (0.4 + 1.4 * h.x) * power + (h.y - 0.5) * 0.4, (0.4 + 1.8 * h.y) * power);
+                vec2 disp = vel * tt - vec2(0.0, 9.0 * tt * tt);
+                float ang = (h.z - 0.5) * 10.0 * tt * power;
+                vec2 q = rot2(w - sp - disp, -ang) + sp;
+                if (abs(q.x - cc.x) > 0.5 || abs(q.y - cc.y) > 0.5) continue;
+                vec2 qg = floor(q / SHARD);
+                float e = 9.0;
+                bool mine = true;
+                for (int b = -1; b <= 1; b++)
+                    for (int a = -1; a <= 1; a++) {
+                        vec2 gj = qg + vec2(float(a), float(b));
+                        if (gj == gi) continue;
+                        vec2 so = shardSeed(gj, seed);
+                        float ed = dot(q - (sp + so) * 0.5, normalize(so - sp));
+                        if (ed > 0.0) mine = false;
+                        e = min(e, -ed);
+                    }
+                if (!mine) continue;
+                found = true;
+                q0 = q;
+                edge = e;
+                tr = tt;
+            }
+        if (!found || w.y < -10.15) discard;
+        float up;
+        float d = iceDepth(q0 - cc, mask, up);
+        // the depth's gradient by finite differences (the neighbouring pixels may belong to another shard)
+        const float E = 0.01;
+        vec2 g = vec2(iceDepth(q0 - cc + vec2(E, 0.0), mask, up) - d, iceDepth(q0 - cc + vec2(0.0, E), mask, up) - d) / E;
+        float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, SEAM - d);
+        if (cov <= 0.0) discard;
+        vec3 col = ice(q0, max(d - SEAM, 0.0), g, 1.0, pc, 1.0, 0.0);
+        vec3 crackCol = mix(uFrostCol, pc, 0.3) * 1.05 + uAurLight * 1.5;
+        // the crack lines (before it breaks), then the broken faces catching the light
+        float reached = step(abs(q0.x - ox) * 0.012, t);
+        float line = (1.0 - smoothstep(px * 0.3, px * 1.1, edge)) * 0.8;
+        col = mix(col, crackCol, line * reached * (1.0 - step(0.001, tr)));
+        col += crackCol * exp(-edge / 0.04) * 0.35 * step(0.001, tr);
+        if (any(isnan(col))) col = vec3(0.0);
+        float a = cov * alpha * (1.0 - smoothstep(0.1, 0.32, tr)) * (1.0 - uBridge);
         frag = vec4(col * a, a);
         return;
     }
@@ -537,10 +696,11 @@ void main() {
         return;
     }
     if (kind == 2) {
-        // a cleared cell: it turns to snow, then crumbles to powder (v3.y progress 0..1, v3.z seed)
+        // game over: a frozen cell crumbling to powder (v3.y progress 0..1, v3.z seed)
         float k = v3.y;
         float up;
         float d = iceDepth(p, mask, up);
+        vec2 g = vec2(dFdx(d), dFdy(d)) / px;
         float sd = SEAM - d;
         float cov = 1.0 - smoothstep(-px * 0.7, px * 0.7, sd);
         if (cov <= 0.0) discard;
@@ -548,7 +708,7 @@ void main() {
         float whiten = smoothstep(0.0, 0.3, k);
         float th = (k - 0.25) * 1.5;
         float keep = smoothstep(th, th + 0.06, n);
-        vec3 col = ice(vWorld, d, 1.0, up, pc, whiten);
+        vec3 col = ice(vWorld, max(d - SEAM, 0.0), g, 1.0, pc, 1.0, whiten);
         col += uFrostCol * exp(-pow((n - th) / 0.05, 2.0)) * 0.6 * step(0.25, k);
         float a = cov * keep * alpha * (1.0 - uBridge);
         frag = vec4(col * a, a);

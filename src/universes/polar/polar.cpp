@@ -4,15 +4,15 @@
 // stars (the Milky Way faint across it), and the aurora. The aurora is the music: each of its ribbons follows a group
 // of frequency bands (the far, low ribbon the bass, the nearer and higher ones the mids and the highs), brightening,
 // growing taller and rippling with them, and its light falls on the snow and on the pieces. The well is a sheet of
-// dark ice with a hairline rim and frost at its foot; the pieces are clear, tinted ice (a dense core, light gathered
-// along the edges, a crisp rim of frost, faint fractures), the cells of one piece one body of ice (two pieces never
+// dark ice with a hairline rim and frost at its foot; the pieces are tinted ice (the night refracted through it, clear
+// edges, a dense core, crisp chamfers, a faceted top, fractures and bubbles), the falling piece still water; the cells of one piece one body of ice (two pieces never
 // join, a thin seam stays between them).
 //
 // Calm is a still night (one faint ribbon low on the horizon, the stars, a few flakes drifting), mid wakes the
 // aurora (several curtains, folds drifting with the tempo, a light ripple on each beat) and the snow falls, peak
 // fills the sky (curtains overhead, tall rays converging upward, the kicks sending surges of light along them,
-// blowing snow skimming over the drifts). A lock freezes the piece (a breath of frost receding into its edges) and
-// pushes a small puff of powder out from under it; a cleared row turns to snow and crumbles into powder blown away by the wind; a Tetris
+// blowing snow skimming over the drifts). A lock freezes the piece (a front of frost crystallising from where it
+// touched down, the water turning to ice behind it); a cleared row cracks and shatters into falling shards; a Tetris
 // is an auroral substorm (the whole sky flares and dances); slow motion freezes time (the falling snow hangs in the
 // air and glints, the aurora barely moves, the colors drain to silver, frost creeps in from the edges of the screen);
 // game over freezes the stack white from the bottom up, then it crumbles into powder while the blowing snow buries
@@ -496,7 +496,7 @@ void PolarUniverse::cellToPowder(float x, float y, float delay, float wind, floa
 // Game events
 // =====================================================================================================
 
-void PolarUniverse::onEvent(const GameEvent& ev, const Game&) {
+void PolarUniverse::onEvent(const GameEvent& ev, const Game& game) {
     // the cells of one piece inside an event's cells (cleared rows, a topped-out stack): one body of ice
     auto idAt = [&](int x, int y, int type) {
         if (x < 0 || x >= Game::W || y < 0 || y >= Game::H) return -1;
@@ -514,58 +514,45 @@ void PolarUniverse::onEvent(const GameEvent& ev, const Game&) {
     };
     switch (ev.type) {
     case GameEvent::Lock: {
-        // the piece's cells keep its identity (they join into one body of ice, never with another piece)
-        {
-            const int id = pieceCounter_++;
-            for (auto& c : ev.cells)
-                if (c.y >= 0 && c.y < Game::H && c.x >= 0 && c.x < Game::W) ice_[c.y][c.x] = {id, c.type};
-        }
-        // one small puff of powder pushed out from under the piece, at its contact, to both sides
-        {
-            int bottom = -1;
-            for (auto& q : ev.cells) bottom = std::max(bottom, q.y);
-            float x0 = 1e9f, x1 = -1e9f;
-            for (auto& q : ev.cells)
-                if (q.y == bottom) { x0 = std::min(x0, (float)q.x); x1 = std::max(x1, (float)q.x); }
-            const vec3 a = layout::cellPos(x0, (float)bottom), b = layout::cellPos(x1, (float)bottom);
-            for (int s = -1; s <= 1; s += 2) {
-                const float ex = s < 0 ? a.x - 0.5f : b.x + 0.5f;
-                powder(v2(ex, a.y - 0.42f), v2(0.7f * s, 0.05f), 0.24f, rng_.range(0.4f, 0.55f), 0.26f, 0.f, true);
-                for (int k = 0; k < 3; k++)
-                    powder(v2(ex - 0.1f * s, a.y - 0.45f), v2(rng_.range(0.6f, 1.5f) * s, rng_.range(0.3f, 1.0f)), 0.045f,
-                           rng_.range(0.3f, 0.5f), 0.6f);
-            }
-        }
-        break;
-    }
-    case GameEvent::HardDrop: {
-        if (ev.count < 2) break;
-        // powder kicked up at the landing, a fine trail along the fall
-        for (auto& q : ev.cells) {
-            bool top = true;
+        // The piece freezes from where it touched down: its resting cells (on the floor or on the stack).
+        float cx = 0.f, cy = 0.f, n = 0.f;
+        int bottom = -1;
+        for (auto& q : ev.cells) bottom = std::max(bottom, q.y);
+        auto inPiece = [&](int x, int y) {
             for (auto& o : ev.cells)
-                if (o.x == q.x && o.y < q.y) top = false;
-            if (!top) continue;
-            const vec3 p = layout::cellPos((float)q.x, (float)q.y);
-            const int n = std::min(ev.count, 8);
-            for (int k = 1; k <= n; k += 2)
-                powder(v2(p.x + rng_.range(-0.3f, 0.3f), p.y + 0.4f + k), v2(rng_.range(-0.2f, 0.2f), 0.3f), 0.04f, 0.5f,
-                       0.6f * (1.f - k / (float)(n + 2)), 0.02f * k);
+                if (o.x == x && o.y == y) return true;
+            return false;
+        };
+        for (auto& q : ev.cells) {
+            if (inPiece(q.x, q.y + 1)) continue;
+            if (q.y + 1 < Game::H && game.cell(q.x, q.y + 1).type < 0) continue;
+            cx += (float)q.x; cy += q.y + 0.5f; n += 1.f;
         }
+        if (n <= 0.f)
+            for (auto& q : ev.cells)
+                if (q.y == bottom) { cx += (float)q.x; cy += q.y + 0.5f; n += 1.f; }
+        if (n > 0.f) { cx /= n; cy /= n; }
+        // the piece's cells keep its identity (they join into one body of ice, never with another piece)
+        const int id = pieceCounter_++;
+        for (auto& c : ev.cells)
+            if (c.y >= 0 && c.y < Game::H && c.x >= 0 && c.x < Game::W) ice_[c.y][c.x] = {id, c.type, iceClock_, cx, cy};
+        // a tiny sparkle where it touched (just inside the ice)
+        const vec3 p = layout::cellPos(cx, cy - 0.62f);
+        glints_.push_back({v2(p.x, p.y), 0.f, 0.3f, 0.32f});
         break;
     }
     case GameEvent::Clear: {
         const bool tetris = ev.count >= 4;
-        const float wind = ev.x < 4.5f ? 1.f : -1.f; // the powder blows away from where the piece landed
+        // The rows crack from where the piece landed, then shatter (the shards in the tile shader).
+        const float ox = layout::cellPos(ev.x, 0.f).x;
+        const float seed = rng_.range(0.f, 50.f);
         for (auto& c : ev.cells) {
             const vec3 p = layout::cellPos((float)c.x, (float)c.y);
             Dying d;
             d.x = p.x; d.y = p.y; d.t = 0.f; d.type = std::clamp(c.type, 0, 6); d.mask = maskOf(c);
-            d.over = false; d.crumbled = false;
-            d.delay = std::fabs(c.x - 4.5f) * 0.02f + rng_.range(0.f, 0.03f);
-            d.seed = rng_.uniform();
+            d.over = false; d.crumbled = false; d.delay = 0.f;
+            d.seed = seed; d.ox = ox; d.power = tetris ? 1.6f : 1.f;
             dying_.push_back(d);
-            cellToPowder(p.x, p.y, d.delay + 0.1f, wind, tetris ? 1.3f : 1.f);
         }
         {
             bool cleared[Game::H] = {};
@@ -575,7 +562,10 @@ void PolarUniverse::onEvent(const GameEvent& ev, const Game&) {
             int dst = Game::H - 1;
             for (int y = Game::H - 1; y >= 0; y--) {
                 if (cleared[y]) continue;
-                for (int x = 0; x < Game::W; x++) next[dst][x] = ice_[y][x];
+                for (int x = 0; x < Game::W; x++) {
+                    next[dst][x] = ice_[y][x];
+                    next[dst][x].cy += (float)(dst - y);
+                }
                 dst--;
             }
             for (int y = 0; y < Game::H; y++)
@@ -713,8 +703,9 @@ void PolarUniverse::simulate(const Game& game, const MusicState& music, float dt
         }
     }
     dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) {
-        return d.over ? d.t > d.delay + 2.6f : d.t > d.delay + 0.42f;
+        return d.over ? d.t > d.delay + 2.6f : d.t > 0.62f * std::sqrt(d.power);
     }), dying_.end());
+    iceClock_ += wdt;
     for (auto& g : glints_) g.t += dt;
     glints_.erase(std::remove_if(glints_.begin(), glints_.end(), [](const Glint& g) { return g.t > g.life; }), glints_.end());
 
@@ -767,15 +758,21 @@ void PolarUniverse::buildBoard(const Game& g) {
             const Cell& c = g.cell(x, y);
             if (c.type < 0) continue;
             const vec3 p = layout::cellPos((float)x, y - g.rowOffset(y));
-            const float age = c.flash > 0.f ? (1.f - c.flash) * Game::LOCK_FX_SECONDS : -1.f;
-            int mask = 0;
             const int id = idAt(x, y);
+            // freezing: seconds since it locked (-1: ice long since), the contact relative to the cell (board units)
+            float age = -1.f, cdx = 0.f, cdy = 0.f;
+            if (id >= 0 && iceClock_ - ice_[y][x].t0 < 1.f) {
+                age = iceClock_ - ice_[y][x].t0;
+                cdx = ice_[y][x].cx - x;
+                cdy = y - ice_[y][x].cy;
+            }
+            int mask = 0;
             if (id >= 0)
                 mask = neighbourMask([&](int dx, int dy) {
                     if (idAt(x + dx, y + dy) != id) return false;
                     return dy == 0 || std::fabs(g.rowOffset(y + dy) - g.rowOffset(y)) < 0.01f;
                 });
-            tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask);
+            tile(p.x, p.y, 0.5f, 0.5f, cur_.piece[c.type], 1.f, 0, age, mask, 0.f, 1.f, cdx, cdy);
         }
     // Cleared cells turning to snow; a topped-out stack freezing white, then crumbling.
     for (const Dying& d : dying_) {
@@ -789,11 +786,10 @@ void PolarUniverse::buildBoard(const Game& g) {
             }
             continue;
         }
-        if (t < 0.f) {
-            tile(d.x, d.y, 0.5f, 0.5f, cur_.piece[d.type], 1.f, 0, -1.f, d.mask);
-            continue;
-        }
-        tile(d.x, d.y, 0.5f, 0.5f, cur_.piece[d.type], 1.f, 2, -1.f, d.mask, 0.f, 1.f, saturate(t / 0.4f), d.seed * 7.f);
+        // shattering: the quad grows to hold the shards flying off (their motion is in the shader)
+        const float reach = 0.6f + d.power * (2.4f * t + 7.f * t * t);
+        tile(d.x, d.y - reach * 0.35f, 0.5f + reach * 0.8f, 0.5f + reach * 0.75f, cur_.piece[d.type], 1.f, 5, t, d.mask,
+             d.power, d.x, d.y, d.ox, d.seed);
     }
     // The falling piece and its ghost.
     if (g.hasPiece()) {
@@ -1278,6 +1274,11 @@ void PolarUniverse::render(const Frame& f, GLuint fbo) {
         glUseProgram(progTile_);
         glBindTexture(GL_TEXTURE_2D, noiseTex_);
         set1i(progTile_, "uNoise", 0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, skyT_.tex);
+        glActiveTexture(GL_TEXTURE0);
+        set1i(progTile_, "uSky", 1);
+        set2f(progTile_, "uRes", (float)width_, (float)height_);
         setMat(progTile_, "uVP", vp_);
         set1f(progTile_, "uPx", px_);
         set3f(progTile_, "uAurLight", aurLight_ * 1.4f);
