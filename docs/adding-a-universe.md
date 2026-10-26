@@ -96,7 +96,7 @@ render two or three alternatives side by side and let the player pick.
    transition it is a texture): world, well, stack, piece, ghost, previews, bonus gauge, effects, and the HUD text
    (`Frame::hud`, `Frame::panels`) in its own typography (`ugl::hudLeft` resolves the alignment; each line's
    `HudRole` says what it is, so a universe can space, weigh or extend each kind its own way: SUMI adds the
-   level's name after its own, DIORAMA puts the lines on painted cards).
+   level's name after its own, DIORAMA sets them over the scene on a feathered halo).
    - Assets: every file in `src/universes/<id>/embed/` is compiled in as a byte array, to include as
      `"universes/<id>/<file>.inc"`.
    - `setSong` picks the variant (`look.variant >= 0` forces it; avoid `look.avoidVariant`, the one on screen
