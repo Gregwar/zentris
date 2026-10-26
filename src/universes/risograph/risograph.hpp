@@ -96,6 +96,9 @@ private:
     float kickTgt_ = 0.f, kickEnv_ = 0.f; // the kicks, smoothed into a slow breath of ink density
     float layer_ = 0.f, layerT_ = 9.f; // the drop's print: presence, time since it started inking in
     float bloom_ = 0.f, dropT_ = 9.f, dropAmp_ = 0.f; // the third ink's gradient (the peak), the drop's swell of it
+    // The background's current: a clock (flow_) running at a speed that follows the section, eased twice so the
+    // forms never change speed abruptly; glide_ is the gliders' clock, restarted while they are not printed.
+    float flow_ = 0.f, speed_ = 0.f, speedMid_ = 0.f, glide_ = 0.f, glideIn_ = 0.f, breathS_ = 0.f;
     vec2 offB_{0.f, 0.f}, offC_{0.f, 0.f};       // the background's registration (never the stack's)
     vec2 blotPos_{0.f, 0.f};
     float blotT_ = 9.f, blotK_ = 0.f;             // the last lock's soft blot
