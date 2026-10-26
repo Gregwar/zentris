@@ -55,6 +55,11 @@ strobing (one soft flash on the drop is fine).
   dither checkerboards, pixelation or scattered flickering cells over the screen.
 - The stack must contrast clearly with what is behind it, in every variant (pale pieces on a pale sky do not
   read).
+- Background textures stay soft (smooth gradients, a fine grain, a paper tone), never a pattern of visible dots,
+  hatches or marks behind the UI: RISOGRAPH's halftone washes across the sheet were "totally ruining the UI".
+- Drops never move the stack, the pieces, the previews or the HUD (no registration offset, shake or jolt on them),
+  and large background motion stays slow (no big shapes jumping, sliding or re-composing on beats): fast moving
+  shapes on a drop cause nausea. Show the drop with color, density and slow envelopes instead.
 - Merging cells into one shape is fine when it is the universe's design (one brush stroke per piece in SUMI),
   never by accident (different pieces of the same color fusing).
 

@@ -1,27 +1,28 @@
 // RISOGRAPH: a two-ink risograph print.
 //
-// One world: the whole frame is a print of two spot inks on a paper stock (a third ink joins at the peaks). Every
-// mark is ink laid by one drum: flat shapes, halftone tints (dots at a fixed angle per drum, or a line screen),
-// overprints darkening where two inks cross, a riso grain in the ink. The drums are never quite in register, and
-// that registration is the music's signature: calm is an almost still print, slightly off; mid lets the second
-// drum breathe with the tempo while the screens drift; the peak floods the sheet with the third ink from the
-// shapes' side (slammed in solid on the drop, settling) and overprints its big flat shape, the kicks knock the drums out of register and the shapes are re-printed elsewhere on the beats of a bar.
-// Lots of paper, little else: the world is one big halftone disc, a screened band and, at the peaks, the third
-// ink's shape; no scenery.
+// One world: the whole frame is a print of two spot inks on a paper stock (a third ink joins at the peaks). The
+// pieces are flat ink shapes and screened tints; the background is soft: big flat shapes and broad gradients of
+// ink density on the paper (a riso gradient, a fine grain, no visible screen), kept off the well and the text's
+// side. Calm is a pale gradient disc on the paper; mid deepens it and the second ink's gradient across the sheet;
+// the peak brings the third ink's shape and a broad bloom of it from the shapes' edge, which swells in on the drop
+// (a third of a second in, slow to settle) and breathes with the kicks, by density only. Only the background's
+// drums are out of register, slightly and slowly: the stack, the pieces and the HUD never move with the music.
+// Lots of paper, little else; no scenery.
 //
 // The pieces are flat ink shapes, each type its own ink recipe (a solid ink, the overprint of both, a solid with
 // the other ink's dots, a hatched tint with a keyline...), so the seven types read by color and pattern in every
 // variant; the cells of one piece print as one clean shape and two pieces always keep a hairline of paper between
-// them. A lock knocks the piece's inks a hair out of place at the impact; a cleared row is torn off as a strip of
-// paper (ragged edges, its dots shrinking away); a Tetris stamps the third ink in one huge disc over the sheet;
+// them. A lock presses a soft blot of the second ink out under the piece; a cleared row is torn off as a strip of
+// paper (ragged edges, its dots shrinking away); a Tetris stamps the third ink in one huge soft disc over the sheet;
 // slow motion is a monotone print (one ink, the drums locked in register); game over runs the drum dry, the stack
 // fading in streaks. A change of universe lifts the ink off the paper, leaving the stack plain.
 //
-// Rendering: every mark goes into one ink buffer (one channel per drum, screened where drawn), then COMPOSITE_FS
-// prints the drums on the paper, each with its own registration offset (see shaders.hpp).
+// Rendering: the background goes into its own buffer (continuous densities), the stack, the marks and the HUD into
+// the ink buffer (one channel per drum, screened where drawn); COMPOSITE_FS prints both on the paper, only the
+// background with a registration offset (see shaders.hpp).
 //
 // Layout contract: a flat orthographic view at the reference camera's scale on the board plane (like SUMI); the
-// misregistration only moves the second and third drums by a few hundredths of a cell.
+// stack and the HUD are always printed in register.
 #include "universes/risograph/risograph.hpp"
 
 #include <algorithm>
@@ -928,7 +929,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         const float breath = kickEnv_; // 0..1, smooth
         const float dropSwell = dropT_ < 9.f ? smoothstepf(0.f, 0.35f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.35f) * 0.45f) * dropAmp_ : 0.f;
         const float tame = 1.f - 0.25f * dark_; // inks laid like light on black paper glow more: keep them lower
-        const float dens[3] = {(0.30f + 0.10f * wm + 0.14f * wp + 0.08f * breath + 0.1f * dropSwell) * pres_[0] * tame,
+        const float dens[3] = {(0.2f + 0.18f * wm + 0.14f * wp + 0.08f * breath + 0.1f * dropSwell) * pres_[0] * tame,
                                0.f, // A's band: retired (it read as a grey bar); the key ink stays for the stack and the HUD
                                (0.55f + 0.12f * breath + 0.15f * dropSwell) * pres_[2] * tame};
         const float drum[3] = {1.f, 0.f, 2.f};
@@ -961,7 +962,7 @@ void RisographUniverse::render(const Frame& f, GLuint fbo) {
         // the sheet: B's faint gradient from the shapes' side (deeper from mid), and the peak's bloom of C, which
         // swells on the drop and breathes with the kicks (density only)
         const float bloom = (0.20f + 0.10f * breath + 0.22f * dropSwell) * bloom_ * world * (1.f - 0.6f * slow_) * tame;
-        const float wash = (0.07f + 0.07f * wm + 0.03f * breath) * world * tame;
+        const float wash = (0.03f + 0.1f * wm + 0.03f * breath) * world * tame;
         set1f(progWorld_, "uSide", (float)side_);
         set4f(progWorld_, "uWell", 0.f, 0.f, 5.f, 10.f);
         set4f(progWorld_, "uSheet", bloom, wash, std::atan2(-0.35f, 1.f * side_), drift_);
