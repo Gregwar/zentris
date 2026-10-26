@@ -30,6 +30,22 @@ void Library::scan(const std::vector<std::string>& paths) {
             continue;
         }
         std::error_code ec;
+        if (!fs::exists(p, ec)) {
+            // A path quoted and backslash-escaped at once ("Killen.\ -\ Get\ Lost.mp3") keeps its backslashes:
+            // try it without them before giving up.
+            std::string unescaped;
+            for (size_t i = 0; i < p.size(); i++) {
+                if (p[i] == '\\' && i + 1 < p.size()) i++;
+                unescaped += p[i];
+            }
+            if (unescaped != p && fs::exists(unescaped, ec)) {
+                std::vector<std::string> one{unescaped};
+                scan(one);
+                continue;
+            }
+            std::fprintf(stderr, "[library] not found: %s\n", p.c_str());
+            continue;
+        }
         if (fs::is_directory(p, ec)) {
             std::vector<std::string> dir; // a folder plays in alphabetical order
             for (auto& e : fs::recursive_directory_iterator(p, ec))
