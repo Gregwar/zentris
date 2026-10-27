@@ -1,6 +1,7 @@
 #pragma once
-// MARBLES' shaders (see marbles.cpp): the sky and the landscape, the tiles and their glass marbles (and the marbles
-// lying in the landscape), the light of the marbles (halos, glints), the HUD letters and the final pass.
+// MARBLES' shaders (see marbles.cpp): the table seen from above (its texture, the dye in it, the traced light on it),
+// the dye's stains, the tiles and their glass marbles (and the marbles on the table), the light of the marbles (halos,
+// glints), the HUD letters and the final pass.
 // Everything is drawn in linear light into a float target; the final pass encodes it.
 
 namespace marbles_shaders {
@@ -24,69 +25,116 @@ float fbm(vec2 p) {
 }
 )";
 
-// ---------------------------------------------------------------- the sky and the landscape
-// A plain gradient sky (a moon or a sun on some variants, faint stars at night), one far ridge in the haze, and the
-// landscape: a silhouette from the song's heightfield (uLand), its top edge caught by a hairline of light.
+// ---------------------------------------------------------------- the table
+// A dark surface seen from above (uKind: 0 felt, its fine fibers; 1 slate, its cleft layers; 2 brushed metal), the dye
+// soaked into it (uStain: premultiplied color, coverage; it takes the grain), lit by the traced light (uLight: the
+// beams grazing the table, a little of it scattered: its mipmaps), quieter under the HUD's columns.
 inline const char* SKY_FS = R"(#version 330 core
 in vec2 vUv;
 out vec4 frag;
 uniform vec4 uView;          // center x, y, half width, half height (board units)
-uniform sampler2D uLand;     // the landscape's heights (R32F, one row)
-uniform vec2 uLandX;         // x of its first and last sample
-uniform vec3 uSkyTop, uSkyLow, uRidge, uLandC, uLandDeep, uRim, uOrb, uNight, uBridgeCol, uGlowCol;
-uniform vec4 uOrbP;          // x, y, radius, on
-uniform float uGlow, uSlow, uBridge, uSeed, uPx, uStars, uRimAmt;
-float landAt(float x) { return texture(uLand, vec2((x - uLandX.x) / (uLandX.y - uLandX.x), 0.5)).r; }
-float ridgeAt(float x) {
-    float a = abs(x);
-    return -7.4 + 3.2 * fbm(vec2(x * 0.06 + uSeed, uSeed * 0.3)) + 2.6 * smoothstep(5.0, 24.0, a) - 1.2 * smoothstep(9.0, 0.0, a);
+uniform sampler2D uLight, uStain;
+uniform vec3 uFelt, uFiber, uNight, uBridgeCol, uGlowCol;
+uniform float uKind, uGrain, uDye, uSlow, uBridge, uGlow, uTime, uSeed, uLightK, uSheen, uAmb;
+uniform vec4 uColL, uColR;
+float grainAt(vec2 p, out float sheen) {
+    float g;
+    sheen = 1.0;
+    if (uKind < 0.5) {
+        // felt: fine fibers over a soft mottling
+        g = 0.42 * vnoise(p * 34.0) + 0.28 * vnoise(p * 83.0 + 3.1) + 0.3 * fbm(p * 0.45 + uSeed);
+        sheen = 0.6 + 0.8 * vnoise(p * 21.0 + 7.7);
+    } else if (uKind < 1.5) {
+        // slate: thin cleft layers running across, a fine speckle, a faint pale vein here and there
+        vec2 q = vec2(p.x * 0.94 + p.y * 0.34, p.y * 0.94 - p.x * 0.34);
+        float layers = fbm(vec2(q.x * 0.18, q.y * 2.2) + uSeed);
+        float vein = smoothstep(0.02, 0.0, abs(fbm(q * 0.22 + uSeed * 1.7) - 0.5)) * 0.12;
+        g = 0.55 * layers + 0.25 * vnoise(p * 57.0) + 0.2 * fbm(p * 0.6) + vein;
+        sheen = 0.5 + layers;
+    } else {
+        // brushed metal: long fine strokes along x, a slow unevenness
+        float s1 = vnoise(vec2(p.x * 0.7, p.y * 64.0)), s2 = vnoise(vec2(p.x * 2.3 + 5.0, p.y * 150.0));
+        g = 0.5 + 0.22 * (s1 - 0.5) + 0.12 * (s2 - 0.5) + 0.35 * (fbm(p * 0.35 + uSeed) - 0.5);
+        sheen = 0.5 + 0.8 * s1 * s2;
+    }
+    return g;
+}
+vec3 light(vec2 uv, float lod) { return textureLod(uLight, clamp(uv, vec2(0.001), vec2(0.999)), lod).rgb; }
+float box(vec2 p, vec4 c) {
+    return smoothstep(c.x - 1.0, c.x + 1.0, p.x) * (1.0 - smoothstep(c.z - 1.0, c.z + 1.0, p.x))
+         * smoothstep(c.y - 1.0, c.y + 1.0, p.y) * (1.0 - smoothstep(c.w - 1.0, c.w + 1.0, p.y));
 }
 void main() {
     vec2 p = uView.xy + (vUv * 2.0 - 1.0) * uView.zw;
-    float hy = clamp((p.y + 12.5) / 25.0, 0.0, 1.0);
-    vec3 sky = mix(uSkyLow, uSkyTop, smoothstep(0.0, 1.0, pow(hy, 0.8)));
-    // the night of slow motion, deeper at the top
-    sky = mix(sky, uNight * (0.7 + 0.6 * (1.0 - hy)), uSlow * 0.85);
-    // stars (night variants, and slow motion)
-    float st = uStars + uSlow * 0.8;
-    if (st > 0.01) {
-        vec2 g = floor(p * 3.0);
-        float h = hash12(g + 7.1);
-        if (h > 0.985) {
-            vec2 o = fract(p * 3.0) - 0.5 - (vec2(hash12(g + 1.3), hash12(g + 2.9)) - 0.5) * 0.6;
-            float s = smoothstep(0.09, 0.0, length(o)) * (h - 0.985) / 0.015;
-            sky += vec3(0.9, 0.92, 1.0) * s * 0.55 * st * smoothstep(-6.0, 4.0, p.y);
-        }
-    }
-    // the moon or the sun: a soft disc and its halo
-    if (uOrbP.w > 0.0) {
-        float d = length(p - uOrbP.xy);
-        float disc = smoothstep(uOrbP.z + uPx, uOrbP.z - uPx, d);
-        sky += uOrb * (0.2 * exp(-max(d - uOrbP.z, 0.0) / (uOrbP.z * 2.2))) * uOrbP.w * (1.0 - 0.6 * uSlow);
-        sky = mix(sky, uOrb, disc * uOrbP.w * (1.0 - 0.5 * uSlow));
-    }
-    float land = landAt(p.x);
-    // the glow of a peak, rising from the land's line (a steady level, one swell on a drop)
-    sky += uGlowCol * uGlow * exp(-max(p.y - land, 0.0) / 3.0) * smoothstep(5.0, 8.0, abs(p.x));
-    vec3 col = sky;
-    // the far ridge, half lost in the haze
-    float rh = ridgeAt(p.x);
-    float rA = smoothstep(rh + uPx, rh - uPx, p.y);
-    col = mix(col, mix(sky, uRidge, 0.75), rA);
-    // the landscape: a plain silhouette, deeper down, a hairline of light along its top
-    float lA = smoothstep(land + uPx, land - uPx, p.y);
-    vec3 lc = mix(uLandC, uLandDeep, smoothstep(0.0, 7.0, land - p.y));
-    lc = mix(lc, uNight * 0.5, uSlow * 0.5);
-    float rim = smoothstep(uPx * 2.6, uPx * 0.6, land - p.y) * lA;
-    col = mix(col, lc, lA);
-    col += uRim * rim * uRimAmt;
+    float sheen;
+    float g = grainAt(p, sheen);
+    vec3 alb = mix(uFelt, uFiber, clamp((g - 0.5) * uGrain + 0.5, 0.0, 1.0));
+    // the dye, soaked into the surface: deeper in the grain's hollows, paler on its ridges
+    vec4 st = texture(uStain, vUv);
+    float hud = 1.0 - 0.45 * max(box(p, uColL), box(p, uColR));
+    alb = alb * (1.0 - 0.6 * st.a) + st.rgb * uDye * (0.7 + 0.6 * g) * hud;
+    // the light on it (the beams, a little scattered light)
+    vec3 L = light(vUv, 0.0) + 0.12 * light(vUv, 4.0) + 0.08 * light(vUv, 5.5);
+    L *= 1.0 - 0.6 * max(box(p, uColL), box(p, uColR));
+    L = L / (1.0 + max(max(L.r, L.g), L.b) * 0.5);
+    vec3 col = alb * (uAmb + L * uLightK) + L * uSheen * sheen;
+    // a peak's glow, close around the well
+    vec2 dw = max(abs(p) - vec2(5.2, 10.1), 0.0);
+    col += uGlowCol * uGlow * exp(-length(dw) / 2.5) * 0.25;
+    // the night of slow motion
+    col = mix(col, uNight * (0.8 + 0.4 * g) + st.rgb * uDye * 0.3, uSlow * 0.75);
     col = mix(col, uBridgeCol, uBridge);
     frag = vec4(col, 1.0);
 }
 )";
 
+// ---------------------------------------------------------------- the dye's stains (into the persistent dye target)
+//   a0: x, y, radius, seed     a1: linear rgb, alpha     a2: stretch (along x, y: elongated that way), -, -
+// A soft blot with a ragged edge, denser in its middle, broken by the fibers; premultiplied (blended "over").
+inline const char* STAIN_VS = R"(#version 330 core
+layout(location = 0) in vec2 aQ;
+layout(location = 1) in vec4 a0;
+layout(location = 2) in vec4 a1;
+layout(location = 3) in vec4 a2;
+uniform mat4 uVP;
+out vec2 vQ, vW;
+flat out vec4 v0, v1;
+void main() {
+    float sl = length(a2.xy);
+    vec2 u = sl > 1e-4 ? a2.xy / sl : vec2(1.0, 0.0), v = vec2(-u.y, u.x);
+    vQ = aQ * 1.35;
+    vec2 w = a0.xy + (u * vQ.x * (1.0 + sl) + v * vQ.y) * a0.z;
+    vW = w;
+    v0 = a0; v1 = a1;
+    gl_Position = uVP * vec4(w, 0.0, 1.0);
+}
+)";
+inline const char* STAIN_FS = R"(#version 330 core
+in vec2 vQ, vW;
+flat in vec4 v0, v1;
+out vec4 frag;
+void main() {
+    float d = length(vQ);
+    float sd = v0.w * 31.0;
+    float n = 0.6 * vnoise(vQ * 2.3 + sd) + 0.4 * vnoise(vQ * 5.5 + sd * 1.7);
+    float e = d + (n - 0.5) * 0.6;
+    float a = smoothstep(1.0, 0.3, e);
+    a *= 0.55 + 0.45 * exp(-d * d * 1.8);
+    a *= 0.7 + 0.5 * vnoise(vW * 26.0);
+    a = clamp(a * v1.a, 0.0, 1.0);
+    frag = vec4(v1.rgb * a, a);
+}
+)";
+// Washing the dye out (a new song): the target fades toward nothing.
+inline const char* WASH_FS = R"(#version 330 core
+in vec2 vUv;
+out vec4 frag;
+uniform float uK;
+void main() { frag = vec4(0.0, 0.0, 0.0, uK); }
+)";
+
 // ---------------------------------------------------------------- tiles and marbles
-// One instance per square: a frosted tile holding a glass marble (kind 1), a marble alone in the landscape (0),
+// One instance per square: a frosted tile holding a glass marble (kind 1), a marble alone on the table (0),
 // the ghost's outline (2), a tile popping (3), a flat panel (4: the well's pane).
 inline const char* MARBLE_VS = R"(#version 330 core
 layout(location = 0) in vec2 aQ;
@@ -101,7 +149,7 @@ flat out vec4 v0, v1, v2, v3, v4;
 void main() {
     int kind = int(a2.w + 0.5);
     vec2 ext;
-    if (kind == 0) ext = vec2(a0.w * 1.08);
+    if (kind == 0) ext = vec2(a0.w * (a3.w > 0.5 ? 1.08 : 1.6));
     else if (kind == 4) ext = vec2(a0.z, a0.w) + 0.05;
     else ext = vec2(a0.z + 0.12);
     vP = aQ * ext;
@@ -177,7 +225,7 @@ vec3 glassMarble(vec2 q, vec2 center, float R, vec3 col, float rot, float seed, 
     vec3 c0 = saturateCol(col, uSat);
     // what is behind, refracted: inverted and shrunk through the lens (behind a tile: its back, lighter low where the
     // light from above comes out)
-    vec3 env = inTile ? tileEnv * (1.0 - 0.35 * q.y) : bgAt(center - q * R * 2.4);
+    vec3 env = inTile ? tileEnv * (1.0 - 0.35 * q.y) : bgAt(center - q * R * 1.4) * 1.15 + 0.004;
     vec3 tint = mix(vec3(1.0), c0, 0.4);
     vec3 m = env * tint * (0.35 + 0.6 * z);
     // the core, inside: magnified by the front of the glass; the far layer deeper (shifted toward the light, dimmer)
@@ -293,9 +341,14 @@ void main() {
     vec2 q = (p - mo) / R;
     float rl = length(q);
     float ma = smoothstep(1.0, 1.0 - px / R * 1.6, rl) * (1.0 - bb);
+    if (kind == 0 && v3.w < 0.5) {
+        // on the table: its shadow, cast away from the light, and a contact shadow right under it
+        float dsh = length(q - ld * 0.32);
+        float sh = 0.55 * smoothstep(1.5, 0.7, dsh) + 0.3 * smoothstep(1.25, 0.9, rl);
+        outc = vec4(0.0, 0.0, 0.0, min(sh, 0.75) * (1.0 - bb));
+    }
     if (ma > 0.0) {
         vec3 m = glassMarble(q, v0.xy + mo, R, col, v2.x, v2.z, v2.y, v3.z, kind >= 1, tileEnv, Lc, ld);
-        m = mix(m, uHazeCol, v3.w);
         float a = ma + outc.a * (1.0 - ma);
         vec3 c = (m * ma + outc.rgb * outc.a * (1.0 - ma)) / max(a, 1e-4);
         outc = vec4(c, a);
@@ -307,7 +360,7 @@ void main() {
 // ---------------------------------------------------------------- the traced light (instanced, additive, half res)
 //   a0: a xy, b xy        a1: w0, w1, i0, i1        a2: color rgb, kind
 // kind 0: a shaft from a to b (a soft band, its width w0 -> w1, its strength i0 -> i1 along it)
-// kind 1: a pool of light where rays reach the land (an ellipse at a, radii b)
+// kind 1: a pool of light (an ellipse at a, radii b)
 inline const char* LIGHT_VS = R"(#version 330 core
 layout(location = 0) in vec2 aCorner;
 layout(location = 1) in vec4 aA0;
@@ -353,40 +406,6 @@ void main() {
     frag = vec4(vA2.rgb * g, 0.0);
 }
 )";
-// The light buffer over the sky and the land (additive): the shafts broken up by a slow haze, a little of the
-// light scattered around (its blurred mipmaps), quieter behind the HUD's columns.
-inline const char* LIGHTCOMP_FS = R"(#version 330 core
-in vec2 vUv;
-out vec4 frag;
-uniform sampler2D uLight;
-uniform vec4 uView;
-uniform float uTime, uHaze, uSpill, uGain;
-uniform vec4 uColL, uColR;
-float h12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
-float vn(vec2 p) {
-    vec2 i = floor(p), f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(h12(i), h12(i + vec2(1, 0)), f.x), mix(h12(i + vec2(0, 1)), h12(i + vec2(1, 1)), f.x), f.y);
-}
-vec3 light(vec2 uv, float lod) { return textureLod(uLight, clamp(uv, vec2(0.001), vec2(0.999)), lod).rgb; }
-void main() {
-    vec2 p = uView.xy + (vUv * 2.0 - 1.0) * uView.zw;
-    float h = 0.5 * vn(p * vec2(0.16, 0.22) + vec2(uTime * 0.045, -uTime * 0.018)) + 0.5 * vn(p * 0.5 + vec2(-uTime * 0.06, uTime * 0.03));
-    float haze = mix(1.0, 0.35 + 1.3 * h, uHaze);
-    float inL = smoothstep(uColL.x - 1.0, uColL.x + 1.0, p.x) * (1.0 - smoothstep(uColL.z - 1.0, uColL.z + 1.0, p.x))
-              * smoothstep(uColL.y - 1.0, uColL.y + 1.0, p.y) * (1.0 - smoothstep(uColL.w - 1.0, uColL.w + 1.0, p.y));
-    float inR = smoothstep(uColR.x - 1.0, uColR.x + 1.0, p.x) * (1.0 - smoothstep(uColR.z - 1.0, uColR.z + 1.0, p.x))
-              * smoothstep(uColR.y - 1.0, uColR.y + 1.0, p.y) * (1.0 - smoothstep(uColR.w - 1.0, uColR.w + 1.0, p.y));
-    float hud = 1.0 - 0.6 * max(inL, inR);
-    vec3 L = light(vUv, 0.0);
-    vec3 spill = light(vUv, 4.0) + 0.6 * light(vUv, 5.5);
-    vec3 c = (L * haze + spill * uSpill) * hud * uGain;
-    // a soft shoulder: the light never burns out
-    c = c / (1.0 + max(max(c.r, c.g), c.b) * 0.8);
-    frag = vec4(c, 0.0);
-}
-)";
-
 // ---------------------------------------------------------------- light: halos and glints (added)
 inline const char* FX_VS = R"(#version 330 core
 layout(location = 0) in vec2 aQ;

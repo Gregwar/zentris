@@ -1,6 +1,6 @@
 #pragma once
-// MARBLES: square glass tiles, each holding one glass marble; cleared rows pop and throw their marbles out into a
-// landscape behind the well, where they pile up in the valleys over the song (see marbles.cpp).
+// MARBLES: square glass tiles, each holding one glass marble; cleared rows pop and shoot their marbles out across a
+// dark table seen from above, where they roll, collide and stain the felt with their colors (see marbles.cpp).
 #include <string>
 #include <vector>
 
@@ -29,9 +29,9 @@ public:
 
     // A variant's colors, linear RGB once loaded (floats only: palettes are blended float by float).
     struct Palette {
-        vec3 skyTop, skyLow, haze, ridge, land, landDeep, rim, panel, panelEdge, tile, ink, accent, wave, night, orb;
+        vec3 felt, fiber, panel, panelEdge, tile, ink, accent, wave, night, lamp;
         vec3 piece[7];
-        float tileTint, tileAlpha, panelAlpha, orbX, orbY, orbR, orbOn, stars, light, halo;
+        float tileTint, tileAlpha, panelAlpha, surface, grain, dye, light, halo;
     };
 
 private:
@@ -67,57 +67,51 @@ private:
     struct Pop { float x, y, t, delay; int type; };
     std::vector<Pop> pops_;
 
-    // ---- The marbles in the world: thrown out of the well, then lying in the landscape.
+    // ---- The marbles on the table (under the well and the HUD): shot out, rolling, colliding, at rest.
     struct Marble {
         vec2 p, v;
-        float r = 0.27f, rot = 0.f, seed = 0.f;
+        float r = 0.4f, rot = 0.f, seed = 0.f;
         int type = 0;
         float age = 0.f, delay = 0.f;
         float sleepT = 0.f;
         bool asleep = false;
-        bool inWell = false;   // still crossing the well: no collisions, drawn in front
-        float r0 = 0.27f;      // its size when it left its tile (it shrinks into the distance)
+        bool under = true;     // under the well's pane: gliding out, no collisions
         float fade = 1.f;      // fading out (retired)
         bool retiring = false;
         float light = 0.f, prevLight = 0.f, twinkle = 0.f;
         float spin = 0.f;
-        bool flying = true;    // thrown, has not touched anything yet
-        float rollT = 0.f;     // time spent rolling since it landed
+        float trail = 0.f;     // distance rolled since its last trace on the felt
         vec3 lit{0.f, 0.f, 0.f};   // the light it receives (traced, smoothed), linear rgb
         vec2 litDir{0.f, -1.f};    // the way that light travels
     };
     std::vector<Marble> marbles_;
     void launch(vec2 from, int type, float seed, float rot, float delay, float vigor);
-    void stepPhysics(float h);
+    void stepPhysics(float h, bool stains);
     void simulateMarbles(float dt);
-    bool pickTarget(float x0, float y0, float r, vec2& out);
     void seedMarbles(int n);
     void buildGrid();
-    bool exposed(int i) const;
     std::vector<int> gridHead_, gridNext_;
     int gridW_ = 1, gridH_ = 1;
     float gridX0_ = -24.f, gridY0_ = -14.f;
     static constexpr float GRID = 0.9f;
-    std::vector<float> surf_;   // the top of the heaps per bin (for picking where a marble lands)
 
-    // ---- The landscape: heights over x, from the song's seed.
-    static constexpr int LAND_N = 1024;
-    static constexpr float LAND_X = 26.f;
-    std::vector<float> land_;
-    GLuint landTex_ = 0;
-    void buildLand();
-    float landAt(float x) const;
-    float slopeAt(float x) const;
-
-    // HUD text in the landscape: marbles never rest there (board space).
+    // The HUD (board space): marbles roll under it, dimmed there.
     struct KeepOut { float x0, x1, y0, y1; };
     std::vector<KeepOut> keepOut_;
-    bool inKeepOut(vec2 p, float r) const;
+    float hudShade(vec2 p) const;
+
+    // ---- The dye on the felt: soft stains of a marble's color where it is hit (and faint traces where it rolls),
+    // painted into a persistent target; a new song washes it out.
+    struct StainInst { float a0[4], a1[4], a2[4]; };
+    std::vector<StainInst> stains_;
+    void stain(vec2 p, float radius, const vec3& col, float alpha, vec2 stretch = vec2{0.f, 0.f});
+    float washT_ = 0.f;    // > 0: the felt being washed (a new song)
+    bool washNow_ = true;  // clear at once (the first frame)
 
     // ---- Light: waves through the heaps at a drop, glints.
     struct Wave {
         float t;      // seconds since it started
-        int shape;    // 0 out from the well, 1 in from the edges, 2 a sweep across, 3 rising, 4 rings from a heap, 5 diagonal
+        int shape;    // 0 out from the well, 1 in from the edges, 2 a sweep across, 3 rising, 4 rings from a marble, 5 diagonal
         float sign;
         vec2 o;
         float speed, width, gain;
@@ -132,14 +126,15 @@ private:
     double lastHalf_ = -1.0, lastBar_ = -1.0;
     int dropCount_ = 0, dropShape_ = 0, waveIndex_ = 0;
 
-    // ---- The traced light: slow beams from the moon or sun, rays traced in 2D through the marbles (glass balls:
-    // refraction in and out, a Fresnel reflection, absorption in their tint, a spectrum on the drop) down to the land.
+    // ---- The traced light: slow beams grazing the table, rays traced in 2D through the marbles (glass balls:
+    // refraction in and out, a Fresnel reflection, absorption in their tint, a spectrum on the drop) across the felt.
     struct LightInst { float a0[4], a1[4], a2[4]; };
     struct Ray {
         vec2 o, d;
         vec3 c;
         float w = 0.1f, n = 1.5f;
         int depth = 0, hits = 0;
+        float spread = 0.f, gi = 1.f;   // how fast its band widens (out of a marble: a caustic opening), its strength
         bool split = false;
     };
     std::vector<LightInst> light_;
@@ -148,14 +143,14 @@ private:
     std::vector<vec2> accDir_;
     int segs_ = 0;
     float beamOn_[2] = {0.f, 0.f};
-    float disp_ = 0.f, beamWorld_ = 0.f, heapTop_ = 0.f;
+    float disp_ = 0.f, beamWorld_ = 0.f;
     vec2 keyDir_{0.5f, -0.86f};
     vec3 keyCol_{1.f, 1.f, 1.f};
     float keyAmt_ = 0.f;
     void traceLight(float dt, float world);
     void traceRay(const Ray& first);
     bool hitMarble(vec2 o, vec2 d, float t0, float tMax, float& tHit, int& idx) const;
-    void emitShaft(vec2 a, vec2 b, float w, const vec3& c, float gain);
+    void emitShaft(vec2 a, vec2 b, float w0, float w1, const vec3& c, float gain, float fall);
 
     void simulate(const Game& game, const MusicState& music, float dt);
     void drawWorld(float world);
@@ -179,11 +174,13 @@ private:
     void drawText(const Font& f, const std::vector<float>& quads, const vec3& ink, float alpha, float bias);
 
     // ---- GL.
-    GLuint progLight_ = 0, progLightComp_ = 0, lightVao_ = 0, lightVbo_ = 0;
+    GLuint progLight_ = 0, lightVao_ = 0, lightVbo_ = 0;
+    GLuint progStain_ = 0, progWash_ = 0, stainVao_ = 0, stainVbo_ = 0;
     GLuint progSky_ = 0, progMarble_ = 0, progFx_ = 0, progText_ = 0, progShape_ = 0, progPost_ = 0;
     GLuint quadVbo_ = 0, marbleVao_ = 0, marbleVbo_ = 0, fxVao_ = 0, fxVbo_ = 0, textVao_ = 0, textVbo_ = 0, shapeVao_ = 0,
            shapeVbo_ = 0;
-    ugl::Target sceneT_, bgT_, lightT_;  // + the traced light (half resolution, mipmapped)   // the frame; the sky and the land alone (seen through the marbles)
+    // the frame; the table alone (seen through the marbles); the traced light (half resolution, mipmapped); the dye
+    ugl::Target sceneT_, bgT_, lightT_, stainT_;
     mat4 vp_;
     vec2 viewC_{0, 0.4f}, viewH_{22, 12.4f};
     float px_ = 0.05f;

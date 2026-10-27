@@ -45,7 +45,7 @@ song, and songs change universe with a transition on the beat.
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/b0cf907f459e5dc4f72b2b7072debf1bcaaa08a4/docs/universes/fluo.jpg"><br><b>FLUO</b>: fluorescent paint splashed on a dark wall, glowing under a blacklight on drops</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/3159a7ba4410b5e2f4d8e054959cbde9e1456b4d/docs/universes/marbles.jpg"><br><b>MARBLES</b>: glass marbles in square tiles, thrown out into a landscape where they pile up</td>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/3159a7ba4410b5e2f4d8e054959cbde9e1456b4d/docs/universes/marbles.jpg"><br><b>MARBLES</b>: glass marbles in square tiles, shot out across a dark table where they collide and stain the felt</td>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/412230bfad663a226675f239505670847baf2334/docs/universes/prism.jpg"><br><b>PRISM</b>: glass cubes in the dark, slow beams of light, a rainbow on the drop</td>
 </tr>
 </table>
