@@ -4,7 +4,8 @@
 // edges) under a plain sky with one sun or moon, and lots of empty air. The pieces are clods of the same earth, with
 // a soft crumbly edge, a fine grain and a few pebbles; landed, they merge into one mass of earth that grows out of
 // the ground line. Wherever the top of a clod is open to the air, life takes hold: a fringe of
-// grass sprouts within a second or two, then a few small flowers open slowly over about twelve seconds. A block
+// grass sprouts within a second, moss creeps along the edge and pale roots hang into the earth, then small flowers
+// open on most tops over a few seconds. A block
 // landing on top buries them: the grass and the flowers fold back into the soil in one quick, smooth motion.
 //
 // The ground line has its own vegetation and follows the song: calm parts and breaks leave it dry (pale, sparse
@@ -229,7 +230,7 @@ bool GardenUniverse::init(int width, int height) {
             glVertexAttribDivisor(1 + i, 1);
         }
     };
-    instanced(cellVao_, cellVbo_, 5, sizeof(CellInst));
+    instanced(cellVao_, cellVbo_, 6, sizeof(CellInst));
     instanced(spriteVao_, spriteVbo_, 4, sizeof(SpriteInst));
 
     glGenVertexArrays(1, &textVao_);
@@ -472,7 +473,7 @@ int GardenUniverse::maskOf(int x, int y) const {
     return m;
 }
 
-float GardenUniverse::growthAt(const Soil& s) const { return smoothstepf(0.1f, 1.6f, s.age); }
+float GardenUniverse::growthAt(const Soil& s) const { return smoothstepf(0.05f, 1.1f, s.age); }
 
 void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
@@ -1160,7 +1161,15 @@ void GardenUniverse::cell(float x, float y, float size, int mask, const vec3& co
     if (alpha <= 0.003f) return;
     cells_.push_back({{x, y, size, (float)mask}, {col.x, col.y, col.z, alpha}, {nc.x, nc.y, crumble, ghost ? 1.f : 0.f},
                       {seed, moss, root, squash},
-                      {blend ? blend[0] : -1.f, blend ? blend[1] : -1.f, blend ? blend[2] : -1.f, blend ? blend[3] : -1.f}});
+                      {blend ? blend[0] : -1.f, blend ? blend[1] : -1.f, blend ? blend[2] : -1.f, blend ? blend[3] : -1.f},
+                      {surf_.x, surf_.y, surf_.z, 0.f}});
+}
+
+float GardenUniverse::colSurface(int x, int y) const {
+    if (x < 0 || x >= Game::W || soil_[y][x].id < 0) return -1e4f;
+    int t = y;
+    while (t > 0 && soil_[t - 1][x].id >= 0) t--;
+    return layout::cellPos((float)x, t - slumpOff(t)).y + 0.5f;
 }
 
 float GardenUniverse::packSoil(const vec3& c) const {
@@ -1302,31 +1311,31 @@ void GardenUniverse::drawStackGrowth(const Game& g, float world) {
     const float minW = px_ * 0.7f;
     auto growth = [&](float cx, float top, float age, float seed, float fold, const vec3& foldCol, bool lOpen, bool rOpen,
                       float alpha) {
-        const float gr = smoothstepf(0.1f, 1.6f, age);
+        const float gr = smoothstepf(0.05f, 1.1f, age);
         if (gr <= 0.f || alpha <= 0.f) return;
         const float lo = lOpen ? -0.33f : -0.5f, hi = rOpen ? 0.33f : 0.5f;
         const float fk = smoothstepf(0.f, 1.f, fold);
         const float keep = 1.f - fk;
-        const int N = 9;
+        const int N = 18;
         for (int i = 0; i < N; i++) {
             const float h1 = hashf(seed, (float)i), h2 = hashf(seed, i + 20.f), h3 = hashf(seed, i + 40.f);
             const float bx = cx + lo + (hi - lo) * (i + 0.5f + (h1 - 0.5f) * 0.7f) / N;
-            const float len = (0.11f + 0.18f * h2) * gr * (0.25f + 0.75f * keep);
+            const float len = (0.16f + 0.3f * h2) * gr * (0.25f + 0.75f * keep);
             vec3 col = lerp(pal_.grass, pal_.lush, h3);
             col = lerp(col, pal_.dry, 0.3f * dry_);
             col = lerp(col * ((0.8f + 0.35f * h1) * dusk), foldCol, fk);
             // folding back: the blades lie down and sink into the soil
             const float dir = h3 < 0.5f ? -1.f : 1.f;
             const float rot = (h3 - 0.5f) * 0.6f + sway(bx, h1) * 0.5f + dir * 1.2f * fk;
-            float w = 0.026f;
+            float w = 0.03f;
             float a = alpha * (1.f - fk * fk * fk);
             if (w < minW) { a *= w / minW; w = minW; }
             sprite(bx, top - 0.03f, w, len, rot, 0, col, a, (h1 - 0.5f) * 0.3f);
         }
-        // a few flowers per open run, opening slowly over about twelve seconds
-        if (hashf(seed, 99.f) < 0.45f) {
-            const float start = 1.5f + 6.5f * hashf(seed, 97.f);
-            const float op = smoothstepf(start, start + 3.5f, age);
+        // flowers on most open tops, opening over a few seconds
+        if (hashf(seed, 99.f) < 0.7f) {
+            const float start = 1.f + 4.f * hashf(seed, 97.f);
+            const float op = smoothstepf(start, start + 2.5f, age);
             const float stemG = smoothstepf(start - 1.f, start + 1.2f, age);
             if (stemG > 0.f) {
                 const float fx = cx + lo + 0.1f + (hi - lo - 0.2f) * hashf(seed, 98.f);
@@ -1434,9 +1443,12 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
             // landed earth is textured in the world's frame where it landed, like the ground line (one continuous
             // earth), and its texture sinks with it when rows below it are cleared
             const vec2 tex = v2(p.x, layout::cellPos((float)x, (float)(y - s.sunk)).y);
+            const float own = colSurface(x, y), l = colSurface(x - 1, y), r = colSurface(x + 1, y);
+            surf_ = vec3(own, l > -1e3f ? l : own, r > -1e3f ? r : own);
             cell(p.x, p.y, 1.f, m, pal_.piece[s.type], 1.f, tex, 0.f, false, 0.f, moss, blend,
                  root ? ROOT : 0.f);
         }
+    surf_ = vec3(-1e4f, -1e4f, -1e4f);
     // Cleared earth crumbling (at the real speed, even in slow motion).
     for (const Dying& d : dying_) {
         if (d.collapse) {
@@ -1771,6 +1783,14 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
             set4f(progSky_, "uGroundL", gl.x, gl.y, gl.z, gl.w);
             set4f(progSky_, "uGroundR", gr.x, gr.y, gr.z, gr.w);
             set2f(progSky_, "uRaise", g_raise[0], g_raise[1]);
+            // the stack's surface over each column of the well (the ground's gradient under it follows it)
+            float tops[Game::W];
+            for (int x = 0; x < Game::W; x++) {
+                const float t = colSurface(x, Game::H - 1);
+                tops[x] = t > -1e3f ? t : -10.05f;
+            }
+            glUniform1fv(glGetUniformLocation(progSky_, "uColTop"), Game::W, tops);
+            set1f(progSky_, "uRoots", saturate(grassH_) * world);
         }
         {
             // the previews' cells, for their halo over a risen bank (the same placement as the previews below)
@@ -1842,9 +1862,14 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
             for (int i = 0; i < 8; i++)
                 if (inPiece(c[0] + NDX[i], c[1] + NDY[i])) m |= 1 << i;
             const vec3 w = layout::cellPos(c[0] + dx, c[1] + dy);
+            int top = c[1];
+            for (auto& o : cells) if (o[0] == c[0]) top = std::min(top, o[1]);
+            const float sy0 = layout::cellPos(c[0] + dx, top + dy).y + 0.5f;
+            surf_ = vec3(sy0, sy0, sy0);
             cell(w.x, w.y, 1.f, m, pal_.piece[type], 1.f, v2((float)(c[0] - minX) + sx, -(float)(c[1] - minY) + sy), 0.f, false,
                  (float)(nextId_ % 97), 0.f);
         }
+        surf_ = vec3(-1e4f, -1e4f, -1e4f);
     }
     // ---- Previews: small clods.
     auto preview = [&](int type, vec2 center, float sc, float alpha) {
@@ -1867,9 +1892,14 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
             for (int i = 0; i < 8; i++)
                 if (inPiece(c[0] + NDX[i], c[1] + NDY[i])) m |= 1 << i;
             const vec2 pos = v2(center.x + (c[0] - (minx + maxx) * 0.5f) * sc, center.y - (c[1] - (miny + maxy) * 0.5f) * sc);
+            int top = c[1];
+            for (auto& o : cells) if (o[0] == c[0]) top = std::min(top, o[1]);
+            const float sy0 = center.y - (top - (miny + maxy) * 0.5f) * sc + 0.5f * sc;
+            surf_ = vec3(sy0, sy0, sy0);
             cell(pos.x, pos.y, sc, m, pal_.piece[std::clamp(type, 0, 6)], alpha, v2(c[0] + type * 5.1f, -(float)c[1] + type * 2.3f),
                  0.f, false, (float)type, 0.f);
         }
+        surf_ = vec3(-1e4f, -1e4f, -1e4f);
     };
     preview(game.holdType(), v2(layout::HOLD_CENTER.x, layout::HOLD_CENTER.y), layout::previewScale(0), game.holdUsed() ? 0.35f : 1.f);
     for (int i = 0; i < 3; i++) {

@@ -67,6 +67,13 @@ vec3 earthTexture(vec3 col, vec3 base, vec2 p, float seed, float px, float tb) {
 }
 // The earth's color at a height (board units, the well's floor at -10): one gradient for the ground line and the
 // clods, dark deep down, its own soil at the floor, a little lighter and drier as it rises.
+// The earth's color at a depth under its local surface (board units): light at the top, darker a few cells down,
+// the deep earth further.
+vec3 earthDepth(float d, vec3 ground, vec3 deep, vec3 soil) {
+    vec3 floorC = mix(ground, soil, 0.2);
+    vec3 c = mix(soil * 1.12, floorC, smoothstep(0.0, 6.0, d));
+    return mix(c, deep, 0.85 * smoothstep(5.0, 11.0, d));
+}
 vec3 earthAt(float y, vec3 ground, vec3 deep, vec3 soil) {
     vec3 floorC = mix(ground, soil, 0.2);
     if (y < -10.0) return mix(floorC, deep, smoothstep(0.0, 3.5, -10.0 - y));
@@ -88,6 +95,8 @@ uniform vec4 uGroundL, uGroundR; // each bank: lip, height, start, end (not mirr
 uniform vec2 uRaise;             // the ground raised beside the well (left, right), following the outer columns
 uniform vec4 uHalo[16];          // the previews' cells (center, half size, strength): a soft pale halo over the earth
 uniform vec4 uHaloRing;          // the bonus gauge (center, radius, strength), the same halo
+uniform float uColTop[10];       // the stack's surface over each column of the well (the floor where it is empty)
+uniform float uRoots;            // how far the grass's roots reach under the banks
 // the ground line before it rises beside the well
 float groundBase(float x) {
     float a = abs(x);
@@ -155,11 +164,36 @@ void main() {
     float gy = groundY(w.x);
     float below = gy - w.y;
     float edge = smoothstep(-uPx * 1.2, uPx * 1.2, below + (vnoise(vec2(w.x * 9.0, 3.0)) - 0.5) * 0.05);
-    // deep earth below the ground's own line; a bank risen beside the well is the clods' earth (their gradient)
-    float depth = smoothstep(0.0, 3.2, groundBase(w.x) - w.y);
-    // the same gradient as the clods (dark deep down, lighter as the banks rise), the deep earth below the surface
-    vec3 soil = mix(earthAt(w.y, uGround, uGroundDeep, uSoil), uGroundDeep, depth * 0.5);
+    // the gradient follows the local surface: the ground line, or the stack over the well's columns
+    float surf = gy;
+    if (abs(w.x) < 5.0) {
+        float cx = clamp(w.x + 4.5, 0.0, 9.0);
+        int i0 = int(floor(cx));
+        int i1 = min(i0 + 1, 9);
+        surf = max(gy, mix(uColTop[i0], uColTop[i1], smoothstep(0.35, 0.65, fract(cx))));
+    }
+    vec3 soil = earthDepth(surf - w.y, uGround, uGroundDeep, uSoil);
     soil = earthTexture(soil, soil, w, 0.0, uPx, 1.0 - uBridge); // the clods' own texture: one earth
+    // the grass's roots under the banks: pale threads hanging from the surface, a longer one here and there
+    if (uRoots > 0.0 && abs(w.x) > 5.25) {
+        float dd = gy - w.y;
+        float rt = 0.0;
+        float ci = floor(w.x * 4.0);
+        for (int k = -1; k <= 1; k++) {
+            float c = ci + float(k);
+            float h = hash12(vec2(c, 7.3)), h2 = hash12(vec2(c, 1.9));
+            float len = uRoots * (h2 > 0.85 ? 1.1 + 0.6 * h : 0.3 + 0.45 * h2);
+            float rx = (c + h) / 4.0 + 0.05 * sin(dd * 10.0 + h * 20.0) + 0.025 * sin(dd * 23.0 + h2 * 9.0);
+            float wd = 0.013 * (1.0 - 0.7 * clamp(dd / max(len, 1e-3), 0.0, 1.0));
+            float on = step(0.0, dd) * (1.0 - smoothstep(len * 0.75, len, dd));
+            rt = max(rt, on * (1.0 - smoothstep(wd, wd + uPx, abs(w.x - rx))));
+            float at = len * 0.4;
+            float bx = rx + (dd - at) * (h < 0.5 ? -0.8 : 0.8);
+            float bon = smoothstep(at - 0.01, at, dd) * (1.0 - smoothstep(at + len * 0.15, at + len * 0.25, dd));
+            rt = max(rt, 0.7 * bon * (1.0 - smoothstep(0.008, 0.008 + uPx, abs(w.x - bx))));
+        }
+        soil = mix(soil, mix(soil * 1.8, vec3(0.88, 0.82, 0.66), 0.6), rt * 0.8 * (1.0 - uBridge));
+    }
     soil = mix(soil, uLip, exp(-max(below, 0.0) / 0.09) * 0.55 * (1.0 - 0.5 * uDry));
     // dry earth is paler and dustier
     soil = mix(soil, soil * 1.3 + uLip * 0.15, uDry * 0.35);
@@ -190,10 +224,12 @@ layout(location = 2) in vec4 a1;   // linear rgb, alpha
 layout(location = 3) in vec4 a2;   // grain origin x, y, crumble 0..1, ghost
 layout(location = 4) in vec4 a3;   // seed, moss on the top edge, root (how far it reaches down into the ground), -
 layout(location = 5) in vec4 a4;   // the soils joined on the L R D U sides (packed, -1: none)
+layout(location = 6) in vec4 a5;   // the local surface: over its column, the left one, the right one (-1e4: its top)
 uniform mat4 uVP;
 out vec2 vP;
-flat out vec4 v0, v1, v2, v3, v4;
+flat out vec4 v0, v1, v2, v3, v4, v5;
 void main() {
+    v5 = a5;
     vP = aQ * 0.5;
     if (aQ.y < 0.0) vP.y -= a3.z; // a root reaches down into the ground
     v0 = a0; v1 = a1; v2 = a2; v3 = a3; v4 = a4;
@@ -203,7 +239,7 @@ void main() {
 )";
 inline const char* CELL_FS = R"(#version 330 core
 in vec2 vP;
-flat in vec4 v0, v1, v2, v3, v4;
+flat in vec4 v0, v1, v2, v3, v4, v5;
 out vec4 frag;
 vec3 unpackSoil(float f) {
     float v = floor(f + 0.5);
@@ -270,7 +306,13 @@ void main() {
         }
         if (wsum > 0.0) base = mix(base, sum / wsum, min(wsum, 0.5));
         // the earth's gradient by height (the clods share it with the ground line)
-        base *= earthAt(v0.y + vP.y * (v3.w > 0.0 ? v3.w : 1.0) * size, uGround, uGroundDeep, uSoil) / max(uSoil, vec3(1e-3));
+        // the earth's gradient by depth under the local surface (the clods share it with the ground line)
+        float wy = v0.y + vP.y * (v3.w > 0.0 ? v3.w : 1.0) * size;
+        float sOwn = v5.x > -1e3 ? v5.x : v0.y + 0.5 * size;
+        float sL = v5.y > -1e3 ? v5.y : sOwn, sR = v5.z > -1e3 ? v5.z : sOwn;
+        float sf = mix(sOwn, sL, 0.5 * smoothstep(0.15, 0.5, -vP.x));
+        sf = mix(sf, sR, 0.5 * smoothstep(0.15, 0.5, vP.x));
+        base *= earthDepth(sf - wy, uGround, uGroundDeep, uSoil) / max(uSoil, vec3(1e-3));
     }
     vec3 col = base;
     if (!ghost) {
@@ -280,8 +322,48 @@ void main() {
         col *= mix(1.0, 1.0 + 0.14 * exp(-max(dTop - inset, 0.0) / 0.2), tb);
         col *= mix(1.0, 1.0 - 0.28 * exp(-max(dBot - inset, 0.0) / 0.3), tb);
         col *= mix(1.0, 1.0 - 0.18 * exp(-max(dE + crumb - inset, 0.0) / 0.04), tb);
-        // moss where grass has taken on the top
-        col = mix(col, uMoss, v3.y * 0.4 * exp(-max(dTop - inset, 0.0) / 0.07) * tb);
+        // where grass has taken on the top: moss along it in patches, creeping a little down the open sides, and
+        // pale roots hanging into the earth
+        // the earth is alive throughout: fine pale root fibres winding through it here and there
+        {
+            vec2 wq = nc * 2.2 + vec2(fbm(nc * 1.3 + 3.0), fbm(nc * 1.3 + 9.0)) * 1.6;
+            float fib = exp(-abs(vnoise(wq * vec2(1.0, 2.6)) - 0.5) / 0.018);
+            fib *= smoothstep(0.5, 0.66, fbm(nc * 0.9 + 11.0)) * smoothstep(inset, inset + 0.08, dE);
+            col = mix(col, mix(base * 1.6, vec3(0.84, 0.78, 0.62), 0.55), fib * 0.3 * tb);
+        }
+        // where grass has taken on the top: moss along it in patches, creeping down the open sides, and pale roots
+        // hanging deep into the earth
+        float gk = v3.y;
+        if (gk > 0.0) {
+            float patch = smoothstep(0.32, 0.55, fbm(nc * 4.5 + v3.x * 1.3));
+            float dt = max(dTop - inset, 0.0);
+            float mo = exp(-dt / 0.09) + exp(-dt / 0.3) * 0.75 * patch;
+            mo += exp(-max(dE + crumb - inset, 0.0) / 0.08) * smoothstep(-0.5, 0.45, vP.y) * patch * 0.85;
+            vec3 mossC = uMoss * (0.8 + 0.45 * vnoise(nc * 30.0)) * 1.15;
+            // tiny lighter moss tufts
+            mossC = mix(mossC, mossC * 1.5, step(0.8, vnoise(nc * 55.0)));
+            col = mix(col, mossC, clamp(gk * mo, 0.0, 0.92) * tb);
+            float depth = 0.5 - vP.y;
+            float roots = 0.0;
+            for (int i = 0; i < 6; i++) {
+                float h = hash12(vec2(v3.x, float(i) * 3.7));
+                float rx = -0.4 + 0.8 * h;
+                float len = gk * (0.35 + 0.6 * hash12(vec2(v3.x + 1.3, float(i))));
+                float x = rx + 0.06 * sin(depth * 10.0 + h * 20.0) + 0.03 * sin(depth * 25.0 + h * 9.0);
+                float w = 0.014 * (1.0 - 0.7 * depth / max(len, 1e-3));
+                float on = (1.0 - smoothstep(len * 0.8, len, depth)) * step(0.0, depth);
+                roots = max(roots, on * (1.0 - smoothstep(w, w + px, abs(vP.x - x))));
+                // side rootlets
+                for (int j = 0; j < 2; j++) {
+                    float at = len * (0.3 + 0.3 * float(j));
+                    float sd = (h < 0.5) == (j == 0) ? -0.8 : 0.8;
+                    float bx = x + (depth - at) * sd;
+                    float bon = smoothstep(at - 0.01, at, depth) * (1.0 - smoothstep(at + len * 0.15, at + len * 0.25, depth));
+                    roots = max(roots, 0.75 * bon * (1.0 - smoothstep(0.008, 0.008 + px, abs(vP.x - bx))));
+                }
+            }
+            col = mix(col, mix(base * 1.8, vec3(0.88, 0.82, 0.66), 0.6), roots * 0.85 * tb * smoothstep(inset, inset + 0.05, dE));
+        }
     }
     // a cleared row crumbles: the earth breaks up from its grain
     // a root fades into the ground

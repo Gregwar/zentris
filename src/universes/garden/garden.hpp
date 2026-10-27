@@ -36,7 +36,7 @@ public:
     };
 
 private:
-    struct CellInst { float a0[4], a1[4], a2[4], a3[4], a4[4]; };
+    struct CellInst { float a0[4], a1[4], a2[4], a3[4], a4[4], a5[4]; };
     struct SpriteInst { float a0[4], a1[4], a2[4], a3[4]; };
     struct Vert { float x, y, r, g, b, a; };
     std::vector<CellInst> cells_;
@@ -62,6 +62,10 @@ private:
         int sunk = 0;       // rows it has sunk since it landed (its texture goes down with it)
     };
     Soil soil_[Game::H][Game::W];
+    // the local surface over the cells drawn next (own column, left, right; world y; -1e4: the cell's own top): the
+    // earth's gradient is its depth under it
+    vec3 surf_{-1e4f, -1e4f, -1e4f};
+    float colSurface(int x, int y) const; // the top of the stack's run of earth through (x, y), or -1e4
     int nextId_ = 1;
     int lastDrop_ = 0;
     void syncSoil(const Game& game, float gdt);
