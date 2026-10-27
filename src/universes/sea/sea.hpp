@@ -43,19 +43,26 @@ private:
     std::vector<SpriteInst> sprites_;
     std::vector<SpriteInst> lifeInst_;
     // A glass cube of water (every cell is one): its center, size, glass color, rotation, how full (0..1), out in the
-    // world (cut by the sand, tinted under the sea), crack (0 whole .. 1 about to burst).
+    // world (cut by the sand, tinted under the sea), crack (0 none .. 1 open) and where it is (the cube's frame).
     void cube(float x, float y, float size, const vec3& col, float alpha, float rot, float fill, bool ghost, bool world, float seed,
-              float crack = 0.f);
+              float crack = 0.f, vec2 crackP = vec2{0.f, 0.f});
     void sprite(float x, float y, float hx, float hy, float rot, int kind, const vec3& col, float alpha, float p0 = 0.f,
                 float p1 = 0.f, float seed = 0.f);
     void flushCells();
     void flushSprites();
 
-    // Cubes thrown out of a cleared row, up and outward: cracks spread over each, water spurting through them, then it
-    // bursts in the air (or on the sand), its water raising the sea.
-    struct Flyer { vec2 p, v; float rot, spin, t, crackAt, breakAt, water, spilt, spurtAcc, seed; int type; };
+    // Cubes thrown out of a cleared row: they land on the sand at the well's side, a crack opens in the glass and the
+    // water jets out of it under pressure (raising the sea); empty, they fade into the sand.
+    enum { F_FLY = 0, F_SETTLE = 1, F_SINK = 2, F_REST = 3 };
+    struct Flyer {
+        vec2 p, v, rest, land, crackP, jet;
+        float rot, spin, t, T, restRot, landRot, landT, crackAt, leakAt, crack, fill, water, pend, acc, fade, seed;
+        int state, type, side;
+        bool under;
+    };
     std::vector<Flyer> flyers_;
-    void burst(const Flyer& f);
+    std::vector<float> colFree_[2]; // the places on the sand at each side of the well: when each is free again
+    float landingX(int side);
     void simulateFlyers(float dt);
     int boardCount_ = 0; // the board's cubes last frame (a whole stack appearing at once: a review, a game joined)
     void watchBoard(const Game& game);
