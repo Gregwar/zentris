@@ -40,9 +40,9 @@ private:
 
     // ---- The light: rays traced through the glass (refraction, total internal reflection, a Fresnel reflection,
     // dispersion into a spectrum), drawn as shafts, pools on the floor and glints where they cross a face.
-    struct Ray { vec2 o, d; vec3 c; float w, dw; int depth, box, bounces; float n; bool split; };
+    struct Ray { vec2 o, d; vec3 c; float w, dw; int depth, box, bounces; float n; bool split; float g = 1.f, fall = 0.f; }; // g: gain of its shafts, fall: fading per unit (a burst's short reach)
     void trace(Ray r);
-    void emitShaft(vec2 a, vec2 b, float w0, float w1, vec3 c, float gain);
+    void emitShaft(vec2 a, vec2 b, float w0, float w1, vec3 c, float gain, float fade = 1.f);
     void emitGlint(vec2 p, vec3 c, float size);
     std::vector<Inst> light_, glow_;
     std::vector<Ray> stack_;
@@ -58,12 +58,15 @@ private:
     struct Beam { float on = 0.f; };
     Beam beams_[3];
 
-    // ---- Effects: sparks (a cleared cube shattering into spectral sparks), glints (a lock, the beat's sparkle).
+    // ---- Effects: sparks (a hard drop's, along the contact), glints (a lock, the beat's sparkle).
     struct Spark { vec2 p, v; vec3 c; float t, life, delay, w; };
     std::vector<Spark> sparks_;
     struct Flare { vec2 p; vec3 c; float t, life, size, delay; };
     std::vector<Flare> flares_;
-    void shatter(vec2 c, int type, float delay, float power);
+    // A cleared row: its cubes vanish and the row itself becomes a short burst of light, traced like the beams.
+    struct Burst { std::vector<vec3> cells; float t = 0.f, life = 0.45f, power = 1.f, delay = 0.f; }; // x, y, type
+    std::vector<Burst> bursts_;
+    void emitBurst(const Burst& b);
 
     // ---- Play.
     std::vector<Inst> cubes_;
