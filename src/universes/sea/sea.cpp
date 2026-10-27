@@ -120,12 +120,12 @@ struct VariantDef {
 const VariantDef VARIANTS[] = {
     // A calm noon: a clear blue sky, a bright sea, white sails; cyan, cobalt, indigo, sea green, teal, azure, seafoam.
     {"CALM NOON", 0x6aa6dc, 0xe2eef2, 0xfffbea, 0xffffff, 0x5a6472, 0x3e4652,
-     0xa2ccd8, 0x4f9fc0, 0x23709c, 0x0f3d62, 0xf6fbfb, 0xd6e8ee, 0x3a5462, 0xf0f5f6,
+     0xa2ccd8, 0x4f9fc0, 0x23709c, 0x0f3d62, 0xf6fbfb, 0xd6e8ee, 0x3a5462, 0x0a1422,
      0x22344a, 0xf3f1ea, 0xfbfaf4, 0xd0583c, 0x2c4458, 0xd0583c, 0x3d7fa6, 0xe0b040,
      0x1b3348, 0x1f88b8, 0x2a2f5a,
      {0x14c0cc, 0x1e56b0, 0x7a4cc8, 0x1fa676, 0x0a7a84, 0x6aa8f4, 0x8ad6a8},
      {0x0f8f9a, 0x2556b8, 0x6a46b8, 0x1f8a52, 0xc07a14, 0x3f8fd0, 0xb84a72},
-     -14.f, 8.5f, 1.0f, 0.f, 0.f, 0.1f, 0.3f, 1.f, 0.f},
+     -14.f, 8.5f, 1.0f, 0.f, 0.f, 0.2f, 0.3f, 1.f, 0.f},
     // A golden hour: a low sun in an apricot haze, a sea of copper and slate, a dusky panel; bright clear waters.
     {"GOLDEN HOUR", 0x34446e, 0xf4b47c, 0xffe4b4, 0xf2a888, 0x3a3248, 0x2a2534,
      0xe0aa88, 0x8a7c94, 0x3a4870, 0x1a2242, 0xffe8d4, 0xf2c6a0, 0x2c3048, 0x1a2140,
@@ -136,12 +136,12 @@ const VariantDef VARIANTS[] = {
      15.5f, -1.0f, 1.6f, 0.f, 0.f, 0.62f, 0.35f, 0.f, 0.35f},
     // A grey North Sea: an overcast sky, grey-green water, red fishing hulls; deep teals and greens in the glass.
     {"GREY NORTH SEA", 0x98a4ac, 0xd6dbd8, 0xe4e6e2, 0xc6cccd, 0x4a5254, 0x343b3e,
-     0x9aaaa6, 0x5f7571, 0x34494a, 0x18282c, 0xeef2ee, 0xc8d0ce, 0x26363a, 0xe9ecea,
+     0x9aaaa6, 0x5f7571, 0x34494a, 0x18282c, 0xeef2ee, 0xc8d0ce, 0x26363a, 0x0c1416,
      0x2a3236, 0xe8e6de, 0xd8d4c8, 0xc8452e, 0x34404a, 0xb8503a, 0x4e6e80, 0xd09a3c,
      0x232c30, 0x3c8a86, 0x2a3040,
      {0x16a2b6, 0x2a5a90, 0x5a54a6, 0x2e9a64, 0x0e6a6c, 0x5c98d0, 0x7cc496},
      {0x168a96, 0x2a5a96, 0x5e4c9e, 0x2a8a52, 0xb07420, 0x4a84bc, 0xa84a62},
-     -12.f, 7.f, 0.95f, 0.f, 0.f, 0.1f, 0.75f, 1.f, 0.f},
+     -12.f, 7.f, 0.95f, 0.f, 0.f, 0.2f, 0.75f, 1.f, 0.f},
     // A night harbor: a deep blue night, a moon, boats with lit windows; pale, luminous waters in the glass.
     {"NIGHT HARBOR", 0x070d22, 0x1c2a4c, 0xe8ecf4, 0x2a3658, 0x0a0f1c, 0x1a2236,
      0x26385c, 0x17284c, 0x0d1a38, 0x060c1c, 0xa4b8d4, 0x34466c, 0x0c1426, 0x0c1428,
@@ -1521,7 +1521,9 @@ void SeaUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<Hud
             v.insert(v.end(), q, q + 6);
         };
         for (const HudRect& r : panels) {
-            const vec3 c = r.custom ? ugl::toLinear(r.color) : r.accent ? pal_.accent : pal_.panel;
+            // (the day variants veil the well in a dark glass, but their HUD panels stay light)
+            const vec3 panel = pal_.lightPanel > 0.5f ? ugl::toLinear(hex(0xf0f5f6)) : pal_.panel;
+            const vec3 c = r.custom ? ugl::toLinear(r.color) : r.accent ? pal_.accent : panel;
             quad(r.x, r.y, r.x + r.w, r.y + r.h, c, std::min(1.f, r.alpha));
         }
         glUseProgram(progShape_);
