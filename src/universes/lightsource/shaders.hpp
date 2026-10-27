@@ -59,8 +59,8 @@ inline const char* LIGHT_FS = R"(#version 330 core
 in vec2 vUv;
 layout(location = 0) out vec4 outLight;
 layout(location = 1) out vec4 outDir;
-#define MAXL 8
-#define MAXP 64
+#define MAXL 12
+#define MAXP 96
 uniform vec4 uView;           // center, half extents (board units)
 uniform int uNL;
 uniform vec4 uLColor[MAXL];   // rgb power, a: reach (the far term's length)
@@ -68,7 +68,11 @@ uniform vec4 uLParam[MAXL];   // x: first point, y: points, z: samples per point
 uniform vec4 uLParam2[MAXL];  // x: height above the plane, y: near weight (the close pool vs the far reach)
 uniform vec4 uLOwn[MAXL * 2]; // its own cells (column, row) x 4, ignored as occluders (-1: none)
 uniform vec2 uPts[MAXP];
-uniform vec4 uLAim[MAXL];     // a spot: its aim (xy), the cosines of its cone's outer and inner edges (z = 0: all around)
+uniform vec4 uLAim[MAXL];
+#define MAXG 48
+uniform int uNG;
+uniform vec4 uGPos[MAXG];     // unshadowed glows: position, radius
+uniform vec4 uGCol[MAXG];     // a spot: its aim (xy), the cosines of its cone's outer and inner edges (z = 0: all around)
 
 ivec2 ownC[4];
 bool blocked(vec2 a, vec2 b, ivec2 self) {
@@ -148,6 +152,18 @@ void main() {
         float l = dot(C.rgb, vec3(0.3, 0.5, 0.2));
         dirSum += dacc * l;
         wSum += acc * l;
+    }
+    for (int gi = 0; gi < uNG; gi++) {
+        vec2 d = uGPos[gi].xy - p;
+        float r = uGPos[gi].z;
+        float dd = dot(d, d);
+        if (dd > r * r * 16.0) continue;
+        float fall = r * r * r / pow(dd + r * r, 1.5);
+        vec3 C = uGCol[gi].rgb;
+        irr += C * fall;
+        float l = dot(C, vec3(0.3, 0.5, 0.2)) * fall;
+        dirSum += d * inversesqrt(dd + 1e-4) * l;
+        wSum += l;
     }
     outLight = vec4(irr, 1.0);
     outDir = vec4(dirSum, wSum, 1.0);
