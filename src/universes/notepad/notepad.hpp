@@ -83,7 +83,7 @@ private:
         uint64_t id = 0;
     };
     struct Transient { vec2 a, b, vel; float width, alpha, from, until; vec3 col; int tool; uint64_t id; float residue; bool world; };
-    struct Dying { int x, y, type, mask; uint64_t key; float t, dur; };
+    struct Dying { int x, y, type, mask; uint64_t key; float t, dur; float reveal = 1.f; };
     struct InkCell { uint64_t id = 0; int idx = 0; int type = -1; };
     enum { IT_CELL = 0, IT_OUTLINE = 1, IT_STROKE = 2, IT_DOODLE = 3, IT_PIE = 4, IT_TEXT = 5, IT_SCRIBBLE = 6, IT_MOVER = 7 };
     // A drop's travelling drawings: redrawn at a new pose on every drawing, the old pose rubbed out.
@@ -185,6 +185,10 @@ private:
     std::vector<Doodle> doodles_;
     std::vector<Mover> movers_;
     double beatNow_ = 0; // the song's beat at the current drawing
+    uint64_t landId_ = 0;  // the piece that landed last: coloured in over a few drawings
+    double landT0_ = -1e9; // when it landed
+    float landDrawn_ = 1.f; // how far it was coloured in on the last drawing
+    float landProgress() const;
     float overT_ = -1;       // game over: time since the top out
     std::vector<Item> dead_; // the stack at the top out: scribbled over, then erased
     float deadTop_ = 0;
