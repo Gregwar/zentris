@@ -50,6 +50,7 @@ private:
                 float p1 = 0.f, float seed = 0.f);
     void flushCells();
     void flushSprites();
+    bool maskWell_ = false;   // the sprites being drawn pass behind the well (its pane veils them)
 
     // Cubes thrown out of a cleared row: they land on the sand at the well's side, a crack opens in the glass and the
     // water jets out of it under pressure (raising the sea); empty, they fade into the sand.

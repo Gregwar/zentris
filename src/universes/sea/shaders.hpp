@@ -900,21 +900,25 @@ layout(location = 3) in vec4 a2;   // linear rgb, alpha
 layout(location = 4) in vec4 a3;   // p2, p3, seed, -
 uniform mat4 uVP;
 out vec2 vQ;
+out vec2 vW;
 flat out vec4 v1, v2, v3, v0;
 void main() {
     vec2 local = aQ * a0.zw;
     float c = cos(a1.x), s = sin(a1.x);
     vec2 wp = a0.xy + vec2(c * local.x - s * local.y, s * local.x + c * local.y);
     vQ = aQ;
+    vW = wp;
     v0 = a0; v1 = a1; v2 = a2; v3 = a3;
     gl_Position = uVP * vec4(wp, 0.0, 1.0);
 }
 )";
 inline const char* SPRITE_FS = R"(#version 330 core
 in vec2 vQ;
+in vec2 vW;
 flat in vec4 v1, v2, v3, v0;
 out vec4 frag;
 uniform float uTime, uPx, uLightPanel;
+uniform vec4 uWell;   // the well behind its pane: half width, bottom, top, how much the pane hides (0: not masked)
 float sdTri(vec2 p, vec2 p0, vec2 p1, vec2 p2) {
     vec2 e0 = p1 - p0, e1 = p2 - p1, e2 = p0 - p2;
     vec2 v0 = p - p0, v1 = p - p1, v2 = p - p2;
@@ -970,7 +974,9 @@ void main() {
         col = c;
         a = aa;
     }
-    frag = vec4(enc(col), a * v2.a);
+    // behind the well: its pane veils what passes behind it (the stack is drawn over it later)
+    float inW = smoothstep(0.06, -0.06, abs(vW.x) - uWell.x) * smoothstep(-0.06, 0.06, vW.y - uWell.y) * smoothstep(0.06, -0.06, vW.y - uWell.z);
+    frag = vec4(enc(col), a * v2.a * (1.0 - uWell.w * inW));
 }
 )";
 

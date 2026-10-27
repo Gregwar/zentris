@@ -943,7 +943,7 @@ void SeaUniverse::simulateFlyers(float dt) {
                     q.life = rng_.range(0.35f, 0.6f);
                     q.size = rng_.range(0.03f, 0.055f);
                     q.grav = 12.f; q.drag = 1.f;
-                    q.kind = P_SAND; q.real = true; q.front = true; q.seed = rng_.uniform();
+                    q.kind = P_SAND; q.real = true; q.front = false; q.seed = rng_.uniform();
                     q.col = lerp(vec3(0.62f, 0.47f, 0.29f), pal_.haze, 0.15f) * (1.f - 0.55f * pal_.night);
                     parts_.push_back(q);
                 }
@@ -1030,7 +1030,7 @@ void SeaUniverse::simulateFlyers(float dt) {
                     q.kind = P_BUBBLE;
                     q.col = vec3(0.85f, 0.93f, 1.f);
                 }
-                q.real = true; q.front = true; q.seed = rng_.uniform();
+                q.real = true; q.front = false; q.seed = rng_.uniform();
                 parts_.push_back(q);
             }
         } else {
@@ -1052,7 +1052,7 @@ void SeaUniverse::simulateFlyers(float dt) {
                 q.life = 3.f;
                 q.size = spray ? rng_.range(0.035f, 0.06f) : rng_.range(0.065f, 0.09f) * (0.8f + 0.5f * (1.f - pr));
                 q.grav = 15.f; q.drag = spray ? 0.6f : 0.15f;
-                q.kind = P_STREAM; q.real = true; q.front = true; q.seed = rng_.uniform();
+                q.kind = P_STREAM; q.real = true; q.front = false; q.seed = rng_.uniform();
                 // the cube's own water (colored but for the clear water of look B)
                 q.col = spray ? lerp(WATER, vec3(1.f), 0.5f) : lerp(lerp(WATER, pal_.sea1, 0.12f + 0.1f * rng_.uniform()), jetCol, 0.5f);
                 q.water = f.pend / (float)k;
@@ -1349,6 +1349,11 @@ void SeaUniverse::flushSprites() {
     set1f(progSprite_, "uTime", time_);
     set1f(progSprite_, "uPx", px_);
     set1f(progSprite_, "uLightPanel", pal_.lightPanel);
+    {
+        // the well's pane hides what passes behind it (the back pass only)
+        const float top = layout::cellPos(0.f, (float)Game::HIDDEN).y + 0.55f, bot = layout::cellPos(0.f, (float)(Game::H - 1)).y - 0.55f;
+        set4f(progSprite_, "uWell", WELL_X, bot, top, maskWell_ ? 0.88f : 0.f);
+    }
     glBindVertexArray(spriteVao_);
     glBindBuffer(GL_ARRAY_BUFFER, spriteVbo_);
     glBufferData(GL_ARRAY_BUFFER, sprites_.size() * sizeof(SpriteInst), sprites_.data(), GL_STREAM_DRAW);
@@ -1750,14 +1755,22 @@ void SeaUniverse::render(const Frame& f, GLuint fbo) {
     // ---- The life in the water.
     drawLife(world);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    // ---- Splashes and spray (behind the stack).
+    // ---- Splashes and spray, the cubes' leaking water (behind the well: its pane veils them, the stack hides them).
+    maskWell_ = true;
     drawParticles(false, world);
     flushSprites();
+    maskWell_ = false;
     // ---- A copy of the scene so far: what the glass shows (bent) behind it.
     glBindFramebuffer(GL_READ_FRAMEBUFFER, sceneT_.fbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, bgT_.fbo);
     glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     sceneT_.bind();
+    // ---- The cubes thrown out of a cleared row: flying, then on the sand, cracked and pouring out, then fading (before the
+    // stack: nothing is drawn over it).
+    for (const Flyer& fl : flyers_)
+        cube(fl.p.x, fl.p.y, 1.f, pal_.glass[fl.type], 1.f - smoothstepf(0.f, 1.f, fl.fade), fl.rot, fl.fill, false, true, fl.seed, fl.crack,
+             fl.crackP);
+    flushCells();
     // ---- The ghost, the stack, the falling piece: every cell its own glass cube of water.
     if (game.hasPiece() && !game.over()) {
         const Piece& p = game.piece();
@@ -1817,10 +1830,6 @@ void SeaUniverse::render(const Frame& f, GLuint fbo) {
         const vec3 c = layout::nextCenter(i);
         preview(game.next(i), v2(c.x, c.y), layout::previewScale(i), 1.f);
     }
-    // ---- The cubes thrown out of a cleared row: flying, then on the sand, cracked and pouring out, then fading.
-    for (const Flyer& fl : flyers_)
-        cube(fl.p.x, fl.p.y, 1.f, pal_.glass[fl.type], 1.f - smoothstepf(0.f, 1.f, fl.fade), fl.rot, fl.fill, false, true, fl.seed, fl.crack,
-             fl.crackP);
     flushCells();
     // ---- The bonus gauge: a round glass filling with water.
     {
