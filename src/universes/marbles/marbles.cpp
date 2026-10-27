@@ -172,6 +172,7 @@ bool MarblesUniverse::init(int width, int height) {
     progLight_ = compile(shaders::LIGHT_VS, shaders::LIGHT_FS, "marbles light");
     progStain_ = compile(shaders::STAIN_VS, shaders::STAIN_FS, "marbles stain");
     progWash_ = compile(ugl::FULLSCREEN_VS, shaders::WASH_FS, "marbles wash");
+    progEase_ = compile(ugl::FULLSCREEN_VS, shaders::EASE_FS, "marbles light ease");
 
     const float quad[8] = {-1, -1, 1, -1, -1, 1, 1, 1};
     glGenBuffers(1, &quadVbo_);
@@ -279,7 +280,9 @@ void MarblesUniverse::resize(int width, int height) {
     px_ = 2.f * hh / height_;
     sceneT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
     bgT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
+    lightNowT_.create(std::max(1, width_ / 2), std::max(1, height_ / 2), GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
     lightT_.create(std::max(1, width_ / 2), std::max(1, height_ / 2), GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
+    lightFresh_ = true;
     glBindTexture(GL_TEXTURE_2D, lightT_.tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -297,8 +300,9 @@ MarblesUniverse::~MarblesUniverse() {
     sceneT_.destroy();
     bgT_.destroy();
     lightT_.destroy();
+    lightNowT_.destroy();
     stainT_.destroy();
-    for (GLuint p : {progSky_, progMarble_, progFx_, progText_, progShape_, progPost_, progLight_, progStain_, progWash_}) glDeleteProgram(p);
+    for (GLuint p : {progSky_, progMarble_, progFx_, progText_, progShape_, progPost_, progLight_, progStain_, progWash_, progEase_}) glDeleteProgram(p);
     for (GLuint v : {marbleVao_, fxVao_, textVao_, shapeVao_, lightVao_, stainVao_}) glDeleteVertexArrays(1, &v);
     for (GLuint b : {quadVbo_, marbleVbo_, fxVbo_, textVbo_, shapeVbo_, lightVbo_, stainVbo_}) glDeleteBuffers(1, &b);
     for (Font* f : {&fontLight_, &fontMedium_}) {
@@ -403,8 +407,8 @@ void MarblesUniverse::refresh(float strength) {
     for (int k = 0; k < 24 && n > 0 && !marbles_.empty(); k++) {
         Marble& m = marbles_[rng_.irange(0, (int)marbles_.size() - 1)];
         if (!m.asleep || m.retiring) continue;
-        m.twinkle = 1.f;
-        glint(v2(m.p.x - 0.36f * m.r, m.p.y + 0.42f * m.r), 0.45f, lerp(pal_.piece[m.type], vec3(1.f), 0.6f));
+        m.twT = 0.f;
+        if (drive_ > 0.5f) glint(v2(m.p.x - 0.36f * m.r, m.p.y + 0.42f * m.r), 0.45f, lerp(pal_.piece[m.type], vec3(1.f), 0.6f));
         n--;
     }
 }
@@ -685,7 +689,7 @@ void MarblesUniverse::stepPhysics(float h, bool stains) {
                             if (stains && -vn > STAIN_V) {
                                 hitStain(a, nn * -1.f, -vn, 1.f);
                                 hitStain(b, nn, -vn, 1.f);
-                                if (-vn > 4.f) glint(b.p + nn * b.r, 0.3f + 0.04f * std::min(-vn, 10.f), lerp(lerp(pal_.piece[a.type], pal_.piece[b.type], 0.5f), vec3(1.f), 0.6f));
+                                if (-vn > 6.f) glint(b.p + nn * b.r, 0.3f + 0.04f * std::min(-vn, 10.f), lerp(lerp(pal_.piece[a.type], pal_.piece[b.type], 0.5f), vec3(1.f), 0.6f));
                             }
                         }
                     }
@@ -868,8 +872,7 @@ void MarblesUniverse::simulate(const Game& game, const MusicState& music, float 
             for (int k = 0; k < 12; k++) {
                 Marble& m = marbles_[rng_.irange(0, (int)marbles_.size() - 1)];
                 if (!m.asleep || m.retiring) continue;
-                m.twinkle = 1.f;
-                glint(v2(m.p.x - 0.36f * m.r, m.p.y + 0.42f * m.r), 0.5f, lerp(pal_.piece[m.type], vec3(1.f), 0.6f));
+                if (rng_.chance(0.35f)) m.twT = 0.f;
                 break;
             }
             if (rng_.chance(0.5f))
@@ -884,7 +887,8 @@ void MarblesUniverse::simulate(const Game& game, const MusicState& music, float 
                 }
         }
     }
-    // Kicks at the peak: a few marbles glint (a chorus); a few lit marbles are nudged into their neighbors (a drop).
+    // Kicks at the peak: now and then a marble swells with light (a chorus); a few lit marbles are nudged into their
+    // neighbors (a drop).
     sinceKick_ += dt;
     const float kick = std::max(music.kick, kickIn_);
     kickIn_ = approach(kickIn_, 0.f, 6.f, dt);
@@ -902,12 +906,11 @@ void MarblesUniverse::simulate(const Game& game, const MusicState& music, float 
                 nudges++;
             }
         } else {
-            for (int k = 0, n = 0; k < 30 && n < 4; k++) {
+            for (int k = 0; k < 30 && rng_.chance(0.3f); k++) {
                 Marble& m = marbles_[rng_.irange(0, (int)marbles_.size() - 1)];
-                if (!m.asleep || m.retiring) continue;
-                m.twinkle = 1.f;
-                glint(v2(m.p.x - 0.36f * m.r, m.p.y + 0.42f * m.r), 0.5f, lerp(pal_.piece[m.type], vec3(1.f), 0.6f));
-                n++;
+                if (!m.asleep || m.retiring || m.twT < 2.f) continue;
+                m.twT = 0.f;
+                break;
             }
         }
     }
@@ -933,7 +936,9 @@ void MarblesUniverse::simulate(const Game& game, const MusicState& music, float 
         m.light = std::min(L, 1.6f);
         if (m.light >= 0.55f && m.prevLight < 0.55f && rng_.chance(0.55f))
             glint(v2(m.p.x - 0.36f * m.r, m.p.y + 0.42f * m.r), 0.42f, lerp(pal_.wave, pal_.piece[m.type], 0.25f));
-        m.twinkle = approach(m.twinkle, 0.f, 3.f, dt);
+        // a swell of light in its glass: up and down over a second and a half (never a flash)
+        m.twT += dt;
+        m.twinkle = m.twT < 1.6f ? 0.6f * std::sin(PI * m.twT / 1.6f) : 0.f;
     }
     for (Glint& g : glints_) g.t += dt;
     glints_.erase(std::remove_if(glints_.begin(), glints_.end(), [](const Glint& g) { return g.t > g.life; }), glints_.end());
@@ -1108,7 +1113,8 @@ void MarblesUniverse::traceRay(const Ray& first) {
 // (smoothed, nothing flickers); the drop's waves are light too, travelling through the marbles.
 void MarblesUniverse::traceLight(float dt, float world) {
     const float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 2.f, lv_);
-    beamWorld_ += dt * lerpf(1.f, 0.35f, slow_);
+    // the beams drift slowly, livelier in a drop
+    beamWorld_ += dt * lerpf(0.35f, 1.f, drive_) * lerpf(1.f, 0.35f, slow_);
     const float on0 = 0.75f + 0.1f * wm + 0.05f * wp + 0.15f * drive_, on1 = 0.35f + 0.35f * wm + 0.15f * wp + 0.2f * drive_;
     beamOn_[0] = approach(beamOn_[0], on0, 1.f, dt);
     beamOn_[1] = approach(beamOn_[1], on1, 1.f, dt);
@@ -1161,7 +1167,7 @@ void MarblesUniverse::traceLight(float dt, float world) {
         }
     }
     // the light the marbles received, smoothed; the drop's waves as light travelling through the marbles
-    const float ks = 1.f - std::exp(-dt * 8.f);
+    const float ks = 1.f - std::exp(-dt * lerpf(1.5f, 8.f, drive_));
     for (int i = 0; i < n; i++) {
         Marble& m = marbles_[i];
         vec3 target = acc_[i] * LIT_K;
@@ -1569,7 +1575,7 @@ void MarblesUniverse::render(const Frame& f, GLuint fbo) {
     // ---- The traced light: shafts, additive, at half resolution, then its mipmaps (the scattered light).
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
-    lightT_.bind();
+    lightNowT_.bind();
     glClearColor(0.f, 0.f, 0.f, 0.f);
     glClear(GL_COLOR_BUFFER_BIT);
     if (!light_.empty()) {
@@ -1583,6 +1589,23 @@ void MarblesUniverse::render(const Frame& f, GLuint fbo) {
         glBindBuffer(GL_ARRAY_BUFFER, lightVbo_);
         glBufferData(GL_ARRAY_BUFFER, light_.size() * sizeof(LightInst), light_.data(), GL_STREAM_DRAW);
         glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)light_.size());
+        glDisable(GL_BLEND);
+    }
+    // ...eased into the light the table shows (about 0.7 s outside a drop, 0.1 s in one): caustics fade in and out
+    // as the beams drift and the marbles move, nothing pops or flickers
+    lightT_.bind();
+    {
+        const float tau = lerpf(0.7f, 0.1f, drive_);
+        const float k = lightFresh_ ? 1.f : (f.paused ? 0.f : 1.f - std::exp(-dt / tau));
+        lightFresh_ = false;
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glUseProgram(progEase_);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, lightNowT_.tex);
+        set1i(progEase_, "uSrc", 0);
+        set1f(progEase_, "uK", k);
+        ugl::drawFullscreen();
         glDisable(GL_BLEND);
     }
     glBindTexture(GL_TEXTURE_2D, lightT_.tex);

@@ -80,6 +80,7 @@ private:
         float fade = 1.f;      // fading out (retired)
         bool retiring = false;
         float light = 0.f, prevLight = 0.f, twinkle = 0.f;
+        float twT = 9.f;       // time since it began to swell with light (a soft twinkle)
         float spin = 0.f;
         float trail = 0.f;     // distance rolled since its last trace on the felt
         vec3 lit{0.f, 0.f, 0.f};   // the light it receives (traced, smoothed), linear rgb
@@ -177,12 +178,14 @@ private:
 
     // ---- GL.
     GLuint progLight_ = 0, lightVao_ = 0, lightVbo_ = 0;
-    GLuint progStain_ = 0, progWash_ = 0, stainVao_ = 0, stainVbo_ = 0;
+    GLuint progStain_ = 0, progWash_ = 0, progEase_ = 0, stainVao_ = 0, stainVbo_ = 0;
     GLuint progSky_ = 0, progMarble_ = 0, progFx_ = 0, progText_ = 0, progShape_ = 0, progPost_ = 0;
     GLuint quadVbo_ = 0, marbleVao_ = 0, marbleVbo_ = 0, fxVao_ = 0, fxVbo_ = 0, textVao_ = 0, textVbo_ = 0, shapeVao_ = 0,
            shapeVbo_ = 0;
     // the frame; the table alone (seen through the marbles); the traced light (half resolution, mipmapped); the dye
     ugl::Target sceneT_, bgT_, lightT_, stainT_;
+    ugl::Target lightNowT_;    // this frame's traced light, before it is eased into lightT_
+    bool lightFresh_ = true;
     mat4 vp_;
     vec2 viewC_{0, 0.4f}, viewH_{22, 12.4f};
     float px_ = 0.05f;
