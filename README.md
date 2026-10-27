@@ -44,6 +44,10 @@ song, and songs change universe with a transition on the beat.
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/c017f0a73d38a77418c65e3046a058428bad087e/docs/universes/sea.jpg"><br><b>SEA</b>: glass cubes of water over a rising sea</td>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/b0cf907f459e5dc4f72b2b7072debf1bcaaa08a4/docs/universes/fluo.jpg"><br><b>FLUO</b>: fluorescent paint splashed on a dark wall, glowing under a blacklight on drops</td>
 </tr>
+<tr>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/SHA/docs/universes/prism.jpg"><br><b>PRISM</b>: glass cubes in the dark, slow beams of light, a rainbow on the drop</td>
+<td></td>
+</tr>
 </table>
 
 Disabled for now (not built; their code stays in the repository):
