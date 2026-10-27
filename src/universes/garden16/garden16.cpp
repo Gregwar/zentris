@@ -1194,6 +1194,8 @@ void Garden16Universe::drawWellPanel() {
 void Garden16Universe::drawGround() {
     for (int c = cMin_; c <= cMax_; c++) {
         const int X0 = bx0_ + c * CELL, top = topOf(c), tl = topOf(c - 1), tr = topOf(c + 1);
+        // the well's floor under a block is bare earth: no grass line where the bottom row is filled
+        const bool covered = c >= 0 && c < Game::W && soil_[Game::H - 1][c].id >= 0;
         for (int Y = std::max(0, top); Y < H_; Y++) {
             const int d = Y - top;
             const int tileRow = floorDiv(Y - floor_, CELL), jj = (Y - floor_) - tileRow * CELL;
@@ -1212,10 +1214,11 @@ void Garden16Universe::drawGround() {
                 if ((i == 0 && eL) || (i == CELL - 1 && eR)) {
                     col = d < 3 ? GR_OUT : G_OUT;
                     if (d < 3) cls = K_GRASS;
-                } else if (d == 0) { col = GR_OUT; cls = K_GRASS; }
-                else if (d == 1) { col = hash01(X, 3, seedU_) < 0.25f ? GR_BASE : GR_HI; cls = K_GRASS; }
-                else if (d == 2) { col = GR_BASE; cls = K_GRASS; }
-                else if (d < drip) { col = GR_SH; cls = K_GRASS; }
+                } else if (covered && d == 0) col = G_SH; // the block's shadow on the bare floor
+                else if (d == 0) { col = GR_OUT; cls = K_GRASS; }
+                else if (d == 1 && !covered) { col = hash01(X, 3, seedU_) < 0.25f ? GR_BASE : GR_HI; cls = K_GRASS; }
+                else if (d == 2 && !covered) { col = GR_BASE; cls = K_GRASS; }
+                else if (d < drip && !covered) { col = GR_SH; cls = K_GRASS; }
                 else {
                     // dirt: lighter near the top, darker deeper down (ordered dither between the layers)
                     int layer = 0;
@@ -1229,7 +1232,7 @@ void Garden16Universe::drawGround() {
                     else col = L[layer][v == 0 ? 0 : v == 1 ? 1 : 2];
                     for (const KeepOut& k : keepOut_) // calm earth under the HUD's letters
                         if (X >= k.x0 && X <= k.x1 && Y >= k.y0 && Y <= k.y1) { col = L[layer][0]; break; }
-                    if (d == drip && layer == 0 && v == 0) col = G_SH;     // the grass's shadow on the dirt
+                    if (d == drip && layer == 0 && v == 0 && !covered) col = G_SH;     // the grass's shadow on the dirt
                     if (eL && i == 1) col = layer == 0 ? G_HI : G_BASE;     // a lit edge on a step facing left
                     if (eR && i == CELL - 2) col = G_SH;                     // a shaded edge facing right
                 }
