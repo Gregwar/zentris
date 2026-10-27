@@ -112,18 +112,18 @@ const Variant VARIANTS[] = {
      {0.16f, 0.16f, 0.16f, 0.16f, 0.16f, 0.16f, 0.16f},
      0x5a5b62, T_PENCIL, 0xff3d8b, T_MARKER, {0xff3d8b, 0x14a4dc, 0xffc21c, 0x38b648}, T_MARKER, 0xd9a0a0, 0x3d63c9},
     // Engineering graph paper: green squares, a bolder line every five, a graphite pencil and coloured pencils.
-    {"PENCIL", true, 0xf4f6f2, 0x80bf98, 0.3f, 5, 1.6f, 0, 0, 0.f, 0.09f, 0x404147, T_PENCIL, 0.06f, T_CPENCIL, 1.35f,
+    {"PENCIL", true, 0xf4f6f2, 0x80bf98, 0.3f, 5, 1.6f, 0, 0, 0.f, 0.09f, 0x404147, T_PENCIL, 0.06f, T_CPENCIL, 1.7f,
      {0x1f74c4, 0xd69400, 0x7a3cae, 0x2f8c36, 0xd02a1e, 0x22338a, 0xe25e12},
      {P_HATCH, P_CROSS, P_HATCH, P_SCRIBBLE, P_HATCH, P_RUB, P_HATCH},
      {45.f, 30.f, -45.f, 20.f, 0.f, 12.f, 90.f},
-     {0.13f, 0.15f, 0.13f, 0.16f, 0.12f, 0.12f, 0.13f},
+     {0.095f, 0.11f, 0.095f, 0.12f, 0.09f, 0.09f, 0.095f},
      0x45464c, T_PENCIL, 0xd63c30, T_CPENCIL, {0xd63c30, 0x2a82cc, 0xd99c18, 0x3f9944}, T_CPENCIL, 0x8f8f96, 0x3d63c9},
     // A squared blackboard: slate green, faint painted squares, white and pastel chalks.
     {"CHALK", false, 0x25322c, 0xdce8e0, 0.075f, 0, 1.f, 0, 0, 0.f, 0.12f, 0xeeefe8, T_CHALK, 0.075f, T_CHALK, 1.1f,
      {0x96d1f2, 0xf6e27a, 0xd2a9f2, 0xa2e39a, 0xf79494, 0x8ca8f8, 0xf8b673},
      {P_HATCH, P_RUB, P_CROSS, P_SCRIBBLE, P_HATCH, P_RUB, P_HATCH},
      {45.f, 0.f, 30.f, 20.f, -45.f, 80.f, 0.f},
-     {0.12f, 0.1f, 0.14f, 0.15f, 0.12f, 0.1f, 0.12f},
+     {0.09f, 0.08f, 0.105f, 0.11f, 0.09f, 0.08f, 0.09f},
      0xd5d8d0, T_CHALK, 0xf6e27a, T_CHALK, {0xf6e27a, 0xf79494, 0x96d1f2, 0xa2e39a}, T_CHALK, 0xb5bcb6, 0x86a6f2},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
@@ -255,11 +255,11 @@ std::vector<std::pair<vec2, vec2>> hatchPolygon(const Poly& poly, float ang, flo
 
 // The staging, by stage: 0 break (calm), 1 mid, 2 chorus (a peak without a drop), 3 drop.
 const float RATE[4] = {4.5f, 8.f, 10.f, 12.5f};         // drawings per second
-const float WEIGHT[4] = {0.8f, 1.f, 1.1f, 1.32f};       // stroke weight
+const float WEIGHT[4] = {0.95f, 1.f, 1.1f, 1.32f};      // stroke weight
 const float WOBBLE[4] = {0.02f, 0.025f, 0.03f, 0.038f}; // the hand's wobble, board units
 const float BOIL[4] = {0.008f, 0.011f, 0.014f, 0.02f};  // the boil between drawings, board units
-const float COLOR[4] = {0.34f, 0.88f, 1.f, 1.f};         // colour against pencil
-const float FILLA[4] = {0.55f, 0.86f, 0.92f, 1.f};      // how dense the colouring is
+const float COLOR[4] = {0.92f, 1.f, 1.f, 1.f};          // colour against pencil
+const float FILLA[4] = {0.9f, 0.96f, 1.f, 1.f};         // how dense the colouring is
 const float HAND[4] = {0.35f, 0.55f, 0.75f, 1.f};       // how fast new things get drawn
 const int DOODLES[4] = {0, 2, 5, 11};                   // doodles in the margins
 const float RESIDUE_FADE = 0.36f;                       // the eraser going over the ghosts again (per second)
@@ -747,7 +747,7 @@ void NotepadUniverse::style(const MusicState& music) {
     fillAlpha_ = FILLA[st];
     handSpeed_ = HAND[st];
     graphite_ = hexc(V.graphite);
-    outlineCol_ = st == 0 ? graphite_ : hexc(V.outline);
+    outlineCol_ = hexc(V.outline); // a firm outline in every phase (a break only changes the tool)
     outlineTool_ = st == 0 ? V.calmTool : V.outlineTool;
     if (slow_ > 0.01f) {
         // the slow motion: an animator's blue pencil rough
@@ -1371,7 +1371,7 @@ void NotepadUniverse::emitCell(const Item& it, int age, bool residue, std::vecto
     }
     eraseNow = residue ? 0.f : it.a;
     eraseSeedNow = it.seed * 3.1f;
-    const float calm = stage_ == 0 ? 1.25f : stage_ == 3 ? 0.88f : 1.f;
+    const float calm = stage_ == 0 ? 1.06f : stage_ == 3 ? 0.9f : 1.f;
     Mark m{};
     m.head[0] = 1.f;
     m.head[1] = (float)it.tool;
@@ -1385,6 +1385,7 @@ void NotepadUniverse::emitCell(const Item& it, int age, bool residue, std::vecto
     const vec3 ink = inkOf(it.col);
     m.c[0] = ink.x; m.c[1] = ink.y; m.c[2] = ink.z; m.c[3] = (float)it.i1;
     m.e[0] = reveal; m.e[1] = V.fillLw * (0.85f + 0.15f * weight_); m.e[2] = inset * 0.6f;
+    m.e[3] = V.fillTool == T_CPENCIL ? 0.5f : V.light ? 0.f : 0.24f; // the colour rubbed in under the hatching
     m.f[0] = eraseNow; m.f[1] = eraseSeedNow;
     out.push_back(m);
     if (it.i2 & 8) {
