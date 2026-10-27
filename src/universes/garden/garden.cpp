@@ -1449,8 +1449,7 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
             cell(p.x, p.y, 1.f, m, pal_.piece[s.type], 1.f, tex, 0.f, false, 0.f, moss, blend,
                  root ? ROOT : 0.f);
         }
-    surf_ = vec3(-1e4f, -1e4f, -1e4f);
-    // Cleared earth crumbling (at the real speed, even in slow motion).
+    // Cleared earth crumbling (at the real speed, even in slow motion): shaded where it is, under the stack's surface.
     for (const Dying& d : dying_) {
         if (d.collapse) {
             // crushed: its height shrinks to nothing between the earth below and the earth slumping onto it
@@ -1467,6 +1466,7 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
         const float k = smoothstepf(0.f, 0.36f, d.t - d.delay);
         cell(d.x, d.y - 0.12f * k * k, 1.f, d.mask, pal_.piece[d.type], 1.f, v2(d.x, d.y), std::max(0.001f, k), false, 0.f, 0.f);
     }
+    surf_ = vec3(-1e4f, -1e4f, -1e4f);
 }
 
 void GardenUniverse::drawParticles(bool front, float world) {
