@@ -90,7 +90,8 @@ constexpr float STAIN_V = 0.6f;                        // a hit at least this ha
 // the marble's own seed in one float for the shader
 const int CORE_STYLE[7] = {0, 1, 2, 1, 0, 2, 1};
 float mseed(int type, float seed) { return (float)CORE_STYLE[std::clamp(type, 0, 6)] + std::fmod(std::fabs(seed), 1.f) * 0.999f; }
-constexpr float POP = 0.14f;                          // a tile pops in this long (s, real time)
+constexpr float POP = 0.14f;
+const vec3 SPEC_FX[3] = {{1.15f, 0.22f, 0.12f}, {0.25f, 1.05f, 0.35f}, {0.12f, 0.3f, 1.2f}};   // red, green, blue                          // a tile pops in this long (s, real time)
 
 // The variants (sRGB): the table (its ground and the color of its grain's ridges), the well's pane and its edge, the
 // tiles' frost, the HUD ink, the accent, the drop's light, the night of slow motion, the lamps; the seven marbles; how
@@ -843,7 +844,6 @@ void MarblesUniverse::simulate(const Game& game, const MusicState& music, float 
         }
     }
     drive_ = approach(drive_, driveT, driveT > drive_ ? 1.5f : 0.5f, dt);
-    glow_ = approach(glow_, 0.03f * wm + 0.07f * wp * (1.f - drive_) + 0.11f * drive_, 1.2f, dt);
     // the colors: soft through the song, a little richer in a chorus, rich and glowing for a drop (in quickly at its
     // start, settling back over a few seconds after it)
     {
@@ -1115,10 +1115,11 @@ void MarblesUniverse::traceLight(float dt, float world) {
     const float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 2.f, lv_);
     // the beams drift slowly, livelier in a drop
     beamWorld_ += dt * lerpf(0.35f, 1.f, drive_) * lerpf(1.f, 0.35f, slow_);
-    const float on0 = 0.75f + 0.1f * wm + 0.05f * wp + 0.15f * drive_, on1 = 0.35f + 0.35f * wm + 0.15f * wp + 0.2f * drive_;
+    // (no brighter in a drop: the table stays as dark, the drop's light lives on the marbles)
+    const float on0 = 0.75f + 0.1f * wm + 0.05f * wp, on1 = 0.35f + 0.35f * wm + 0.15f * wp;
     beamOn_[0] = approach(beamOn_[0], on0, 1.f, dt);
     beamOn_[1] = approach(beamOn_[1], on1, 1.f, dt);
-    disp_ = approach(disp_, 0.16f * drive_, drive_ > disp_ / 0.16f ? 2.5f : 0.8f, dt);
+    disp_ = approach(disp_, 0.24f * drive_, drive_ > disp_ / 0.24f ? 2.5f : 0.8f, dt);
     light_.clear();
     segs_ = 0;
     const int n = (int)marbles_.size();
@@ -1261,16 +1262,33 @@ void MarblesUniverse::drawWorld(float world) {
         const float lit = m.light + m.twinkle;
         const float a = saturate(m.fade) * world * (1.f - 0.7f * hudShade(m.p));
         const float ang = std::atan2(m.litDir.y, m.litDir.x);
+        // in a drop the highlights and rims burn brighter (flare)
         put(m.p.x, m.p.y, 0.f, m.r, pal_.piece[m.type], a, m.rot, base + 0.55f * lit + 0.12f * vivid_, mseed(m.type, m.seed), 0, 0.f, 0.f,
-            0.6f * lit, 0.f, &m.lit, ang);
+            0.6f * lit + 0.3f * drive_, 0.f, &m.lit, ang);
     }
     flush();
-    // their light: a soft halo around each lit marble, glints on the fronts and the hard hits
+    // their light: a small halo of their own color around each lit marble; in a drop, the light through each marble
+    // thrown on the table just behind it, split into a little spectrum (the light lives on the marbles, the table
+    // around stays dark); glints on the fronts and the hard hits
     for (const Marble& m : marbles_) {
         if (m.delay > 0.f) continue;
+        const float hud = saturate(m.fade) * world * (1.f - hudShade(m.p));
+        const vec3 c = pal_.piece[m.type];
         const float lit = m.light + m.twinkle * 0.8f + (slow_ > 0.01f ? 0.25f * slow_ : 0.f);
-        if (lit < 0.03f) continue;
-        putFx(m.p.x, m.p.y, m.r * 2.4f, 0.f, lerp(pal_.piece[m.type], pal_.wave, 0.3f), 0.18f * lit * pal_.halo * saturate(m.fade) * world * (1.f - hudShade(m.p)), 0);
+        if (lit >= 0.03f) putFx(m.p.x, m.p.y, m.r * 1.9f, 0.f, c, 0.2f * lit * pal_.halo * hud, 0);
+        if (drive_ > 0.02f) {
+            const float through = std::min(1.f, 3.f * lum3(m.lit) + 0.8f * m.light);
+            const float k = drive_ * through * hud;
+            if (k < 0.01f) continue;
+            const vec2 d = m.litDir, pp = v2(-d.y, d.x);
+            const vec2 f = m.p + d * (1.35f * m.r);
+            putFx(f.x, f.y, m.r * 1.1f, 0.f, c, 0.55f * k, 0);
+            const float spread = m.r * 0.35f * (disp_ / 0.24f);
+            for (int sk = 0; sk < 3; sk++) {
+                const vec2 q = f + d * (0.25f * m.r) + pp * (spread * (sk - 1.f));
+                putFx(q.x, q.y, m.r * 0.55f, 0.f, SPEC_FX[sk] * 0.6f + c * 0.15f, 0.5f * k * (disp_ / 0.24f), 0);
+            }
+        }
     }
     for (const Glint& g : glints_) {
         const float k = g.t / g.life;
@@ -1659,11 +1677,9 @@ void MarblesUniverse::render(const Frame& f, GLuint fbo) {
         set3f(progSky_, "uFiber", pal_.fiber);
         set3f(progSky_, "uNight", pal_.night);
         set3f(progSky_, "uBridgeCol", bridge_.color);
-        set3f(progSky_, "uGlowCol", lerp(pal_.accent, pal_.wave, drive_ * 0.5f));
         set1f(progSky_, "uKind", pal_.surface);
         set1f(progSky_, "uGrain", pal_.grain);
-        set1f(progSky_, "uDye", pal_.dye * lerpf(0.85f, 1.15f, vivid_));
-        set1f(progSky_, "uGlow", (glow_ + 0.18f * swell_) * world);
+        set1f(progSky_, "uDye", pal_.dye);
         set1f(progSky_, "uSlow", slow_);
         set1f(progSky_, "uBridge", smoothstepf(0.05f, 0.85f, bridge));
         set1f(progSky_, "uSeed", seedF_);

@@ -203,7 +203,7 @@ private:
     bool hasLevel_ = false;
     float lv_ = 1.f, lvFrom_ = 1.f, lvTo_ = 1.f, lvT_ = 1.f, lvDur_ = 1.f;
     float energy_ = 0.5f;
-    float drive_ = 0.f, glow_ = 0.f, swell_ = 0.f;
+    float drive_ = 0.f, swell_ = 0.f;
     float dropPending_ = 0.f;
     bool sectionDrop_ = false, sectionKnown_ = false;
 
