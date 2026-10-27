@@ -1,5 +1,5 @@
 #pragma once
-// SEA's shaders (see sea.cpp): the sky and the layered sea with its boats, the glass bottles of water, the sprites
+// SEA's shaders (see sea.cpp): the sky and the layered sea with its boats, the glass cubes of water, the sprites
 // (shards, droplets, spray, the bonus gauge), the HUD letters and the final pass.
 
 namespace sea_shaders {
@@ -415,18 +415,18 @@ void main() {
 }
 )";
 
-// ---------------------------------------------------------------- the glass bottles of water
-// One instance per cell: every cell is a small square bottle of colored glass (a cube-shaped body, a short neck, a
-// wooden stopper), with a gap to its neighbours. The glass is transparent: it shows what is behind it (a copy of the
-// scene drawn so far, bent a little: more at the thick edges, more through the water), filtered by the glass's color,
-// darker where it is thicker (its edges, its heavy bottom), with bright rims and a crisp specular. The water inside is
-// clear, almost colorless, its surface level in the world (a bright meniscus), whatever the bottle's angle. Modes: 0 a
-// stoppered bottle, 1 an open one, 2 the stopper alone. A bottle about to burst (game over) cracks.
+// ---------------------------------------------------------------- the glass cubes of water
+// One instance per cell: every cell is a small sealed cube of colored glass full of water, with a gap to its
+// neighbours. The glass is transparent: it shows what is behind it (a copy of the scene drawn so far, bent a little:
+// more at the thick edges, more through the water), filtered by the glass's color, darker where it is thicker (its
+// edges, its bottom), with bright rims and a crisp specular. The water inside is clear, almost colorless, a thin air
+// gap under the lid, its surface level in the world whatever the cube's angle. A cube about to burst cracks: lines
+// spreading from a point of impact, branching, a ring around it, the water darkening along them.
 inline const char* CELL_VS = R"(#version 330 core
 layout(location = 0) in vec2 aQ;
 layout(location = 1) in vec4 a0;   // x, y, size, rotation
 layout(location = 2) in vec4 a1;   // linear rgb (the glass), alpha
-layout(location = 3) in vec4 a2;   // ghost, crack, mode, fill
+layout(location = 3) in vec4 a2;   // ghost, crack, -, fill
 layout(location = 4) in vec4 a3;   // seed, in the world (sand, sea), -, -
 uniform mat4 uVP;
 out vec2 vP;
@@ -449,174 +449,152 @@ out vec4 frag;
 uniform sampler2D uBg;          // the scene behind (encoded)
 uniform vec2 uRes;
 uniform float uPx, uTime, uBridge, uLightPanel, uSlow;
-uniform vec3 uBridgeInk, uSea2, uDeep, uDusk, uWood;
-// a cube of glass with a cork in a short mouth on top
-const vec2 BODY_C = vec2(0.0, -0.07), BODY_H = vec2(0.43, 0.36);
-const float BODY_R = 0.06;
-const vec2 NECK_C = vec2(0.0, 0.315), NECK_H = vec2(0.08, 0.035);
-const vec2 CAP_C = vec2(0.0, 0.4), CAP_H = vec2(0.105, 0.065);
+uniform vec3 uBridgeInk, uSea2, uDeep, uDusk;
+const float H = 0.44;    // the cube's half size (a gap of 0.12 between neighbours)
+const float R = 0.07;    // its rounded corners
 const float WT = 0.05;   // the glass's thickness
 float rbox(vec2 p, vec2 h, float r) {
     vec2 q = abs(p) - h + r;
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
-float smin(float a, float b, float k) {
-    float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
-    return mix(b, a, h) - k * h * (1.0 - h);
-}
-float glassSd(vec2 p) {
-    float b = rbox(p - BODY_C, BODY_H, BODY_R);
-    float n = rbox(p - NECK_C, NECK_H, 0.02);
-    // a small lip at the top of the neck
-    float lip = rbox(p - vec2(0.0, NECK_C.y + NECK_H.y - 0.018), vec2(NECK_H.x + 0.016, 0.02), 0.012);
-    return min(smin(b, n, 0.04), lip);
-}
-// the stopper: a wooden plug, a little narrower where it goes into the neck
-float capSd(vec2 p) {
-    vec2 q = p - CAP_C;
-    float taper = 1.0 - 0.18 * smoothstep(-0.01, -0.07, q.y);
-    return rbox(vec2(q.x / taper, q.y), CAP_H, 0.03);
-}
-vec3 wood(vec2 p, float seed, float px) {
-    vec2 q = p - CAP_C;
-    // grain running along the stopper, wavy, with a few darker lines
-    float g = q.x * 34.0 + 2.2 * vnoise(vec2(q.x * 9.0 + seed, q.y * 7.0)) + seed;
-    float grain = 0.5 + 0.5 * sin(g * 3.14159);
-    vec3 c = uWood * (0.82 + 0.22 * grain);
-    c *= 1.0 - 0.3 * smoothstep(0.82, 0.98, grain);
-    // lit from the upper left: lighter left and top (its end grain), darker right and underneath
-    c *= 1.0 + 0.25 * smoothstep(0.05, -0.1, q.x) - 0.3 * smoothstep(0.0, 0.12, q.x);
-    c = mix(c, uWood * 1.45, smoothstep(CAP_H.y - 0.035, CAP_H.y - 0.005, q.y) * 0.7);
-    c *= 1.0 - 0.35 * smoothstep(-0.03, -0.08, q.y);
-    // a dark outline
-    float d = capSd(p);
-    c = mix(c, uWood * 0.3, smoothstep(px * 2.2, 0.0, abs(d)) * 0.8);
-    return c;
-}
 vec3 bgAt(vec2 offBoard) {
     vec2 uv = (gl_FragCoord.xy + offBoard / uPx) / uRes;
     return pow(texture(uBg, clamp(uv, vec2(0.001), vec2(0.999))).rgb, vec3(2.2));
+}
+// the cracks: jagged lines from a point of impact, growing with `crk` (0..1), a few branches, a ring around the point
+float cracks(vec2 p, float crk, float seed, float px) {
+    vec2 o = (vec2(hash12(vec2(seed, 1.0)), hash12(vec2(seed, 2.0))) - 0.5) * 0.36;
+    vec2 q = p - o;
+    float r = length(q);
+    float ang = atan(q.y, q.x);
+    const float n = 7.0;
+    float k = floor(ang / 6.2832 * n + 0.5);
+    float aj = (k + 0.35 * (hash12(vec2(k, seed)) - 0.5)) / n * 6.2832;
+    // a jagged line: its direction wanders a little with the distance
+    float wob = 0.035 * (vnoise(vec2(r * 9.0, k * 3.7 + seed)) - 0.5) * 2.0 + 0.012 * sin(r * 40.0 + k);
+    vec2 dir = vec2(cos(aj), sin(aj));
+    float along = dot(q, dir);
+    float off = abs(q.x * dir.y - q.y * dir.x - wob * smoothstep(0.0, 0.1, r));
+    float len = crk * (0.55 + 0.6 * hash12(vec2(k, seed + 3.0)));
+    float line = smoothstep(px * 1.5, 0.0, off - px * 0.3 * crk) * step(0.0, along) * smoothstep(len, len - 0.04, along);
+    // a branch off each line, halfway out
+    float ab = aj + (hash12(vec2(k, seed + 5.0)) > 0.5 ? 0.6 : -0.6);
+    vec2 bo = o + dir * len * 0.45;
+    vec2 bq = p - bo;
+    vec2 bd = vec2(cos(ab), sin(ab));
+    float balong = dot(bq, bd);
+    float blen = max(crk - 0.35, 0.0) * 0.45;
+    float boff = abs(bq.x * bd.y - bq.y * bd.x - 0.01 * sin(balong * 50.0 + k));
+    float branch = smoothstep(px * 1.3, 0.0, boff) * step(0.0, balong) * smoothstep(blen, blen - 0.03, balong) * step(0.25, crk);
+    // a ring of crushed glass around the impact point
+    float ringR = 0.06 + 0.06 * crk;
+    float ring = smoothstep(px * 1.4, 0.0, abs(r - ringR - 0.01 * sin(ang * 9.0 + seed))) * smoothstep(0.05, 0.25, crk);
+    return clamp(max(max(line, branch), ring), 0.0, 1.0);
 }
 void main() {
     float size = v0.z;
     float px = uPx / size;
     vec2 p = vP;
-    int mode = int(v2.z + 0.5);
-    if (mode == 2) p += CAP_C;   // the stopper alone, centered on its instance
-    float dg = mode == 2 ? 1e3 : glassSd(p);
-    float dc = mode == 1 ? 1e3 : capSd(p);
+    float dg = rbox(p, vec2(H), R);
     // the edge's normal on screen (for the bending of the light)
     vec2 nS = vec2(dFdx(dg), dFdy(dg));
     nS = nS / max(length(nS), 1e-6);
-    float dAll = min(dg, dc);
-    float cover = smoothstep(px, -px, dAll);
+    float cover = smoothstep(px, -px, dg);
     if (cover <= 0.0) discard;
     bool lightP = uLightPanel > 0.5;
     bool world = v3.y > 0.5;
     vec3 tint = v1.rgb;
     float seed = v3.x;
     if (v2.x > 0.5) {
-        // the ghost: the bottle's outline only, faint
-        float o = smoothstep(px * 1.6, 0.0, abs(dAll));
+        // the ghost: the cube's outline only, faint
+        float o = smoothstep(px * 1.6, 0.0, abs(dg));
         vec3 ec = lightP ? tint * 0.4 : mix(tint, vec3(1.0), 0.6);
         frag = vec4(enc(mix(ec, uBridgeInk, uBridge)), (o * 0.6 + 0.04) * cover * v1.a);
         return;
     }
     float rot = v0.w;
     float cr = cos(rot), sr = sin(rot);
-    vec3 col = vec3(0.0);
-    float glassA = smoothstep(px, -px, dg);
-    if (glassA > 0.0) {
-        float e = -dg;                                  // depth inside the glass
-        // the cavity: the glass's inside, with a heavy bottom
-        float bottomY = BODY_C.y - BODY_H.y;
-        float di = max(dg + WT, (bottomY + WT + 0.055) - p.y);
-        float cav = smoothstep(px, -px, di);
-        float wallK = 1.0 - cav;
-        // ---- the water: its surface level in the world, whatever the bottle's angle
-        vec2 rp = p - BODY_C;
-        vec2 wp = vec2(cr * rp.x - sr * rp.y, sr * rp.x + cr * rp.y);
-        vec2 hi = BODY_H - WT;
-        float ey = abs(cr) * hi.y + abs(sr) * hi.x;
-        float fill = v2.w;
-        float level = -ey + 2.0 * ey * fill + 0.012 * sin(uTime * 2.1 + seed) * fill * (1.0 - fill) * 4.0;
-        // the meniscus climbs the walls a little
-        float lvl = level + 0.03 * exp(max(di, -0.2) / 0.02 * 1.0);
-        float wet = fill > 0.001 ? smoothstep(px, -px, wp.y - lvl) * cav : 0.0;
-        // ---- what is seen through it, bent: at the thick edges and, more, through the water (a lens)
-        vec2 wpB = wp * size;
-        vec2 offWall = -nS * 0.09 * size * smoothstep(WT + 0.05, 0.0, e);
-        vec2 offWater = -vec2(wpB.x * 0.55, wpB.y * 0.2);
-        vec2 offAir = -wpB * 0.08;
-        vec3 bgW = bgAt(offWall + offWater);
-        vec3 bgA = bgAt(offWall + offAir);
-        // the glass's color filters the light; thicker glass, more color and less light
-        // (the faces, crossed straight through, are lightly colored; the color gathers at the edges, see below)
-        vec3 T = mix(vec3(1.0), tint, lightP ? 0.68 : 0.3);
-        vec3 glow = tint * (lightP ? 0.02 : 0.05);
-        vec3 inAir = bgA * T * (lightP ? 1.02 : 0.95) + glow + (lightP ? vec3(0.0) : mix(tint, vec3(1.0), 0.5) * 0.05);
-        vec3 inWater = bgW * T * vec3(0.84, 0.91, 0.95) * (0.97 - 0.14 * smoothstep(level, -ey, wp.y)) + glow * 1.1 + (lightP ? vec3(0.0) : vec3(0.02, 0.035, 0.05));
-        // light gathered by the water, low in it
-        inWater += mix(tint, vec3(1.0), 0.6) * 0.08 * smoothstep(-ey + 0.25, -ey + 0.02, wp.y) * (lightP ? 0.6 : 1.0);
-        col = mix(inAir, inWater, wet);
-        // darker toward the walls (more glass to cross at a slant)
-        col *= 0.8 + 0.2 * smoothstep(0.0, 0.1, -di);
-        // the meniscus: a bright line on the water, a slightly darker band just under it
-        if (fill > 0.001 && fill < 0.999) {
-            float dl = wp.y - lvl;
-            float line = smoothstep(px * 1.6, 0.0, abs(dl)) * cav;
-            float band = smoothstep(0.0, -0.012, dl) * smoothstep(-0.05, -0.02, dl) * cav;
-            col *= 1.0 - 0.3 * band;
-            col = mix(col, mix(vec3(1.0), tint, 0.15), line * 0.85);
-        }
-        // ---- the walls: thick glass, darker and deeper in color, with bright rims
-        vec3 thick = bgAt(offWall * 1.5) * tint * tint * (lightP ? 0.75 : 0.6) + tint * (lightP ? 0.06 : 0.38);
-        // the glass's color gathering toward its edges, seen at a slant through the side walls
-        col = mix(col, thick, 0.55 * smoothstep(0.11, 0.0, -di) * cav);
-        float bottomK = smoothstep(bottomY + WT + 0.06, bottomY + 0.01, p.y);
-        thick *= 1.0 - 0.25 * bottomK;
-        col = mix(col, thick, wallK);
-        // the light from the upper left: rims bright on that side, dimmer on the other
-        vec2 L = normalize(vec2(-0.6, 0.8));
-        vec2 nL = vec2(cr * nS.x + sr * nS.y, -sr * nS.x + cr * nS.y); // screen normal back to the bottle's frame
-        float facing = 0.35 + 0.65 * smoothstep(-0.4, 0.8, dot(nL, L));
-        float outer = smoothstep(px * 1.8, 0.0, abs(e - px * 0.6));
-        float innerL = smoothstep(px * 1.4, 0.0, abs(di)) * step(p.y, CAP_C.y - 0.1);
-        vec3 rimC = mix(tint, vec3(1.0), lightP ? 0.55 : 0.7);
-        col = mix(col, rimC, outer * facing * 0.9);
-        col = mix(col, mix(tint, vec3(1.0), 0.75), innerL * 0.2 * facing);
-        // the thick bottom's top edge catches the light
-        col = mix(col, mix(tint, vec3(1.0), 0.7),
-                  smoothstep(px * 1.6, 0.0, abs(p.y - (bottomY + WT + 0.055))) * step(abs(p.x), BODY_H.x - WT - 0.02) * 0.45);
-        // ---- the specular: a long crisp highlight down the left of the body, a spot at its top, one on the
-        // shoulder, a faint one at the right
-        float sxx = (p.x + 0.245) / 0.022;
-        float sx = (exp(-sxx * sxx) * 0.85 + exp(-sxx * sxx * 0.08) * 0.12) * smoothstep(bottomY + 0.07, bottomY + 0.2, p.y) * smoothstep(0.13, 0.03, p.y);
-        float spot = smoothstep(0.04, 0.015, length((p - vec2(-0.245, 0.06)) * vec2(1.0, 0.75)));
-        float sh = smoothstep(0.03, 0.012, length((p - vec2(-0.045, 0.245)) * vec2(1.6, 0.6)));
-        float sr2 = smoothstep(0.016, 0.006, abs(p.x - 0.29)) * smoothstep(bottomY + 0.1, bottomY + 0.2, p.y) * smoothstep(0.12, 0.02, p.y) * 0.35;
-        col = mix(col, vec3(1.0), clamp(sx * 0.75 + spot + sh * 0.8 + sr2, 0.0, 1.0));
-        // ---- cracks, spreading from a point as the bottle is about to burst
-        float crk = v2.y;
-        if (crk > 0.001) {
-            vec2 o = vec2(hash12(vec2(seed, 1.0)), hash12(vec2(seed, 2.0))) * 0.3 - 0.15 + BODY_C;
-            vec2 q = p - o;
-            float ang = atan(q.y, q.x);
-            float n = 7.0;
-            float k = floor(ang / 6.2832 * n + 0.5);
-            float aj = (k + 0.3 * (hash12(vec2(k, seed)) - 0.5)) / n * 6.2832;
-            vec2 dir = vec2(cos(aj), sin(aj));
-            float along = dot(q, dir);
-            float off = abs(q.x * dir.y - q.y * dir.x) + 0.02 * sin(along * 30.0 + k);
-            float len = crk * (0.5 + 0.4 * hash12(vec2(k, seed + 3.0)));
-            float line = smoothstep(px * 1.6, 0.0, off) * step(0.0, along) * smoothstep(len, len - 0.05, along);
-            col = mix(col, vec3(1.0), line * 0.9);
-        }
+    float e = -dg;                                  // depth inside the glass
+    // the cavity: the glass's inside, its bottom a little thicker
+    float bottomY = -H;
+    float di = max(dg + WT, (bottomY + WT + 0.03) - p.y);
+    float cav = smoothstep(px, -px, di);
+    float wallK = 1.0 - cav;
+    // ---- the water: its surface level in the world, whatever the cube's angle
+    vec2 wp = vec2(cr * p.x - sr * p.y, sr * p.x + cr * p.y);
+    float hi = H - WT;
+    float ey = (abs(cr) + abs(sr)) * hi;
+    float fill = v2.w;
+    float level = -ey + 2.0 * ey * fill;
+    // the meniscus climbs the walls a little
+    float lvl = level + 0.025 * exp(max(di, -0.2) / 0.02);
+    float wet = smoothstep(px, -px, wp.y - lvl) * cav;
+    // ---- what is seen through it, bent: at the thick edges and, more, through the water (a lens)
+    vec2 wpB = wp * size;
+    vec2 offWall = -nS * 0.09 * size * smoothstep(WT + 0.05, 0.0, e);
+    vec2 offWater = -vec2(wpB.x * 0.55, wpB.y * 0.2);
+    vec2 offAir = -wpB * 0.08;
+    vec3 bgW = bgAt(offWall + offWater);
+    vec3 bgA = bgAt(offWall + offAir);
+    // the glass's color filters the light (the faces, crossed straight through, lightly; the color gathers at the
+    // edges, see below)
+    vec3 T = mix(vec3(1.0), tint, lightP ? 0.68 : 0.3);
+    vec3 glow = tint * (lightP ? 0.02 : 0.05);
+    vec3 inAir = bgA * mix(vec3(1.0), T, 0.6) * (lightP ? 1.02 : 0.95) + glow + (lightP ? vec3(0.0) : mix(tint, vec3(1.0), 0.5) * 0.06);
+    vec3 inWater = bgW * T * vec3(0.84, 0.91, 0.95) * (0.97 - 0.14 * smoothstep(level, -ey, wp.y)) + glow * 1.1 +
+                   (lightP ? vec3(0.0) : vec3(0.02, 0.035, 0.05));
+    // light gathered by the water, low in it
+    inWater += mix(tint, vec3(1.0), 0.6) * 0.08 * smoothstep(-ey + 0.25, -ey + 0.02, wp.y) * (lightP ? 0.6 : 1.0);
+    vec3 col = mix(inAir, inWater, wet);
+    // darker toward the walls (more glass to cross at a slant)
+    col *= 0.8 + 0.2 * smoothstep(0.0, 0.1, -di);
+    // the cube's back edges, seen through the water (up and to the right: a hint of depth)
+    {
+        float db = rbox(p - vec2(0.05, 0.05), vec2(H - WT - 0.04), R * 0.7);
+        float back = smoothstep(px * 1.2, 0.0, abs(db)) * cav * step(0.0, max(p.y - (H - WT - 0.14), p.x - (H - WT - 0.14)));
+        col = mix(col, mix(tint, vec3(1.0), lightP ? 0.3 : 0.6), back * 0.35);
     }
-    // ---- the wooden stopper over the neck
-    float capA = smoothstep(px, -px, dc);
-    if (capA > 0.0) col = mix(col, wood(p, seed * 3.7, px), capA);
-    // ---- out in the world: under the sea, tinted and darkened by its water; half buried, the sand hides it
+    // the meniscus: a bright line on the water, a slightly darker band just under it
+    {
+        float dl = wp.y - lvl;
+        float line = smoothstep(px * 1.6, 0.0, abs(dl)) * cav;
+        float band = smoothstep(0.0, -0.012, dl) * smoothstep(-0.05, -0.02, dl) * cav;
+        col *= 1.0 - 0.3 * band;
+        col = mix(col, mix(vec3(1.0), tint, 0.15), line * 0.85);
+    }
+    // ---- the walls: thick glass, darker and deeper in color, with bright rims
+    vec3 thick = bgAt(offWall * 1.5) * tint * tint * (lightP ? 0.75 : 0.6) + tint * (lightP ? 0.06 : 0.38);
+    col = mix(col, thick, 0.55 * smoothstep(0.11, 0.0, -di) * cav);
+    float bottomK = smoothstep(bottomY + WT + 0.04, bottomY + 0.01, p.y);
+    thick *= 1.0 - 0.25 * bottomK;
+    col = mix(col, thick, wallK);
+    // the light from the upper left: rims bright on that side, dimmer on the other
+    vec2 L = normalize(vec2(-0.6, 0.8));
+    vec2 nL = vec2(cr * nS.x + sr * nS.y, -sr * nS.x + cr * nS.y); // screen normal back to the cube's frame
+    float facing = 0.35 + 0.65 * smoothstep(-0.4, 0.8, dot(nL, L));
+    float outer = smoothstep(px * 1.8, 0.0, abs(e - px * 0.6));
+    float innerL = smoothstep(px * 1.4, 0.0, abs(di));
+    vec3 rimC = mix(tint, vec3(1.0), lightP ? 0.55 : 0.7);
+    col = mix(col, rimC, outer * facing * 0.9);
+    col = mix(col, mix(tint, vec3(1.0), 0.75), innerL * 0.2 * facing);
+    // ---- the specular: a long crisp highlight down the left of the face, a spot at its top, a faint one at the right
+    float sxx = (p.x + 0.29) / 0.022;
+    float sx = (exp(-sxx * sxx) * 0.85 + exp(-sxx * sxx * 0.08) * 0.12) * smoothstep(-H + 0.1, -H + 0.25, p.y) * smoothstep(0.3, 0.18, p.y);
+    float spot = smoothstep(0.03, 0.01, length((p - vec2(-0.29, 0.19)) * vec2(1.0, 0.6))) * 0.7;
+    float sr2 = smoothstep(0.016, 0.006, abs(p.x - 0.33)) * smoothstep(-H + 0.12, -H + 0.25, p.y) * smoothstep(0.15, 0.03, p.y) * 0.35;
+    col = mix(col, vec3(1.0), clamp(sx * 0.75 + spot + sr2, 0.0, 1.0));
+    // ---- cracks, spreading from a point as the cube is about to burst: bright lines, a dark edge to each, the
+    // water seeping darker along them
+    float crk = v2.y;
+    if (crk > 0.001) {
+        float c = cracks(p, crk, seed, px) * cover;
+        float cd = cracks(p + vec2(px * 1.5, -px * 1.5), crk, seed, px);
+        col = mix(col, col * 0.45, cd * 0.6 * (1.0 - c));
+        col = mix(col, vec3(1.0), c * 0.95);
+        // the glass clouding with stress just before it goes
+        col = mix(col, mix(tint, vec3(1.0), 0.6), smoothstep(0.7, 1.0, crk) * 0.25);
+    }
+    // ---- out in the world: under the sea, tinted and darkened by its water; the sand hides what is under it
     float cut = 1.0;
     if (world) {
         float depth = layerTop(2, vW.x) - vW.y;

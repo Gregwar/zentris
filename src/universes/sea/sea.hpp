@@ -1,5 +1,5 @@
 #pragma once
-// SEA: glass bottles of water over a sea that rises with the cleared lines (see sea.cpp).
+// SEA: glass cubes of water over a sea that rises with the cleared lines (see sea.cpp).
 #include <string>
 #include <vector>
 
@@ -42,44 +42,25 @@ private:
     std::vector<CellInst> cells_;
     std::vector<SpriteInst> sprites_;
     std::vector<SpriteInst> lifeInst_;
-    // A glass bottle of water (every cell is one): its center, size, glass color, rotation; mode 0 stoppered, 1 open,
-    // 2 the stopper alone; how full (0..1); out in the world (cut by the sand, tinted under the sea); crack (0 whole ..
-    // 1 about to burst).
-    enum { B_CLOSED = 0, B_OPEN = 1, B_CAP = 2 };
-    void bottle(float x, float y, float size, const vec3& col, float alpha, float rot, int mode, float fill, bool ghost, bool world,
-                float seed, float crack = 0.f);
+    // A glass cube of water (every cell is one): its center, size, glass color, rotation, how full (0..1), out in the
+    // world (cut by the sand, tinted under the sea), crack (0 whole .. 1 about to burst).
+    void cube(float x, float y, float size, const vec3& col, float alpha, float rot, float fill, bool ghost, bool world, float seed,
+              float crack = 0.f);
     void sprite(float x, float y, float hx, float hy, float rot, int kind, const vec3& col, float alpha, float p0 = 0.f,
                 float p1 = 0.f, float seed = 0.f);
     void flushCells();
     void flushSprites();
 
-    // Bottles thrown out of a cleared row: they fly out of the well, land on the sand at its side, tumble and settle;
-    // their stopper pops and their water pours out onto the sand and into the sea. Empty, they stay there.
-    enum { BS_FLY = 0, BS_SETTLE = 1, BS_SINK = 2, BS_REST = 3 };
-    enum { CS_ON = 0, CS_FLY = 1, CS_REST = 2, CS_RISE = 3, CS_FLOAT = 4, CS_GONE = 5 };
-    struct Bottle {
-        vec2 p, v, rest, land;
-        float rot, spin, t, T, restRot, landRot, landT, fill, water, pend, pourAcc, seed, bury0, popT;
-        int state, side, type;
-        bool under, wetDone;
-        int capState;
-        vec2 cp, cv;
-        float crot, cspin, cbury0;
-    };
-    std::vector<Bottle> bottles_;
-    // Where they come to rest, on each side of the well: columns on the sand, filled up in layers; when every column
-    // holds two, the pile settles into the sand by a layer (the oldest are buried).
-    struct Pile { std::vector<float> h; float x0 = 0.f, x1 = 0.f, bury = 0.f, target = 0.f; };
-    Pile pile_[2];
-    void initPiles();
-    void placeBottle(Bottle& b);
-    float buryOf(int side, float bury0) const { return pile_[side > 0].bury - bury0; }
-    void restBottles(int n); // a filled board for a review: a song's worth of empty bottles on the sand
-    void simulateBottles(float dt);
-    int boardCount_ = 0; // the board's bottles last frame (a whole stack appearing at once: a review, a game joined)
+    // Cubes thrown out of a cleared row, up and outward: cracks spread over each, water spurting through them, then it
+    // bursts in the air (or on the sand), its water raising the sea.
+    struct Flyer { vec2 p, v; float rot, spin, t, crackAt, breakAt, water, spilt, spurtAcc, seed; int type; };
+    std::vector<Flyer> flyers_;
+    void burst(const Flyer& f);
+    void simulateFlyers(float dt);
+    int boardCount_ = 0; // the board's cubes last frame (a whole stack appearing at once: a review, a game joined)
     void watchBoard(const Game& game);
 
-    // A breaking bottle (game over: the stack breaks row by row).
+    // A breaking cube (game over: the stack breaks row by row).
     struct Dying { float x, y, delay, t; int type; bool broken; };
     std::vector<Dying> dying_;
     void breakCell(float x, float y, int type, float power, float water, vec2 carry = vec2{0.f, 0.f});
