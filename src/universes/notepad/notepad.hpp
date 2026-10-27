@@ -85,7 +85,18 @@ private:
     struct Transient { vec2 a, b, vel; float width, alpha, from, until; vec3 col; int tool; uint64_t id; float residue; bool world; };
     struct Dying { int x, y, type, mask; uint64_t key; float t, dur; };
     struct InkCell { uint64_t id = 0; int idx = 0; int type = -1; };
-    enum { IT_CELL = 0, IT_OUTLINE = 1, IT_STROKE = 2, IT_DOODLE = 3, IT_PIE = 4, IT_TEXT = 5, IT_SCRIBBLE = 6 };
+    enum { IT_CELL = 0, IT_OUTLINE = 1, IT_STROKE = 2, IT_DOODLE = 3, IT_PIE = 4, IT_TEXT = 5, IT_SCRIBBLE = 6, IT_MOVER = 7 };
+    // A drop's travelling drawings: redrawn at a new pose on every drawing, the old pose rubbed out.
+    enum { MV_CUBE = 0, MV_BALL = 1, MV_RUNNER = 2, MV_PLANE = 3, MV_ROCKET = 4, MV_COUNT = 5 };
+    struct Mover {
+        int kind = 0, side = 0;
+        vec2 start, vel;      // vel: board units per beat
+        double beat0 = 0;
+        float size = 1, ylo = 0, yhi = 0;
+        vec3 col{0.f};
+        int tool = 1;
+        uint64_t id = 0;
+    };
 
     // drawings
     void tick(const Frame& f, float since);
@@ -94,6 +105,10 @@ private:
     void addPiece(std::vector<Item>& out, uint64_t base, const int (*cells)[2], int count, vec2 origin, float scale,
                   int type, float alpha, bool ghost, float residue, float moveResidue, int maskCells = 4);
     void manageDoodles();
+    void manageMovers();
+    void spawnMover(int kind, int side);
+    void marginBox(int side, float& x0, float& y0, float& x1, float& y1) const;
+    void emitMover(const Item& it, std::vector<Mark>& out);
     void spawnDoodle(bool burst);
     bool freeSpot(float size, vec2& out);
     void syncInk(const Game& game);
@@ -168,6 +183,8 @@ private:
     std::vector<Dying> dying_;
     std::vector<Transient> transients_;
     std::vector<Doodle> doodles_;
+    std::vector<Mover> movers_;
+    double beatNow_ = 0; // the song's beat at the current drawing
     float overT_ = -1;       // game over: time since the top out
     std::vector<Item> dead_; // the stack at the top out: scribbled over, then erased
     float deadTop_ = 0;
