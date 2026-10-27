@@ -112,60 +112,108 @@ inline const char* MARBLE_FS = R"(#version 330 core
 in vec2 vP;
 flat in vec4 v0, v1, v2, v3;
 out vec4 frag;
-uniform float uPx, uTileTint, uTileAlpha, uBridge, uLightGround;
+uniform float uPx, uTileTint, uTileAlpha, uBridge, uLightGround, uSat, uCore;
 uniform vec3 uTileCol, uLightCol, uHazeCol, uBridgeInk, uPanelEdge;
+uniform vec4 uPanel;           // the well's pane: rgb, opacity (what a marble in a tile sees behind it)
+uniform vec4 uView;            // board center x, y, half width, half height (to sample the background)
+uniform sampler2D uBg;         // the sky and the land, as drawn this frame
 float sdRoundBox(vec2 p, vec2 b, float r) {
     vec2 q = abs(p) - b + r;
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
-// A glass marble seen through its own surface (q: -1..1 over the marble): a tinted body, clear in the middle and
-// deep at the rim, a cat's eye of three vanes or a swirled ribbon inside, the light focused through it into a
-// crescent on the far side, a window's reflection, and its own light when the waves pass (glow).
-vec3 marble(vec2 q, vec3 col, float rot, float seed, float glow, float flare) {
-    float r2 = dot(q, q);
-    float z = sqrt(max(1.0 - r2, 0.0));
-    float fres = pow(1.0 - z, 2.2);
-    // the inside, magnified a little by the glass, turning with the marble
-    vec2 qi = q * (0.78 + 0.22 * z);
-    float c = cos(rot), s = sin(rot);
-    qi = vec2(c * qi.x - s * qi.y, s * qi.x + c * qi.y);
-    float core = 0.0;
-    bool eye = fract(seed * 7.13) < 0.55;
-    if (eye) {
-        // a cat's eye: three thin curved vanes through the center
+vec3 saturateCol(vec3 c, float s) {
+    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    return max(mix(vec3(l), c, s), vec3(0.0));
+}
+vec3 bgAt(vec2 w) { return texture(uBg, clamp((w - uView.xy) / uView.zw * 0.5 + 0.5, 0.001, 0.999)).rgb; }
+// One layer of a marble's core at the inner point qi (style: 0 ribbon, 1 cat's eye, 2 swirl): coverage, and the
+// shade of the face seen there.
+vec2 coreLayer(vec2 qi, int style, float sd) {
+    float core = 0.0, face = 1.0;
+    float rr = length(qi);
+    if (style == 0) {
+        // a twisted ribbon through the middle: its width follows the twist, its two faces lit differently
+        float ang = qi.x * 2.6 + sd * 6.283;
+        float w = 0.36 * abs(cos(ang)) + 0.03;
+        float dy = abs(qi.y - 0.08 * sin(qi.x * 2.3 + sd * 9.0));
+        core = smoothstep(w, w * 0.6, dy) * smoothstep(0.95, 0.72, abs(qi.x));
+        face = sin(ang) > 0.0 ? 1.0 : 0.55;
+        face *= 0.75 + 0.4 * smoothstep(w, 0.0, dy);
+    } else if (style == 1) {
+        // a cat's eye: three curved vanes, thick in the middle, tapering out
         for (int k = 0; k < 3; k++) {
-            float a = float(k) * 1.0472 + seed * 3.0;
+            float a = float(k) * 1.0472 + sd * 3.0;
             vec2 dir = vec2(cos(a), sin(a));
             float along = dot(qi, dir);
-            float across = dot(qi, vec2(-dir.y, dir.x)) + 0.12 * along * along * (fract(seed * 3.7) - 0.5) * 4.0;
-            float w = 0.13 * (1.0 - 0.75 * abs(along));
-            core = max(core, smoothstep(w, w * 0.25, abs(across)) * smoothstep(0.82, 0.25, abs(along)));
+            float across = dot(qi, vec2(-dir.y, dir.x)) + 0.22 * along * along * (sd - 0.5) * 2.0;
+            float w = 0.17 * (1.0 - 0.85 * abs(along));
+            float v = smoothstep(w, w * 0.35, abs(across)) * smoothstep(0.9, 0.45, abs(along));
+            if (v > core) { core = v; face = (across > 0.0 ? 1.0 : 0.6) * (0.8 + 0.35 * smoothstep(w, 0.0, abs(across))); }
         }
     } else {
-        // a swirl: two ribbons twisting out from the center
+        // a swirl of strands twisting out from the middle
         float a = atan(qi.y, qi.x);
-        float rr = length(qi);
-        float sw = sin(2.0 * a + rr * 5.5 + seed * 6.283);
-        core = smoothstep(0.45, 0.92, sw) * smoothstep(0.86, 0.35, rr);
+        float s = sin(3.0 * a + rr * 5.5 + sd * 6.283);
+        core = smoothstep(0.35, 0.8, s) * smoothstep(0.92, 0.3, rr);
+        face = 0.6 + 0.55 * smoothstep(0.6, 1.0, s);
     }
-    vec3 coreCol = eye ? mix(col * 1.25, vec3(1.0), 0.45) : mix(col, vec3(1.0), 0.72);
-    // the glass body: clear in the middle, deep and saturated toward the rim
-    vec3 body = col * (0.30 + 0.55 * z);
-    body = mix(body, col * col * 0.55, fres * 0.6);
-    vec3 m = mix(body, coreCol * (0.55 + 0.45 * z), core * 0.9);
-    // the light focused through the glass, a bright crescent opposite the light
-    vec2 cp = q - vec2(0.36, -0.44);
-    float ca = exp(-dot(cp, cp) * 6.5) * (1.0 - fres * 0.7);
-    m += (col * 0.9 + 0.08) * ca;
-    // the sky caught in the rim, the window's sharp highlight up left and its soft bloom
-    m += uLightCol * fres * 0.28 * smoothstep(-0.4, 0.9, q.y);
-    vec2 dh = (q - vec2(-0.36, 0.42)) * vec2(1.0, 1.35);
-    float spec = exp(-dot(dh, dh) * 60.0);
-    m += uLightCol * (spec * (1.1 + 3.0 * flare) + exp(-dot(dh, dh) * 7.0) * (0.12 + 0.3 * flare));
-    // a little shade where it rests
-    m *= 1.0 - 0.3 * smoothstep(0.1, 1.0, -q.y) * fres;
-    // its own light: the glass glowing from within, the core first
-    m += (col * 1.3 + 0.06) * glow * (0.25 + 0.75 * z) + coreCol * core * glow * 0.9;
+    return vec2(core, face);
+}
+// A glass marble (q: -1..1 over its disc, center and R in board units). The glass is clear: through it the world
+// behind is seen upside down and shrunk (the ball is a lens), slightly tinted, darker toward the rim where the light
+// is bent away; inside, deeper than the surface and magnified by it, its colored core in two layers (the far one dim
+// and shifted: depth): a twisted ribbon (style 0), a cat's eye of three curved vanes (1) or a swirl of strands (2).
+// A sharp highlight of the window up left, a soft secondary reflection low right, the sky caught in the rim, the light
+// focused through the glass on the far side, a few tiny bubbles. glow: the glass lit from within (the drop's waves).
+vec3 glassMarble(vec2 q, vec2 center, float R, vec3 col, float rot, float seed, float glow, float flare, bool inTile, vec3 tileEnv) {
+    float r2 = dot(q, q);
+    float rl = sqrt(r2);
+    float z = sqrt(max(1.0 - r2, 0.0));
+    float fres = pow(1.0 - z, 2.5);
+    vec3 c0 = saturateCol(col, uSat);
+    // what is behind, refracted: inverted and shrunk through the lens (behind a tile: its back, lighter low where the
+    // light from above comes out)
+    vec3 env = inTile ? tileEnv * (1.0 - 0.35 * q.y) : bgAt(center - q * R * 2.4);
+    vec3 tint = mix(vec3(1.0), c0, 0.4);
+    vec3 m = env * tint * (0.35 + 0.6 * z);
+    // the core, inside: magnified by the front of the glass; the far layer deeper (shifted toward the light, dimmer)
+    float cr = cos(rot), sr = sin(rot);
+    mat2 rm = mat2(cr, sr, -sr, cr);
+    int style = int(floor(seed));
+    float sd = fract(seed);
+    vec2 qi = rm * (q * (1.12 + 0.25 * (1.0 - z)));
+    vec2 far = coreLayer(rm * (q * 1.25 + vec2(0.1, -0.08)) * vec2(-1.0, 1.0), style, fract(sd + 0.37));
+    vec2 near = coreLayer(qi, style, sd);
+    float fade = smoothstep(1.0, 0.8, rl);   // the core never reaches the surface
+    m = mix(m, c0 * 0.4 * uCore * (0.5 + 0.5 * z), far.x * fade * 0.75);
+    vec3 coreCol = c0 * near.y * uCore * (0.5 + 0.55 * z);
+    m = mix(m, coreCol, near.x * fade * 0.97);
+    float core = max(near.x, far.x * 0.5) * fade;
+    // the glass lit from within: the core glows first
+    m += c0 * core * glow * 1.7 + c0 * glow * 0.3 * z + vec3(0.05) * glow * near.x * fade;
+    // the rim: dark where the light is bent away, then the sky caught at the very edge (darker low: the ground)
+    m *= 1.0 - mix(0.45, 0.22, uLightGround) * smoothstep(0.55, 1.0, rl);
+    m = mix(m, uLightCol * mix(0.1, 0.45, smoothstep(-0.6, 0.8, q.y)), fres * 0.55);
+    // the light focused through the glass, a small warm spot inside on the far side
+    vec2 cp = (q - vec2(0.3, -0.58)) * vec2(1.0, 1.6);
+    m += (c0 * 0.5 + 0.08) * exp(-dot(cp, cp) * 22.0) * 0.8;
+    // the window: a sharp highlight up left, a soft reflection around it and a faint secondary one low right
+    vec2 dh = (q - vec2(-0.36, 0.44)) * vec2(1.0, 1.5);
+    m += uLightCol * exp(-dot(dh, dh) * 110.0) * (1.5 + 3.0 * flare);
+    m += uLightCol * exp(-dot(dh, dh) * 7.0) * (0.05 + 0.25 * flare);
+    vec2 d2 = (q - vec2(0.5, -0.32)) * vec2(1.6, 0.8);
+    m += uLightCol * exp(-dot(d2, d2) * 40.0) * 0.09;
+    // tiny bubbles trapped in the glass
+    for (int k = 0; k < 3; k++) {
+        float hk = fract(sd * (13.7 + float(k) * 7.31));
+        if (hk < 0.35) continue;
+        vec2 bp = vec2(fract(sd * 31.1 + float(k) * 0.37), fract(sd * 17.3 + float(k) * 0.61)) * 1.1 - 0.55;
+        float br = 0.03 + 0.03 * fract(hk * 5.3);
+        float d = length(q - bp);
+        float ring = smoothstep(br, br * 0.7, d) * smoothstep(br * 0.35, br * 0.75, d);
+        m += uLightCol * ring * 0.25;
+        m += uLightCol * smoothstep(br * 0.4, 0.0, length(q - bp + vec2(br * 0.35, -br * 0.35))) * 0.35;
+    }
     return m;
 }
 void main() {
@@ -187,32 +235,37 @@ void main() {
     vec4 outc = vec4(0.0);
     vec2 mo = v3.xy;
     float bb = uBridge;
+    vec3 c0 = saturateCol(col, uSat);
+    vec3 tileEnv = vec3(0.0);
     if (kind >= 1) {
         float d = sdRoundBox(p, vec2(h), 0.075 * h / 0.46);
         float a = smoothstep(px, -px, d);
         if (kind == 2) {
             // the ghost: the tile's outline only
             float line = smoothstep(px * 1.5, px * 0.2, abs(d + px * 1.2));
-            frag = vec4(mix(col, uBridgeInk, bb), line * alpha);
+            frag = vec4(mix(c0, uBridgeInk, bb), line * alpha);
             return;
         }
         // a frosted tile tinted by its marble
-        vec3 base = mix(uTileCol, col, uTileTint);
+        vec3 base = mix(uTileCol, c0, uTileTint);
         base *= 1.0 + 0.12 * (p.y / h);
         float ta = uTileAlpha;
+        // what the marble sees behind it: the tile over the pane over the world
+        vec3 behind = mix(bgAt(v0.xy), uPanel.rgb, uPanel.a);
+        tileEnv = mix(behind, base, clamp(ta * 1.3, 0.0, 1.0)) * 0.95 + 0.02;
         // the marble's shadow on the tile, and the light it focuses there
         vec2 sp = (p - mo - vec2(0.06, -0.09)) / R;
         float sh = exp(-dot(sp, sp) * 1.6);
         base *= 1.0 - 0.5 * sh * (1.0 - uLightGround * 0.3);
         ta = mix(ta, max(ta, 0.55), sh * 0.6);
-        vec2 cq = (p - mo - vec2(0.2, -0.24)) / R;
-        float caus = exp(-dot(cq, cq) * 5.0);
-        base += col * caus * 0.55;
-        ta = max(ta, caus * 0.45);
+        vec2 cq = (p - mo - vec2(0.22, -0.27)) / R;
+        float caus = exp(-dot(cq, cq) * 6.0);
+        base += (c0 * 0.8 + 0.1) * caus * 0.6;
+        ta = max(ta, caus * 0.5);
         // a hairline lit along the top left of the tile's edge
         float rim = smoothstep(px * 1.8, px * 0.2, abs(d + px * 1.1));
         float lit = clamp(dot(normalize(p + 1e-4), vec2(-0.7071, 0.7071)) * 0.5 + 0.5, 0.0, 1.0);
-        base = mix(base, mix(mix(col, vec3(1.0), 0.6), col * 0.75, uLightGround), rim * (0.25 + 0.5 * mix(lit, 1.0 - lit * 0.5, uLightGround)));
+        base = mix(base, mix(mix(c0, vec3(1.0), 0.6), c0 * 0.75, uLightGround), rim * (0.25 + 0.5 * mix(lit, 1.0 - lit * 0.5, uLightGround)));
         ta = max(ta, rim * (0.35 + 0.4 * lit));
         // the bridge: plain squares of ink
         base = mix(base, uBridgeInk, bb);
@@ -225,7 +278,7 @@ void main() {
     float rl = length(q);
     float ma = smoothstep(1.0, 1.0 - px / R * 1.6, rl) * (1.0 - bb);
     if (ma > 0.0) {
-        vec3 m = marble(q, col, v2.x, v2.z, v2.y, v3.z);
+        vec3 m = glassMarble(q, v0.xy + mo, R, col, v2.x, v2.z, v2.y, v3.z, kind >= 1, tileEnv);
         m = mix(m, uHazeCol, v3.w);
         float a = ma + outc.a * (1.0 - ma);
         vec3 c = (m * ma + outc.rgb * outc.a * (1.0 - ma)) / max(a, 1e-4);

@@ -1,14 +1,16 @@
 // MARBLES: square glass tiles, each holding one glass marble.
 //
-// One world: a still sky over a landscape drawn as one plain silhouette (hills, hollows and sometimes terraces,
-// from the song's seed), a far ridge in the haze behind it, and lots of empty air. The well is a smoked glass pane;
-// each cell of a piece is a frosted square tile holding one glossy glass marble of the piece's color (a cat's eye
-// or a swirl inside, the light focused through it into a bright crescent on the tile, a window's highlight).
+// One world: a still sky over a landscape drawn as one plain silhouette (a deep basin on each side of the well, a
+// ridge, a shallower outer hollow, from the song's seed), a far ridge in the haze behind it, and lots of empty air.
+// The well is a smoked glass pane; each cell of a piece is a frosted square tile holding one clear glass marble: the
+// world behind refracted through it upside down, a core in two layers (ribbon, cat's eye or swirl, one per piece
+// type), a sharp highlight, a caustic, tiny bubbles. Each variant's palette is a few related hues and an accent,
+// soft through the song and rich in a drop.
 //
 // A cleared row pops: its tiles vanish at once and each marble is thrown up out of the well, shrinking into the
-// distance as it arcs over to the landscape, where it lands, rolls down into the hollows and stays there, stacking
-// with the others into heaps over the song (simple 2D circle physics against the heightfield, the marbles falling
-// asleep once they rest). The landscape begins with a few marbles already lying in its hollows.
+// distance as it arcs over to the landscape, where it lands, rolls down into the basins and stays there, stacking
+// with the others into heaps over the song (2D circle physics against the heightfield; a marble at rest falls
+// asleep and becomes ground, so landings never disturb a heap). A song starts with an empty landscape.
 //
 // The song: calm is still; mid sets a marble rolling now and then and lets one catch the light on the bars; a chorus
 // makes the heaps glimmer (a few marbles glint on the kicks) under a soft glow from the land; a drop sends waves of
@@ -74,7 +76,12 @@ float smin(float a, float b, float k) {
 constexpr float WELL_HALF = 5.25f, WELL_TOP = 10.3f;  // the pane, as the marbles feel it
 constexpr float GRAV = 26.f;
 constexpr float TILE_H = 0.46f, TILE_R = 0.31f;      // a tile's half size, its marble's radius (board units)
-constexpr int MAX_MARBLES = 420;
+constexpr int MAX_MARBLES = 560;
+constexpr float R_MIN = 0.27f, R_MAX = 0.32f;          // the marbles in the landscape
+// each piece type has its own core: a twisted ribbon (0), a cat's eye (1) or a swirl of strands (2), packed with
+// the marble's own seed in one float for the shader
+const int CORE_STYLE[7] = {0, 1, 2, 1, 0, 2, 1};
+float mseed(int type, float seed) { return (float)CORE_STYLE[std::clamp(type, 0, 6)] + std::fmod(std::fabs(seed), 1.f) * 0.999f; }
 constexpr float POP = 0.14f;                          // a tile pops in this long (s, real time)
 
 // The variants (sRGB): the sky (top, low), the haze on the far marbles, the far ridge, the land (top, deep), its rim
@@ -92,32 +99,32 @@ const VariantDef VARIANTS[] = {
     // A clear night: ink-blue hills under a small moon, jewel marbles; the drop's light is warm gold.
     {"MIDNIGHT", 0x070b1c, 0x1a2644, 0x22304e, 0x141e36, 0x0b1124, 0x05080f, 0x6a7cb0, 0x080c18, 0x3a4668, 0x8a9ac8,
      0xdfe6ff, 0xffd27a, 0xffe6b0, 0x040818, 0xe8ecff,
-     {0x3fd0e8, 0xffc93c, 0xa66cff, 0x4fd67a, 0xff4d5e, 0x3d7bff, 0xff8a3d},
+     {0x62c8e8, 0xf0b54a, 0x7a86f0, 0x3fa8c0, 0x2f55c8, 0xcfdcf5, 0x8fb0f0},
      0.35f, 0.16f, 0.84f, -15.5f, 7.6f, 0.95f, 1.f, 1.f, 0.f, 1.f},
     // Dusk: a plum sky warming to apricot over aubergine hills, a low sun; the drop's light is rose gold.
     {"DUSK", 0x241a40, 0xd08468, 0x8a5e70, 0x5e4262, 0x26182c, 0x120a16, 0xffb08a, 0x1a1224, 0x5a4060, 0xf0c0b0,
      0xfff0e6, 0xffc88a, 0xffd8b8, 0x120e30, 0xffe2b0,
-     {0x5ad8d0, 0xffd25a, 0xc77dff, 0x9be070, 0xff5a6e, 0x5a8cff, 0xff9a4a},
+     {0xe8a07a, 0xf6c66a, 0xc77a9a, 0xf0c8a0, 0xb8506a, 0x8a5a9a, 0x4fb8b0},
      0.30f, 0.15f, 0.80f, 15.5f, -1.2f, 1.7f, 1.f, 0.f, 0.f, 1.f},
     // Porcelain: a cool white studio sky over pale grey hills, saturated marbles; the drop's light is white.
     {"PORCELAIN", 0xdfe3e8, 0xf4f5f6, 0xe4e7eb, 0xd2d8df, 0xb4bcc8, 0x949eac, 0xffffff, 0xf7f8fa, 0xc4cad2, 0xffffff,
      0x262c34, 0x1f4fd0, 0xffffff, 0x1a2236, 0xffffff,
-     {0x1aa0b8, 0xe8a400, 0x7a3cc8, 0x1f9a4e, 0xd8283c, 0x1f4fd0, 0xe8641a},
+     {0x5aa0e0, 0x1f3f9a, 0x6a5ab8, 0x3a8a9a, 0xc8323a, 0x2a62c8, 0x8aa0b8},
      0.42f, 0.42f, 0.86f, 0.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.55f},
     // Sea glass: a misty teal night, a pale moon in the fog, pastel sea-glass marbles; the drop's light is cyan white.
     {"SEA GLASS", 0x0a1e24, 0x2a5056, 0x355a60, 0x1a363c, 0x0a1a1e, 0x040c0e, 0x7ac0c0, 0x08161a, 0x3a5a5e, 0xbfe8e8,
      0xe0f4f2, 0xa8fff0, 0xd8fff8, 0x061418, 0xd8f0f0,
-     {0x8ff0e8, 0xf2d98a, 0xc8a8f0, 0x9fe0a0, 0xf09a9a, 0x6aa8f0, 0xf0b878},
+     {0x8fe8e0, 0xb8e0c0, 0xa8d0f0, 0x7ad0a0, 0xf0907a, 0x4a9ac8, 0xd8f4e4},
      0.30f, 0.16f, 0.82f, 14.5f, 6.8f, 1.5f, 0.7f, 0.35f, 0.f, 1.f},
     // Obsidian: black on black, the hills told by their rim alone, vivid marbles; the drop's light is white.
     {"OBSIDIAN", 0x040406, 0x0e0e12, 0x16161c, 0x0b0b0f, 0x050507, 0x020203, 0x5a5a66, 0x040405, 0x34343e, 0xffffff,
      0xe8e8ee, 0xffffff, 0xffffff, 0x04060e, 0xffffff,
-     {0x00e0ff, 0xffe600, 0xd040ff, 0x40ff7a, 0xff2d55, 0x3a6bff, 0xff7a1a},
+     {0xd8e4f0, 0xff8a2a, 0x9a9aa8, 0x6a7a88, 0xff3a2a, 0x8a9ab0, 0xffc84a},
      0.25f, 0.08f, 0.88f, 0.f, 0.f, 0.f, 0.f, 0.25f, 0.f, 1.f},
     // Noon: a blue sky over slate hills, a white sun; the drop's light is white.
     {"NOON", 0x86aed6, 0xe2ebf2, 0xc4d4e2, 0xa4b8cc, 0x687c92, 0x48586a, 0xf4f8fc, 0xf0f4f8, 0xb0bccb, 0xffffff,
      0x22303e, 0xe85a2a, 0xffffff, 0x182238, 0xfffaf0,
-     {0x16b0c8, 0xf0b400, 0x8a48d8, 0x2aa860, 0xe03a48, 0x2a5ce0, 0xf07a20},
+     {0x2ab0b8, 0xe0a83a, 0xa0603a, 0xc8904a, 0xb8502a, 0x8a6a4a, 0xe8d0a0},
      0.42f, 0.42f, 0.84f, -16.f, 7.4f, 1.0f, 1.f, 0.f, 1.f, 0.6f},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
@@ -285,6 +292,7 @@ void MarblesUniverse::resize(int width, int height) {
     vp_ = mat4::ortho(viewC_.x - hw, viewC_.x + hw, viewC_.y - hh, viewC_.y + hh, -1.f, 1.f);
     px_ = 2.f * hh / height_;
     sceneT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
+    bgT_.create(width_, height_, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
     gridX0_ = -std::max(LAND_X, hw + 2.f);
     gridY0_ = viewC_.y - hh - 3.f;
     gridW_ = (int)std::ceil(-2.f * gridX0_ / GRID) + 1;
@@ -293,6 +301,7 @@ void MarblesUniverse::resize(int width, int height) {
 
 MarblesUniverse::~MarblesUniverse() {
     sceneT_.destroy();
+    bgT_.destroy();
     for (GLuint p : {progSky_, progMarble_, progFx_, progText_, progShape_, progPost_}) glDeleteProgram(p);
     for (GLuint v : {marbleVao_, fxVao_, textVao_, shapeVao_}) glDeleteVertexArrays(1, &v);
     for (GLuint b : {quadVbo_, marbleVbo_, fxVbo_, textVbo_, shapeVbo_}) glDeleteBuffers(1, &b);
@@ -307,55 +316,42 @@ MarblesUniverse::~MarblesUniverse() {
 // The landscape
 // =====================================================================================================
 
-// Per song: low and flat under the well, rising toward the edges (one side tall, the other low, never mirrored),
-// a few hills with hollows between them, sometimes terraced; kept low under the HUD's columns, and rising toward the
-// lower left corner where the HUD's corner lines lie on it (no hollow there to collect marbles under the text).
+// Per song: on each side of the well a deep basin (its floor at the bottom of the picture, its inner side the
+// well's glass), closed by a ridge, then a shallower outer hollow rising to the edge of the picture (one side tall,
+// the other low, never mirrored): smooth, plain curves through a few points. The left outer hollow stays above the
+// HUD's corner lines, which lie on the land there.
 void MarblesUniverse::buildLand() {
-    land_.assign(LAND_N, -10.8f);
+    land_.assign(LAND_N, -10.9f);
     Rng r(seed_ ^ 0x4D41524B4C414E44ull);
     const bool tallRight = r.chance(0.5f);
-    struct Bump { float x, a, w; };
-    std::vector<Bump> bumps;
-    float rise[2];
+    struct Pt { float a, y; };
+    std::vector<Pt> pts[2];
     for (int si = 0; si < 2; si++) {
-        const float side = si ? 1.f : -1.f;
         const bool tall = (si == 1) == tallRight;
-        rise[si] = tall ? r.range(5.f, 7.5f) : r.range(2.4f, 3.8f);
-        const int n = r.irange(2, 3);
-        for (int i = 0; i < n; i++) bumps.push_back({side * r.range(9.f, 21.f), r.range(0.9f, 2.4f) * (tall ? 1.2f : 0.85f), r.range(1.0f, 2.2f)});
-        bumps.push_back({side * r.range(10.f, 17.f), -r.range(0.8f, 1.6f), r.range(1.4f, 2.4f)});
+        const bool left = si == 0;
+        const float floorA = r.range(7.6f, 9.6f);
+        const float ridgeA = r.range(12.6f, 14.8f);
+        const float ridgeY = tall ? r.range(-5.2f, -3.6f) : r.range(-7.6f, -6.2f);
+        const float outerA = ridgeA + r.range(3.f, 4.5f);
+        const float outerY = left ? r.range(-8.8f, -7.8f) : r.range(-9.6f, -8.f);
+        const float edgeY = tall ? r.range(-1.5f, 1.f) : r.range(-5.f, -3.5f);
+        pts[si] = {{0.f, -10.9f}, {5.3f, -10.9f}, {floorA, -11.75f}, {ridgeA, std::max(ridgeY, outerY + 1.2f)},
+                   {outerA, outerY}, {24.f, std::max(edgeY, outerY + 1.f)}, {LAND_X + 1.f, std::max(edgeY, outerY + 1.f) + 0.6f}};
     }
-    const float bank[2] = {r.range(0.8f, 1.4f), r.range(0.8f, 1.4f)};
-    const bool terrace = r.chance(0.45f);
-    const float q = r.range(0.9f, 1.3f);
     const float ph1 = r.range(0.f, TAU), ph2 = r.range(0.f, TAU);
     for (int i = 0; i < LAND_N; i++) {
         const float x = -LAND_X + 2.f * LAND_X * i / (LAND_N - 1);
         const float a = std::fabs(x);
-        const int si = x > 0.f ? 1 : 0;
-        float h = -10.8f + rise[si] * std::pow(smoothstepf(6.5f, 24.f, a), 1.3f);
-        for (const Bump& b : bumps) h += b.a * std::exp(-((x - b.x) / b.w) * ((x - b.x) / b.w)) * smoothstepf(6.5f, 9.f, a);
-        // a low bank along the well, so that the hollows lie away from it
-        h += bank[si] * std::exp(-((a - 6.9f) / 1.1f) * ((a - 6.9f) / 1.1f));
-        h += (0.3f * std::sin(x * 0.55f + ph1) + 0.15f * std::sin(x * 1.3f + ph2)) * smoothstepf(7.f, 10.f, a);
-        // the lower left corner rises (the HUD's corner lines lie there)
-        if (x < -13.f) h = std::max(h, lerpf(-10.8f, -8.6f, smoothstepf(13.f, 16.5f, a)));
-        // under the HUD columns the land stays low (the score's column on the left, the gauge on the right)
-        const float cap = (x < 0.f ? -9.4f : -8.6f) + 30.f * smoothstepf(12.f, 14.5f, a);
-        h = smin(h, cap, 0.6f);
-        if (terrace) {
-            const float t = (h + 20.f) / q;
-            const float fl = std::floor(t);
-            h = q * (fl + smoothstepf(0.4f, 1.f, t - fl)) - 20.f;
-        }
-        // flat under the well
-        h = lerpf(-10.9f, h, smoothstepf(5.4f, 6.4f, a));
+        const std::vector<Pt>& p = pts[x > 0.f ? 1 : 0];
+        float h = p.back().y;
+        for (size_t k = 0; k + 1 < p.size(); k++)
+            if (a >= p[k].a && a <= p[k + 1].a) {
+                h = lerpf(p[k].y, p[k + 1].y, smoothstepf(p[k].a, p[k + 1].a, a));
+                break;
+            }
+        // a gentle unevenness on the far slopes
+        h += (0.18f * std::sin(x * 0.7f + ph1) + 0.08f * std::sin(x * 1.6f + ph2)) * smoothstepf(11.f, 14.f, a);
         land_[i] = h;
-    }
-    // no hollow in the lower left corner: the land only rises toward the edge
-    for (int i = LAND_N - 1; i >= 0; i--) {
-        const float x = -LAND_X + 2.f * LAND_X * i / (LAND_N - 1);
-        if (x < -13.f && i + 1 < LAND_N) land_[i] = std::max(land_[i], land_[i + 1] + 0.002f);
     }
     if (landTex_) {
         glBindTexture(GL_TEXTURE_2D, landTex_);
@@ -409,7 +405,6 @@ void MarblesUniverse::setSong(const SongLook& look, float seconds) {
     marbles_.clear();
     waves_.clear();
     glints_.clear();
-    needSeed_ = true;
     if (seconds <= 0.f) palSet_ = false;
 }
 
@@ -565,6 +560,7 @@ void MarblesUniverse::onEvent(const GameEvent& ev, const Game& game) {
 // The stack's marbles follow the board: cells the universe has not seen land (a board filled for a review) get a
 // look of their own.
 void MarblesUniverse::syncSlots(const Game& g) {
+    int unseen = 0;
     for (int y = 0; y < Game::H; y++)
         for (int x = 0; x < Game::W; x++) {
             const Cell& c = g.cell(x, y);
@@ -579,8 +575,12 @@ void MarblesUniverse::syncSlots(const Game& g) {
                 s.type = c.type;
                 s.seed = hashf((float)x * 3.1f + c.type, (float)y * 7.f);
                 s.rot = hashf((float)y, (float)x * 5.f + c.type) * TAU;
+                unseen++;
             }
         }
+    // a whole board filled at once some time into an empty landscape: a review's board (a song never starts with
+    // marbles in the landscape; a change of universe brings its stack on its first frames)
+    if (unseen >= 24 && (int)marbles_.size() < 100 && time_ > 5.f) seedMarbles(170 + 70 * std::clamp(level_, 0, 2));
 }
 
 float MarblesUniverse::bounceOf(const Slot& s) const { return jolt(s.bounce, s.bounceT); }
@@ -632,7 +632,7 @@ void MarblesUniverse::launch(vec2 from, int type, float seed, float rot, float d
     m.seed = seed;
     m.rot = rot;
     m.delay = delay;
-    m.r = rng_.range(0.235f, 0.295f);
+    m.r = rng_.range(R_MIN, R_MAX);
     m.r0 = TILE_R;
     m.inWell = true;
     vec2 tgt;
@@ -645,14 +645,40 @@ void MarblesUniverse::launch(vec2 from, int type, float seed, float rot, float d
     marbles_.push_back(m);
 }
 
-void MarblesUniverse::wakeAround(vec2 p, float rad) {
-    for (Marble& m : marbles_)
-        if (m.asleep && len2(m.p - p) < rad) { m.asleep = false; m.sleepT = 0.f; }
+void MarblesUniverse::buildGrid() {
+    const int n = (int)marbles_.size();
+    gridHead_.assign(gridW_ * gridH_, -1);
+    gridNext_.assign(n, -1);
+    for (int i = 0; i < n; i++) {
+        const Marble& m = marbles_[i];
+        if (m.delay > 0.f || m.inWell) continue;
+        const int cx = std::clamp((int)((m.p.x - gridX0_) / GRID), 0, gridW_ - 1);
+        const int cy = std::clamp((int)((m.p.y - gridY0_) / GRID), 0, gridH_ - 1);
+        gridNext_[i] = gridHead_[cy * gridW_ + cx];
+        gridHead_[cy * gridW_ + cx] = i;
+    }
 }
 
-// One step of the marbles' physics: gravity, the land (a heightfield), the well's pane and the picture's edges as
-// walls, and the marbles against each other (a hashed grid). Resting marbles fall asleep and hold still; a hard hit
-// wakes them.
+// Nothing rests on it (the grid must be current): a marble on the surface of its heap.
+bool MarblesUniverse::exposed(int i) const {
+    const Marble& a = marbles_[i];
+    const int cx = std::clamp((int)((a.p.x - gridX0_) / GRID), 0, gridW_ - 1);
+    const int cy = std::clamp((int)((a.p.y - gridY0_) / GRID), 0, gridH_ - 1);
+    for (int gy = cy; gy <= std::min(gridH_ - 1, cy + 1); gy++)
+        for (int gx = std::max(0, cx - 1); gx <= std::min(gridW_ - 1, cx + 1); gx++)
+            for (int j = gridHead_[gy * gridW_ + gx]; j >= 0; j = gridNext_[j]) {
+                if (j == i) continue;
+                const Marble& b = marbles_[j];
+                const vec2 d = b.p - a.p;
+                if (d.y > 0.25f * a.r && d.x * d.x + d.y * d.y < (a.r + b.r) * (a.r + b.r) * 1.1f) return false;
+            }
+    return true;
+}
+
+// One step of the marbles' physics, position based: gravity, then a few passes pushing every moving marble out of
+// the land (a heightfield), the well's pane, the picture's edges and the other marbles (a hashed grid). A marble at
+// rest falls asleep and from then on is part of the ground: the marbles that land on a heap roll over it and settle
+// without ever moving it, so a heap never shakes or slides. A landing loses most of the throw's speed.
 void MarblesUniverse::stepPhysics(float h) {
     const float wallX = viewH_.x - 0.05f;
     const int n = (int)marbles_.size();
@@ -661,100 +687,86 @@ void MarblesUniverse::stepPhysics(float h) {
         m.age += h;
         if (m.asleep) continue;
         m.v.y -= GRAV * h;
+        const float sp = len2(m.v);
+        if (sp > 24.f) m.v = m.v * (24.f / sp);
         m.p = m.p + m.v * h;
         m.rot += m.spin * h;
         if (m.inWell && std::fabs(m.p.x) > WELL_HALF + m.r + 0.05f) m.inWell = false;
     }
-    gridHead_.assign(gridW_ * gridH_, -1);
-    gridNext_.assign(n, -1);
-    auto cellOf = [&](vec2 p, int& cx, int& cy) {
-        cx = std::clamp((int)((p.x - gridX0_) / GRID), 0, gridW_ - 1);
-        cy = std::clamp((int)((p.y - gridY0_) / GRID), 0, gridH_ - 1);
-    };
-    for (int i = 0; i < n; i++) {
-        const Marble& m = marbles_[i];
-        if (m.delay > 0.f || m.inWell) continue;
-        int cx, cy;
-        cellOf(m.p, cx, cy);
-        gridNext_[i] = gridHead_[cy * gridW_ + cx];
-        gridHead_[cy * gridW_ + cx] = i;
-    }
+    buildGrid();
     static std::vector<char> contact;
     contact.assign(n, 0);
-    for (int i = 0; i < n; i++) {
-        Marble& a = marbles_[i];
-        if (a.delay > 0.f || a.inWell || a.asleep) continue;
-        // the land
-        {
-            const float gy = landAt(a.p.x), s = slopeAt(a.p.x);
-            const float inv = 1.f / std::sqrt(1.f + s * s);
-            const vec2 nrm = v2(-s * inv, inv);
-            const float d = (a.p.y - gy) * inv - a.r;
-            if (d < 0.f) {
-                a.p = a.p + nrm * (-d);
-                const float vn = dot2(a.v, nrm);
-                if (vn < 0.f) a.v = a.v - nrm * (vn * 1.3f);
-                contact[i] = 1;
+    auto touch = [&](Marble& a, int i, vec2 nrm) {
+        contact[i] = 1;
+        const float vn = dot2(a.v, nrm);
+        if (vn < 0.f) a.v = a.v - nrm * (vn * 1.08f);
+        // the first landing: the throw's speed is mostly lost (it rolls on, slowly)
+        if (a.flying) { a.flying = false; a.v = a.v * 0.3f; }
+    };
+    for (int iter = 0; iter < 4; iter++)
+        for (int i = 0; i < n; i++) {
+            Marble& a = marbles_[i];
+            if (a.delay > 0.f || a.inWell || a.asleep) continue;
+            {
+                const float gy = landAt(a.p.x), s = slopeAt(a.p.x);
+                const float inv = 1.f / std::sqrt(1.f + s * s);
+                const vec2 nrm = v2(-s * inv, inv);
+                const float d = (a.p.y - gy) * inv - a.r;
+                if (d < 0.f) { a.p = a.p + nrm * (-d); touch(a, i, nrm); }
             }
-        }
-        // the well's pane and the edges of the picture
-        if (std::fabs(a.p.x) < WELL_HALF + a.r && a.p.y < WELL_TOP) {
-            const float sx = a.p.x < 0.f ? -1.f : 1.f;
-            a.p.x = sx * (WELL_HALF + a.r);
-            if (a.v.x * sx < 0.f) a.v.x = -a.v.x * 0.3f;
-            contact[i] = 1;
-        }
-        if (a.p.x < -wallX + a.r) { a.p.x = -wallX + a.r; if (a.v.x < 0.f) a.v.x = -a.v.x * 0.3f; }
-        if (a.p.x > wallX - a.r) { a.p.x = wallX - a.r; if (a.v.x > 0.f) a.v.x = -a.v.x * 0.3f; }
-        // the others
-        int cx, cy;
-        cellOf(a.p, cx, cy);
-        for (int gy = std::max(0, cy - 1); gy <= std::min(gridH_ - 1, cy + 1); gy++)
-            for (int gx = std::max(0, cx - 1); gx <= std::min(gridW_ - 1, cx + 1); gx++)
-                for (int j = gridHead_[gy * gridW_ + gx]; j >= 0; j = gridNext_[j]) {
-                    if (j == i) continue;
-                    Marble& b = marbles_[j];
-                    const vec2 dv = a.p - b.p;
-                    const float rr = a.r + b.r;
-                    const float d2 = dv.x * dv.x + dv.y * dv.y;
-                    if (d2 >= rr * rr || d2 < 1e-10f) continue;
-                    const float d = std::sqrt(d2);
-                    const vec2 nrm = dv * (1.f / d);
-                    const float ov = rr - d;
-                    contact[i] = 1;
-                    if (b.asleep) {
-                        const float rel = dot2(a.v, nrm);
-                        if (-rel > 3.5f) { b.asleep = false; b.sleepT = 0.f; }
-                        a.p = a.p + nrm * ov;
-                        if (rel < 0.f) a.v = a.v - nrm * (rel * 1.15f);
-                    } else {
-                        if (j < i) continue; // the pair is handled once
-                        contact[j] = 1;
-                        a.p = a.p + nrm * (ov * 0.5f);
-                        b.p = b.p - nrm * (ov * 0.5f);
-                        const float rel = dot2(a.v - b.v, nrm);
-                        if (rel < 0.f) {
-                            const float jv = -1.15f * rel * 0.5f;
-                            a.v = a.v + nrm * jv;
-                            b.v = b.v - nrm * jv;
+            if (std::fabs(a.p.x) < WELL_HALF + a.r && a.p.y < WELL_TOP) {
+                const float sx = a.p.x < 0.f ? -1.f : 1.f;
+                a.p.x = sx * (WELL_HALF + a.r);
+                touch(a, i, v2(sx, 0.f));
+            }
+            if (a.p.x < -wallX + a.r) { a.p.x = -wallX + a.r; touch(a, i, v2(1.f, 0.f)); }
+            if (a.p.x > wallX - a.r) { a.p.x = wallX - a.r; touch(a, i, v2(-1.f, 0.f)); }
+            const int cx = std::clamp((int)((a.p.x - gridX0_) / GRID), 0, gridW_ - 1);
+            const int cy = std::clamp((int)((a.p.y - gridY0_) / GRID), 0, gridH_ - 1);
+            for (int gy = std::max(0, cy - 1); gy <= std::min(gridH_ - 1, cy + 1); gy++)
+                for (int gx = std::max(0, cx - 1); gx <= std::min(gridW_ - 1, cx + 1); gx++)
+                    for (int j = gridHead_[gy * gridW_ + gx]; j >= 0; j = gridNext_[j]) {
+                        if (j == i) continue;
+                        Marble& b = marbles_[j];
+                        const vec2 dv = a.p - b.p;
+                        const float rr = a.r + b.r;
+                        const float d2 = dv.x * dv.x + dv.y * dv.y;
+                        if (d2 >= rr * rr || d2 < 1e-10f) continue;
+                        const float d = std::sqrt(d2);
+                        const vec2 nrm = dv * (1.f / d);
+                        const float ov = rr - d;
+                        if (b.asleep) {
+                            // a resting marble is ground
+                            a.p = a.p + nrm * ov;
+                            touch(a, i, nrm);
+                        } else {
+                            if (j < i) continue; // a pair of moving marbles is handled once
+                            a.p = a.p + nrm * (ov * 0.5f);
+                            b.p = b.p - nrm * (ov * 0.5f);
+                            contact[i] = contact[j] = 1;
+                            const float rel = dot2(a.v - b.v, nrm);
+                            if (rel < 0.f) {
+                                const float jv = -0.55f * rel;
+                                a.v = a.v + nrm * jv;
+                                b.v = b.v - nrm * jv;
+                            }
+                            if (a.flying) { a.flying = false; a.v = a.v * 0.3f; }
+                            if (b.flying) { b.flying = false; b.v = b.v * 0.3f; }
                         }
                     }
-                }
-    }
-    // rolling: contacts slow the marbles down; a marble that has rested for a moment falls asleep
+        }
+    // rolling resistance; a marble that has rested for a moment (or rolled about for too long) falls asleep
     for (int i = 0; i < n; i++) {
         Marble& a = marbles_[i];
         if (a.delay > 0.f || a.inWell || a.asleep) continue;
-        if (contact[i]) {
-            const float k = std::exp(-1.8f * h);
-            a.v = a.v * k;
-            a.spin = lerpf(a.spin, -a.v.x / a.r, 1.f - std::exp(-12.f * h));
-            const float sp = len2(a.v);
-            if (sp < 0.25f) {
-                a.sleepT += h;
-                if (a.sleepT > 0.45f) { a.asleep = true; a.v = v2(0, 0); a.spin = 0.f; }
-            } else a.sleepT = 0.f;
-        } else a.sleepT = 0.f;
+        if (!contact[i]) { a.sleepT = 0.f; continue; }
+        a.v = a.v * std::exp(-2.6f * h);
+        a.spin = lerpf(a.spin, -a.v.x / a.r, 1.f - std::exp(-12.f * h));
+        a.rollT += h;
+        const float sp = len2(a.v);
+        if (sp < 0.3f) a.sleepT += h;
+        else a.sleepT = std::max(0.f, a.sleepT - h);
+        if (a.sleepT > 0.18f || a.rollT > 5.f) { a.asleep = true; a.v = v2(0, 0); a.spin = 0.f; }
     }
 }
 
@@ -762,61 +774,57 @@ void MarblesUniverse::simulateMarbles(float dt) {
     if (dt <= 0.f) return;
     const int steps = std::clamp((int)std::ceil(dt * 120.f), 1, 8);
     for (int s = 0; s < steps; s++) stepPhysics(dt / steps);
-    // retire: marbles resting where the HUD's text is, the oldest ones past the cap; gone: out of the picture
+    // past the cap, the oldest marbles on the surface of the heaps fade away (never one under others)
     int live = 0;
     for (const Marble& m : marbles_) live += !m.retiring;
     if (live > MAX_MARBLES) {
+        buildGrid();
         int excess = live - MAX_MARBLES;
         std::vector<int> idx;
         for (int i = 0; i < (int)marbles_.size(); i++)
-            if (!marbles_[i].retiring && marbles_[i].asleep) idx.push_back(i);
+            if (!marbles_[i].retiring && marbles_[i].asleep && exposed(i)) idx.push_back(i);
         std::sort(idx.begin(), idx.end(), [&](int a, int b) { return marbles_[a].age > marbles_[b].age; });
         for (int i = 0; i < (int)idx.size() && excess > 0; i++, excess--) marbles_[idx[i]].retiring = true;
     }
-    std::vector<vec2> gone;
     for (Marble& m : marbles_) {
-        if (m.asleep && !m.retiring && inKeepOut(m.p, m.r * 0.6f)) m.retiring = true;
-        if (m.retiring) {
-            m.fade -= dt / 1.4f;
-            if (m.fade <= 0.f) gone.push_back(m.p);
-        }
+        if (m.retiring) m.fade -= dt / 1.6f;
         if (m.p.y < viewC_.y - viewH_.y - 3.f) m.fade = -1.f;
     }
     marbles_.erase(std::remove_if(marbles_.begin(), marbles_.end(), [](const Marble& m) { return m.fade <= 0.f; }), marbles_.end());
-    for (const vec2& p : gone) wakeAround(p, 1.4f);
 }
 
-// The landscape's first marbles: dropped one after the other over both sides, settled before the first frame.
+// A board filled for a review shot: heaps as they would be late in a song, poured into the hollows.
 void MarblesUniverse::seedMarbles(int n) {
     Rng r(seed_ ^ 0x5EEDull);
-    const float X = viewH_.x - 0.6f;
-    for (int i = 0; i < n; i++) {
-        Marble m;
-        const float side = r.chance(0.5f) ? -1.f : 1.f;
-        const float x = side * r.range(6.4f, X);
-        m.p = v2(x, landAt(x) + r.range(1.f, 3.f));
-        m.type = r.irange(0, 6);
-        m.seed = r.uniform();
-        m.rot = r.range(0.f, TAU);
-        m.r = r.range(0.235f, 0.295f);
-        m.r0 = m.r;
-        m.delay = i * 0.012f;
-        m.age = 10.f;
-        if (inKeepOut(v2(x, landAt(x) + 0.6f), 0.8f)) continue;
-        marbles_.push_back(m);
+    // poured a handful at a time, each handful aimed at the heaps as they lie after the last one
+    for (int done = 0; done < n;) {
+        surf_.clear();
+        const int batch = std::min(24, n - done);
+        for (int i = 0; i < batch; i++, done++) {
+            Marble m;
+            m.type = r.irange(0, 6);
+            m.seed = r.uniform();
+            m.rot = r.range(0.f, TAU);
+            m.r = r.range(R_MIN, R_MAX);
+            m.r0 = m.r;
+            vec2 t;
+            if (!pickTarget(r.chance(0.5f) ? -8.f : 8.f, 0.f, m.r, t)) continue;
+            m.p = v2(t.x, t.y + 0.3f);
+            m.delay = i * 0.012f;
+            m.age = 10.f;
+            m.flying = false;
+            marbles_.push_back(m);
+        }
+        for (int k = 0; k < 72; k++) stepPhysics(1.f / 120.f);
     }
-    const float h = 1.f / 120.f;
-    const int steps = (int)((n * 0.012f + 6.f) * 120.f);
-    for (int s = 0; s < steps; s++) stepPhysics(h);
+    for (int k = 0; k < 240; k++) stepPhysics(1.f / 120.f);
+    surf_.clear();
     for (Marble& m : marbles_) {
         m.asleep = true;
         m.v = v2(0, 0);
         m.spin = 0.f;
         m.age = 10.f + r.range(0.f, 5.f);
     }
-    marbles_.erase(std::remove_if(marbles_.begin(), marbles_.end(),
-                                  [&](const Marble& m) { return inKeepOut(m.p, m.r * 0.6f) || m.p.y < viewC_.y - viewH_.y - 1.f; }),
-                   marbles_.end());
 }
 
 // =====================================================================================================
@@ -872,6 +880,7 @@ float MarblesUniverse::waveCoord(const Wave& w, vec2 p) const {
 
 void MarblesUniverse::simulate(const Game& game, const MusicState& music, float dt) {
     time_ += dt;
+    buildGrid();
     hasBeat_ = music.hasSong;
     if (lvT_ < 1.f) {
         lvT_ = std::min(1.f, lvT_ + dt / lvDur_);
@@ -900,6 +909,12 @@ void MarblesUniverse::simulate(const Game& game, const MusicState& music, float 
     }
     drive_ = approach(drive_, driveT, driveT > drive_ ? 1.5f : 0.5f, dt);
     glow_ = approach(glow_, 0.03f * wm + 0.07f * wp * (1.f - drive_) + 0.11f * drive_, 1.2f, dt);
+    // the colors: soft through the song, a little richer in a chorus, rich and glowing for a drop (in quickly at its
+    // start, settling back over a few seconds after it)
+    {
+        const float vt = std::max(drive_, 0.3f * wp * (1.f - drive_));
+        vivid_ = approach(vivid_, vt, vt > vivid_ ? 2.5f : 0.6f, dt);
+    }
     swell_ = approach(swell_, 0.f, 0.5f, dt);
 
     // The beat grid: waves every two beats through a drop (a stronger, double one on the bars); at mid a marble
@@ -928,8 +943,9 @@ void MarblesUniverse::simulate(const Game& game, const MusicState& music, float 
             }
             for (int k = 0; k < 12; k++) {
                 Marble& m = marbles_[rng_.irange(0, (int)marbles_.size() - 1)];
-                if (!m.asleep || m.retiring || std::fabs(slopeAt(m.p.x)) < 0.05f) continue;
+                if (!m.asleep || m.retiring || std::fabs(slopeAt(m.p.x)) < 0.05f || !exposed((int)(&m - marbles_.data()))) continue;
                 m.asleep = false;
+                m.rollT = 0.f;
                 m.v = v2((slopeAt(m.p.x) > 0.f ? -1.f : 1.f) * rng_.range(0.8f, 1.5f), 0.6f);
                 break;
             }
@@ -948,13 +964,11 @@ void MarblesUniverse::simulate(const Game& game, const MusicState& music, float 
                 const int i = rng_.irange(0, (int)marbles_.size() - 1);
                 Marble& m = marbles_[i];
                 if (!m.asleep || m.retiring || m.light < 0.25f) continue;
-                bool covered = false;
-                for (const Marble& o : marbles_)
-                    if (&o != &m && o.p.y > m.p.y + 0.2f && std::fabs(o.p.x - m.p.x) < m.r + o.r - 0.05f && o.p.y - m.p.y < 0.75f) { covered = true; break; }
-                if (covered) continue;
+                if (!exposed(i)) continue;
                 m.asleep = false;
                 m.sleepT = 0.f;
-                m.v = v2(rng_.range(-0.4f, 0.4f), rng_.range(2.f, 3.f));
+                m.rollT = 0.f;
+                m.v = v2(rng_.range(-0.3f, 0.3f), rng_.range(2.f, 2.8f));
                 hops++;
             }
         } else {
@@ -1036,6 +1050,15 @@ void MarblesUniverse::flush() {
     set3f(progMarble_, "uHazeCol", lerp(pal_.haze, pal_.night, 0.7f * slow_));
     set3f(progMarble_, "uBridgeInk", bridge_.ink);
     set3f(progMarble_, "uPanelEdge", pal_.panelEdge);
+    // the marbles' colors: soft through the song, rich at a drop
+    set1f(progMarble_, "uSat", lerpf(0.78f, 1.25f, vivid_));
+    set1f(progMarble_, "uCore", lerpf(0.85f, 1.15f, vivid_));
+    set4f(progMarble_, "uPanel", pal_.panel.x, pal_.panel.y, pal_.panel.z, pal_.panelAlpha);
+    set4f(progMarble_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, bgT_.tex);
+    set1i(progMarble_, "uBg", 1);
+    glActiveTexture(GL_TEXTURE0);
     glBindVertexArray(marbleVao_);
     glBindBuffer(GL_ARRAY_BUFFER, marbleVbo_);
     glBufferData(GL_ARRAY_BUFFER, inst_.size() * sizeof(MarbleInst), inst_.data(), GL_STREAM_DRAW);
@@ -1067,10 +1090,18 @@ void MarblesUniverse::drawWorld(float world) {
         const float rr = lerpf(m.r0, m.r, smoothstepf(0.f, 0.45f, m.age));
         const float lit = m.light + m.twinkle;
         const float a = saturate(m.fade) * world;
-        put(m.p.x, m.p.y, 0.f, rr, pal_.piece[m.type], a, m.rot, base + 1.5f * lit, m.seed, 0, 0.f, 0.f, 1.0f * lit,
+        put(m.p.x, m.p.y, 0.f, rr, pal_.piece[m.type], a, m.rot, base + 1.5f * lit + 0.12f * vivid_, mseed(m.type, m.seed), 0, 0.f, 0.f, 1.0f * lit,
             haze * (1.f - saturate(lit)));
     }
     flush();
+    // the light each marble on a heap's surface focuses onto what lies under it
+    buildGrid();
+    for (int i = 0; i < (int)marbles_.size(); i++) {
+        const Marble& m = marbles_[i];
+        if (m.delay > 0.f || m.inWell || !exposed(i)) continue;
+        putFx(m.p.x + 0.3f * m.r, m.p.y - 0.95f * m.r, m.r * 0.75f, 0.f, pal_.piece[m.type] * saturate(0.3f + 0.7f * vivid_) + vec3(0.05f),
+              0.22f * saturate(m.fade) * world * (1.f - 0.5f * pal_.light), 2);
+    }
     // their light: a soft halo around each lit marble, glints on the fronts
     for (const Marble& m : marbles_) {
         if (m.delay > 0.f || m.inWell) continue;
@@ -1113,12 +1144,12 @@ void MarblesUniverse::drawBoard(const Game& g, float world) {
             if (c.type < 0) continue;
             const Slot& s = slots_[y][x];
             const vec3 p = layout::cellPos((float)x, y - g.rowOffset(y));
-            put(p.x, p.y, TILE_H, TILE_R, pal_.piece[std::clamp((int)c.type, 0, 6)], 1.f, s.rot, glow, s.seed, 1, 0.f, bounceOf(s), s.flare);
+            put(p.x, p.y, TILE_H, TILE_R, pal_.piece[std::clamp((int)c.type, 0, 6)], 1.f, s.rot, glow, mseed(c.type, s.seed), 1, 0.f, bounceOf(s), s.flare);
         }
     // Tiles popping (their marble is gone), or waiting for their turn at game over.
     for (const Pop& p : pops_) {
         if (p.t < p.delay) {
-            put(p.x, p.y, TILE_H, TILE_R, pal_.piece[p.type], 1.f, 0.f, glow, hashf(p.x, p.y), 1);
+            put(p.x, p.y, TILE_H, TILE_R, pal_.piece[p.type], 1.f, 0.f, glow, mseed(p.type, hashf(p.x, p.y)), 1);
             continue;
         }
         const float k = saturate((p.t - p.delay) / POP);
@@ -1134,7 +1165,7 @@ void MarblesUniverse::drawBoard(const Game& g, float world) {
         for (int i = 0; i < 4; i++) {
             if (cells[i][1] < Game::HIDDEN - 1) continue;
             const vec3 w = layout::cellPos(cells[i][0] + dx, cells[i][1] + dy);
-            put(w.x, w.y, TILE_H, TILE_R, pal_.piece[type], 1.f, hashf((float)nextId_, i + 10.f) * TAU, glow, hashf((float)nextId_, (float)i), 1);
+            put(w.x, w.y, TILE_H, TILE_R, pal_.piece[type], 1.f, hashf((float)nextId_, i + 10.f) * TAU, glow, mseed(type, hashf((float)nextId_, (float)i)), 1);
         }
     }
     (void)world;
@@ -1368,10 +1399,6 @@ void MarblesUniverse::render(const Frame& f, GLuint fbo) {
             sectionKnown_ = true;
             sectionDrop_ = h.text == "DROP";
         }
-    if (needSeed_) {
-        needSeed_ = false;
-        seedMarbles(90 + 40 * std::clamp(level_, 0, 2));
-    }
     slow_ = approach(slow_, slowOn_ ? 1.f : 0.f, 0.9f, dt);
     dimT_ = approach(dimT_, f.paused ? 1.f : (f.dim ? 0.5f : 0.f), 3.f, dt);
     if (overT_ >= 0.f) {
@@ -1386,7 +1413,7 @@ void MarblesUniverse::render(const Frame& f, GLuint fbo) {
     const float world = 1.f - smoothstepf(0.f, 0.6f, bridge);
     const float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 2.f, lv_);
 
-    sceneT_.bind();
+    bgT_.bind();
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
@@ -1418,6 +1445,11 @@ void MarblesUniverse::render(const Frame& f, GLuint fbo) {
         set1f(progSky_, "uRimAmt", (0.22f + 0.15f * wm + 0.2f * wp) * world);
         ugl::drawFullscreen();
     }
+    // the frame starts from the sky and the land (kept apart, for the marbles to refract)
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, bgT_.fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sceneT_.fbo);
+    glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    sceneT_.bind();
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     // ---- The marbles in the landscape.
@@ -1429,7 +1461,7 @@ void MarblesUniverse::render(const Frame& f, GLuint fbo) {
     for (const Marble& m : marbles_) {
         if (m.delay > 0.f || !m.inWell) continue;
         const float rr = lerpf(m.r0, m.r, smoothstepf(0.f, 0.45f, m.age));
-        put(m.p.x, m.p.y, 0.f, rr, pal_.piece[m.type], 1.f - smoothstepf(0.3f, 0.95f, bridge), m.rot, 0.f, m.seed, 0);
+        put(m.p.x, m.p.y, 0.f, rr, pal_.piece[m.type], 1.f - smoothstepf(0.3f, 0.95f, bridge), m.rot, 0.f, mseed(m.type, m.seed), 0);
     }
     flush();
     // ---- Previews: small tiles and marbles.
@@ -1446,7 +1478,7 @@ void MarblesUniverse::render(const Frame& f, GLuint fbo) {
         for (int i = 0; i < 4; i++) {
             const vec2 pos = v2(center.x + (cells[i][0] - (minx + maxx) * 0.5f) * sc, center.y - (cells[i][1] - (miny + maxy) * 0.5f) * sc);
             put(pos.x, pos.y, TILE_H * sc, TILE_R * sc, pal_.piece[std::clamp(type, 0, 6)], alpha, hashf((float)type, i * 3.f) * TAU, 0.f,
-                hashf((float)type + 0.5f, (float)i), 1);
+                mseed(type, hashf((float)type + 0.5f, (float)i)), 1);
         }
     };
     preview(game.holdType(), v2(layout::HOLD_CENTER.x, layout::HOLD_CENTER.y), layout::previewScale(0), game.holdUsed() ? 0.35f : 1.f);
@@ -1467,7 +1499,7 @@ void MarblesUniverse::render(const Frame& f, GLuint fbo) {
             const float on = saturate(n - i);
             putFx(x, y, 0.07f, 0.f, ugl::luma(pal_.ink) > 0.3f ? pal_.ink * 0.25f : pal_.ink * 0.4f, 0.5f * ga * (1.f - on), 2);
             const float run = ready ? std::pow(0.5f + 0.5f * std::cos(time_ * 3.f - TAU * i / 12.f), 6.f) : 0.f;
-            put(x, y, 0.f, 0.15f, pal_.piece[i % 7], on * ga, (float)i, 0.15f * ready + 0.8f * run, hashf((float)i, 3.f), 0, 0.f, 0.f, run);
+            put(x, y, 0.f, 0.15f, pal_.piece[i % 7], on * ga, (float)i, 0.15f * ready + 0.8f * run, mseed(i % 7, hashf((float)i, 3.f)), 0, 0.f, 0.f, run);
         }
         flush();
         flushFx();
