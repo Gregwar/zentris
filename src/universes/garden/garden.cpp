@@ -1552,6 +1552,13 @@ void GardenUniverse::drawText(const Font& f, const std::vector<float>& q, const 
     set3f(progText_, "uInk", lerp(ink, bridge_.ink, b));
     set1f(progText_, "uAlpha", alpha);
     set1f(progText_, "uBias", bias);
+    set3f(progText_, "uEarthInk", lerp(earthInk_, bridge_.ink, b));
+    set4f(progText_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
+    set1f(progText_, "uSeed", seedF_);
+    const vec4 gl = groundSide(seedF_, false), gr = groundSide(seedF_, true);
+    set4f(progText_, "uGroundL", gl.x, gl.y, gl.z, gl.w);
+    set4f(progText_, "uGroundR", gr.x, gr.y, gr.z, gr.w);
+    set2f(progText_, "uRaise", g_raise[0], g_raise[1]);
     glBindVertexArray(textVao_);
     glBindBuffer(GL_ARRAY_BUFFER, textVbo_);
     glBufferData(GL_ARRAY_BUFFER, q.size() * sizeof(float), q.data(), GL_STREAM_DRAW);
@@ -1590,70 +1597,26 @@ void GardenUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<
         const vec3 sky = lerp(pal_.skyLow, pal_.skyTop, smoothstepf(0.f, 1.f, std::pow(hh, 0.75f)));
         return ugl::luma(lerp(sky, pal_.dusk, 0.85f * slow_));
     };
-    const vec3 earthInk = lerp(pal_.dry, vec3(1.f), 0.45f) * (1.f - 0.3f * slow_);
-    // how much of a pixel box (x0, y0, x1, y1) has earth behind it (0..1)
-    auto earthBehind = [&](float x0, float x1, float y0, float y1) {
-        int n = 0, in = 0;
-        for (int i = 0; i <= 8; i++)
-            for (int j = 0; j <= 2; j++) {
-                const float px = lerpf(x0, x1, i / 8.f), py = lerpf(y0, y1, j / 2.f);
-                const float bx = viewC_.x + (px / width_ * 2.f - 1.f) * viewH_.x;
-                const float by = viewC_.y - (py / height_ * 2.f - 1.f) * viewH_.y;
-                n++;
-                if (by < groundY(bx, seedF_) + 0.15f) in++;
-            }
-        return (float)in / (float)n;
-    };
-    // a soft label: a rounded box of color c at alpha a, fading out over f pixels around it (vertex alpha)
-    auto softLabel = [&](float x0, float y0, float x1, float y1, float f, const vec3& c, float a) {
-        if (a <= 0.003f) return;
-        std::vector<Vert> v;
-        const float X[4] = {x0 - f, x0, x1, x1 + f}, Y[4] = {y0 - f, y0, y1, y1 + f};
-        auto al = [&](int i, int j) { return (i == 0 || i == 3 || j == 0 || j == 3) ? 0.f : a; };
-        for (int i = 0; i < 3; i++)
-            for (int j = 0; j < 3; j++) {
-                const Vert p00{X[i], Y[j], c.x, c.y, c.z, al(i, j)}, p10{X[i + 1], Y[j], c.x, c.y, c.z, al(i + 1, j)},
-                    p11{X[i + 1], Y[j + 1], c.x, c.y, c.z, al(i + 1, j + 1)}, p01{X[i], Y[j + 1], c.x, c.y, c.z, al(i, j + 1)};
-                const Vert t[6] = {p00, p10, p11, p00, p11, p01};
-                v.insert(v.end(), t, t + 6);
-            }
-        glUseProgram(progShape_);
-        set2f(progShape_, "uRes", (float)width_, (float)height_);
-        glBindVertexArray(shapeVao_);
-        glBindBuffer(GL_ARRAY_BUFFER, shapeVbo_);
-        glBufferData(GL_ARRAY_BUFFER, v.size() * sizeof(Vert), v.data(), GL_STREAM_DRAW);
-        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)v.size());
-    };
+    earthInk_ = lerp(pal_.dry, vec3(1.f), 0.45f) * (1.f - 0.3f * slow_);
     std::vector<float> q;
     for (const HudText& h : hud) {
         if (h.alpha <= 0.01f || h.text.empty()) continue;
         const float base = h.scale * 12.f;
-        // letters over the ground line are set in the earth, pale like dry grass; the others in the sky's ink
+        // letters in the sky's ink; where the earth is behind them TEXT_FS flips them to the earth's (pale like dry grass)
         auto inkAt = [&](float px, float py) {
             const float bx = viewC_.x + (px / width_ * 2.f - 1.f) * viewH_.x;
             const float by = viewC_.y - (py / height_ * 2.f - 1.f) * viewH_.y;
-            if (by < groundY(bx, seedF_) - 0.1f) return earthInk;
+            (void)bx;
             return skyLumaAt(by) > 0.3f ? darkInk : lightInk;
         };
         vec3 ink = inkAt(h.x < 0.f ? width_ + h.x : h.x, h.y + base * 0.5f);
         vec3 accent = lerp(pal_.accent, ink, 0.2f);
         const float alpha = saturate(h.alpha);
         q.clear();
-        // the columns' lines (labels, values, notices) stay readable when the ground rises behind them: a soft pale
-        // label behind the line, as soon as some earth is behind it, the line then set in the dark ink
-        const bool backed = h.role == HUD_LABEL || h.role == HUD_VALUE || h.role == HUD_NOTICE || h.role == HUD_KEY;
         auto place = [&](const Font& f, const std::string& text, float size, float track, float dy = 0.f) {
             const float w = textWidth(f, text, size, track);
             const float x = ugl::hudLeft(h, w, width_);
             ink = inkAt(x + w * 0.5f, h.y + dy + size * 0.8f);
-            if (backed) {
-                const float cov = earthBehind(x - size * 0.4f, x + w + size * 0.4f, h.y + dy + size * 0.1f, h.y + dy + size * 1.1f);
-                if (cov > 0.f) {
-                    softLabel(x - size * 0.45f, h.y + dy - size * 0.05f, x + w + size * 0.45f, h.y + dy + size * 1.15f, size * 0.55f,
-                              lerp(pal_.skyLow, vec3(1.f), 0.65f) * (1.f - 0.3f * slow_), 0.86f * smoothstepf(0.f, 0.12f, cov) * alpha);
-                    ink = darkInk;
-                }
-            }
             accent = lerp(pal_.accent, ink, 0.2f);
             textQuads(f, text, x, h.y + dy, size, track, q);
         };

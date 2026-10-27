@@ -435,13 +435,36 @@ inline const char* TEXT_FS = R"(#version 330 core
 in vec2 vUv;
 out vec4 frag;
 uniform sampler2D uFont;
-uniform vec3 uInk;
+uniform vec3 uInk, uEarthInk;  // the ink over the sky, and over the earth (its inverse in lightness)
 uniform float uAlpha, uBias;
+uniform vec2 uRes;
+uniform vec4 uView;
+uniform float uSeed;
+uniform vec4 uGroundL, uGroundR;
+uniform vec2 uRaise;
+// the ground line's top edge: the same function as SKY_FS's groundY
+float groundY(float x) {
+    float a = abs(x);
+    vec4 g = x > 0.0 ? uGroundR : uGroundL;
+    float side = smoothstep(6.0, 12.0, a);
+    float r = x > 0.0 ? uRaise.y : uRaise.x;
+    float base = -10.05 + g.x * smoothstep(5.5, 7.6, a) + 0.25 * smoothstep(7.6, 11.0, a) + g.y * pow(smoothstep(g.z, g.w, a), 1.3)
+           + (0.22 * sin(x * 0.37 + uSeed) + 0.12 * sin(x * 0.91 + uSeed * 1.7) + 0.3 * sin(x * 0.17 + uSeed * 2.1)) * side;
+    if (r <= 0.01) return base;
+    float shelf = -10.05 + r * smoothstep(4.55, 4.7, a) * exp(-max(0.0, a - 5.0) / (2.5 + 0.35 * r));
+    float k = 0.8 * min(1.0, r);
+    float h = max(k - abs(base - shelf), 0.0) / k;
+    return max(base, shelf) + h * h * k * 0.25;
+}
 void main() {
     float d = texture(uFont, vUv).r;
     float w = max(fwidth(d), 1e-3) * 0.75;
     float a = smoothstep(0.5 - uBias - w, 0.5 - uBias + w, d);
-    frag = vec4(enc(uInk), a * uAlpha);
+    // the ink flips where the earth is behind the letter (a mask along the ground line, sharp to the pixel)
+    vec2 b = uView.xy + (gl_FragCoord.xy / uRes * 2.0 - 1.0) * uView.zw;
+    float px = 2.0 * uView.w / uRes.y;
+    float earth = smoothstep(px, -px, b.y - groundY(b.x));
+    frag = vec4(enc(mix(uInk, uEarthInk, earth)), a * uAlpha);
 }
 )";
 
