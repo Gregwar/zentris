@@ -12,9 +12,10 @@ using Palette = SeaUniverse::Palette;
 constexpr float WELL_X = 5.1f;
 // the diorama's cut face, just behind the board plane: the world lies behind it
 constexpr float FRONT_Z = -1.0f;
-// the sea's level: it starts low (only the far deep water), and rises as water falls in, up to about three quarters of
-// the well's height
-constexpr float SEA_LOW = -11.6f, SEA_HIGH = 5.0f;
+// the sea's level: it starts under the lowest sand (all dry, dunes out to the horizon), and rises as water falls in:
+// first pools far out, then the far plain floods and the sea creeps up the beach, up to about three quarters of the
+// well's height
+constexpr float SEA_LOW = -14.6f, SEA_HIGH = 5.0f;
 // how many poured lines fill the sea: it rises linearly, every line by the same amount (a Tetris pours 1.5 per line)
 constexpr float SEA_FULL_LINES = 60.f;
 // the first boats sail out once the sea is this high

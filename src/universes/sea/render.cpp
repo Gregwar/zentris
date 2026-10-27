@@ -283,13 +283,14 @@ void SeaUniverse::buildMeshes() {
             }
     };
     {
-        // the sand: z from the front out to 320, x widening with the distance; then the cut face
+        // the sand: z from the front out to 800 (as far as the sea's surface: a dry start is sand to the horizon), x
+        // widening with the distance; then the cut face
         std::vector<float> v;
         std::vector<unsigned> idx;
-        const int C = 180, R = 150;
+        const int C = 180, R = 180;
         for (int j = 0; j <= R; j++) {
             const float t = (float)j / R;
-            const float z = FRONT_Z - 320.f * std::pow(t, 2.1f);
+            const float z = FRONT_Z - 800.f * std::pow(t, 2.5f);
             const float hw = 32.f + 0.95f * (-z);
             for (int i = 0; i <= C; i++) {
                 const float x = ((float)i / C * 2.f - 1.f) * hw;
