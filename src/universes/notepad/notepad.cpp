@@ -456,7 +456,7 @@ void NotepadUniverse::setSong(const SongLook& look, float seconds) {
 
 void NotepadUniverse::setLevel(int level, float, float, float) {
     level_ = std::clamp(level, 0, 2);
-    if (level_ < 2) dropOn_ = false;
+    if (level_ < 2) { dropOn_ = false; movers_.clear(); }
     dirty_ = true;
 }
 
@@ -467,8 +467,15 @@ void NotepadUniverse::drop(float strength) {
     dropOn_ = true;
     dropHeld_ = 3.f;
     markerBorn_ = drawing_ + 1;
-    const int n = 3 + (int)std::lround(2.f * saturate(strength));
+    const int n = 1 + (int)std::lround(saturate(strength));
     for (int i = 0; i < n; i++) spawnDoodle(true);
+    // the travelling drawings come in on the downbeat: the cube in one margin, one or two others
+    movers_.clear();
+    const int cubeSide = rng_.irange(0, 1);
+    spawnMover(MV_CUBE, cubeSide);
+    const int other = rng_.irange(1, MV_COUNT - 1);
+    spawnMover(other, 1 - cubeSide);
+    if (strength > 0.5f) spawnMover(1 + (other % (MV_COUNT - 1)), cubeSide);
     dirty_ = true;
     lastTick_ = -1; // draw now
 }
@@ -500,34 +507,12 @@ void NotepadUniverse::onEvent(const GameEvent& ev, const Game& game) {
         hardPending_ = true;
         break;
     case GameEvent::Lock: {
-        // The piece stays as it was drawn (same keys): it only gets its impact marks, at the contact.
-        int minX = 99, maxX = -99, bottom = -99;
+        // The piece stays as it was drawn (same keys): a landing piece is just drawn in place, no marks.
         for (size_t i = 0; i < ev.cells.size(); i++) {
             const auto& c = ev.cells[i];
             if (c.y >= 0 && c.y < Game::H && c.x >= 0 && c.x < Game::W) ink_[c.y][c.x] = {activeId_, (int)i, c.type};
-            bottom = std::max(bottom, c.y);
         }
-        for (const auto& c : ev.cells)
-            if (c.y == bottom) minX = std::min(minX, c.x), maxX = std::max(maxX, c.x);
-        if (bottom < Game::HIDDEN) break;
-        const bool hard = hardPending_;
         hardPending_ = false;
-        const vec3 L = cellPos((float)minX, (float)bottom), R = cellPos((float)maxX, (float)bottom);
-        const float y = L.y - 0.5f;
-        const int n = hard ? 3 : 2;
-        const float life = hard ? 0.34f : 0.22f, reach = hard ? 0.5f : 0.32f;
-        for (int side = 0; side < 2; side++) {
-            const float sx = side ? 1.f : -1.f;
-            const float x = side ? R.x + 0.5f : L.x - 0.5f;
-            for (int k = 0; k < n; k++) {
-                const float a = (side ? 0.f : PI) + sx * (0.25f + 0.42f * k) + rng_.range(-0.08f, 0.08f);
-                const vec2 d = v2(std::cos(a), std::sin(a));
-                const vec2 p0 = add(v2(x + sx * 0.08f, y + 0.06f), mul(d, 0.12f));
-                Transient t{p0, add(p0, mul(d, reach * rng_.range(0.75f, 1.f))), v2(0, 0), 0.045f, 0.9f,
-                            (float)clock_, (float)clock_ + life, outlineCol_, outlineTool_, serial_++, 0.3f, false};
-                transients_.push_back(t);
-            }
-        }
         dirty_ = true;
         break;
     }
@@ -720,6 +705,7 @@ void NotepadUniverse::manageDoodles() {
         if (doodles_[i].until > 0.f && clock_ > doodles_[i].until) doodles_.erase(doodles_.begin() + i);
         else i++;
     int cap = DOODLES[stage_];
+    if (!movers_.empty()) cap = std::min(cap, 2); // the travelling drawings need the room
     if (slow_ > 0.5f) cap = std::min(cap, 2);
     int songDoodles = 0;
     for (const Doodle& d : doodles_) songDoodles += d.until < 0.f;
@@ -824,10 +810,14 @@ void NotepadUniverse::addPiece(std::vector<Item>& out, uint64_t base, const int 
     }
     o.i0 = type;
     o.i1 = ghost ? 1 : 0;
-    o.col = ghost ? graphite_ : outlineCol_;
-    o.tool = ghost ? (VARIANTS[variant_].light ? T_PENCIL : T_CHALK) : outlineTool_;
-    o.alpha = ghost ? 0.5f * alpha : alpha;
-    o.b = (ghost ? 0.7f : 1.f) * weight_;
+    // the ghost: a dashed outline in the piece's own colour (a little deeper), lightly hatched inside
+    vec3 gcol = lerp(hexc(V.piece[type]), outlineCol_, V.light ? 0.3f : 0.1f);
+    gcol = lerp(graphite_, gcol, std::max(0.45f, colorAmt_));
+    if (slow_ > 0.01f) gcol = lerp(gcol, hexc(V.blue), slow_ * 0.85f);
+    o.col = ghost ? gcol : outlineCol_;
+    o.tool = ghost ? (V.light ? T_CPENCIL : T_CHALK) : outlineTool_;
+    o.alpha = ghost ? 0.9f * alpha : alpha;
+    o.b = (ghost ? 1.05f : 1.f) * weight_;
     o.d = pseed;
     o.residue = ghost ? 0.f : residue * 0.8f;
     o.moveResidue = ghost ? 0.f : moveResidue;
@@ -1077,6 +1067,67 @@ void NotepadUniverse::buildDrawing(const Frame& f, std::vector<Item>& out) {
         out.push_back(it);
     }
 
+    // ---- the drop's travelling drawings: a new pose on every drawing (the old one is rubbed out)
+    for (const Mover& m : movers_) {
+        float x0, y0, x1, y1;
+        marginBox(m.side, x0, y0, x1, y1);
+        y0 = m.ylo, y1 = m.yhi;
+        const float p = (float)(beatNow_ - m.beat0);
+        const float pad = m.size * 1.05f;
+        const float sg = m.vel.x >= 0.f ? 1.f : -1.f;
+        // a coordinate going back and forth between lo and hi (dir: +1 while it goes up)
+        auto bounce = [](float v, float lo, float hi, float* dir) {
+            const float span = std::max(0.01f, hi - lo);
+            float t = std::fmod(v - lo, 2.f * span);
+            if (t < 0.f) t += 2.f * span;
+            if (dir) *dir = t < span ? 1.f : -1.f;
+            return t < span ? lo + t : lo + 2.f * span - t;
+        };
+        Item it;
+        it.key = tag('V', m.id);
+        it.kind = IT_MOVER;
+        it.i0 = m.kind;
+        it.s = m.size;
+        it.col = m.col;
+        it.tool = m.tool;
+        it.a = p;
+        it.world = true;
+        it.residue = 0.35f;
+        it.moveResidue = V.light ? 0.3f : 0.17f; // chalk dust shows more
+        float dir = 1.f;
+        switch (m.kind) {
+        case MV_CUBE:
+            it.x = bounce(m.start.x + m.vel.x * p, x0 + pad, x1 - pad, nullptr);
+            it.y = bounce(m.start.y + m.vel.y * p, y0 + pad, y1 - pad, nullptr);
+            break;
+        case MV_BALL:
+        case MV_RUNNER:
+            it.x = bounce(m.start.x + m.vel.x * p, x0 + pad, x1 - pad, &dir);
+            it.y = y0 + 0.4f;
+            it.r = dir * sg;
+            break;
+        case MV_PLANE: {
+            const float cx = 0.5f * (x0 + x1), cy = 0.5f * (y0 + y1);
+            const float R = std::max(0.6f, std::min({0.5f * (x1 - x0) - pad, (0.5f * (y1 - y0) - pad) / 0.75f, 2.8f}));
+            const float a = p * 0.6f * sg;
+            it.x = cx + R * std::cos(a);
+            it.y = cy + R * 0.75f * std::sin(a);
+            it.r = std::atan2(sg * 0.75f * std::cos(a), -sg * std::sin(a));
+            break;
+        }
+        case MV_ROCKET: {
+            const float lo = y0 - pad * 0.3f, span = std::max(1.f, y1 - y0);
+            float t = std::fmod(m.start.y - lo + m.vel.y * p, span);
+            if (t < 0.f) t += span;
+            it.x = std::clamp(m.start.x + 0.35f * std::sin(p * 0.9f), x0 + pad, x1 - pad);
+            it.y = lo + t;
+            break;
+        }
+        default: break;
+        }
+        out.push_back(it);
+    }
+
     hudItems(f, out);
 }
 
@@ -1296,6 +1347,7 @@ void NotepadUniverse::emit(const Item& it, int age, bool residue, std::vector<Ma
         emitPolyline(pts, 0.06f * weight_, inkOf(it.col), it.alpha, it.tool, it.seed, wobble_, reveal, false, out);
         break;
     }
+    case IT_MOVER: emitMover(it, out); break;
     case IT_TEXT:
         if (text) emitText(it, residue, *text);
         break;
@@ -1432,6 +1484,16 @@ void NotepadUniverse::emitOutline(const Item& it, int age, bool residue, std::ve
         stroke(out, a, b, width, ink, it.alpha, it.tool, it.seed + k * 2.3f, wobble_ * (ghost ? 0.6f : 1.f), reveal, bow,
                ghost ? 0.17f * s : 0.f, false);
     }
+    // the ghost's light hatching: three diagonals a cell, all the same way (not a coloured-in piece)
+    if (ghost)
+        for (int k = 0; k < n; k++)
+            for (int h = -1; h <= 1; h++) {
+                const float u = h * 0.3f;
+                const vec2 a = toWorld(ci[k] + 0.17f + std::max(0.f, u), cj[k] + 0.17f + std::max(0.f, -u));
+                const vec2 b = toWorld(ci[k] + 0.83f - std::max(0.f, -u), cj[k] + 0.83f - std::max(0.f, u));
+                stroke(out, a, b, width * 0.8f, ink, it.alpha * (V.light ? 0.7f : 0.55f), it.tool, it.seed + 31.f + k * 3.7f + h,
+                       wobble_ * 0.5f, 1.f, 0.f, 0.f, false);
+            }
 }
 
 void NotepadUniverse::emitText(const Item& it, bool residue, std::vector<float>& out) {
@@ -1468,6 +1530,196 @@ void NotepadUniverse::emitText(const Item& it, bool residue, std::vector<float>&
 }
 
 // =====================================================================================================
+// The drop's travelling drawings
+// =====================================================================================================
+
+// The margins they move in: left of the HUD's left column, right of its right column (never the well or the HUD).
+void NotepadUniverse::marginBox(int side, float& x0, float& y0, float& x1, float& y1) const {
+    const float L = viewC_.x - viewH_.x, R = viewC_.x + viewH_.x, B = viewC_.y - viewH_.y, T = viewC_.y + viewH_.y;
+    if (side == 0) { x0 = L + 1.f; x1 = layout::LEFT_COLUMN[0] - 0.9f; y0 = -8.4f; y1 = std::min(8.6f, T - 3.4f); }
+    else { x0 = layout::RIGHT_COLUMN[2] + 0.9f; x1 = R - 1.f; y0 = B + 1.f; y1 = T - 1.f; }
+}
+
+void NotepadUniverse::spawnMover(int kind, int side) {
+    if ((int)movers_.size() >= 3) return;
+    const Variant& V = VARIANTS[variant_];
+    float x0, y0, x1, y1;
+    marginBox(side, x0, y0, x1, y1);
+    if (x1 - x0 < 3.f) return;
+    Mover m;
+    m.kind = kind;
+    m.side = side;
+    m.beat0 = beatNow_;
+    m.ylo = y0, m.yhi = y1;
+    // two in a margin: one above the other
+    for (Mover& o : movers_)
+        if (o.side == side) {
+            const float mid = 0.5f * (y0 + y1);
+            o.ylo = mid + 0.3f;
+            m.yhi = mid - 0.3f;
+        }
+    m.size = kind == MV_CUBE ? 1.75f : kind == MV_RUNNER ? 1.45f : 1.3f;
+    m.size *= std::clamp((x1 - x0) / 8.f, 0.8f, 1.f);
+    const float sg = rng_.chance(0.5f) ? 1.f : -1.f;
+    switch (kind) {
+    case MV_CUBE: m.start = v2(rng_.range(x0, x1), rng_.range(m.ylo, m.yhi)); m.vel = v2(sg * 0.95f, rng_.chance(0.5f) ? 0.7f : -0.7f); break;
+    case MV_BALL: m.start = v2(rng_.range(x0, x1), 0.f); m.vel = v2(sg * 0.9f, 0.f); break;
+    case MV_RUNNER: m.start = v2(rng_.range(x0, x1), 0.f); m.vel = v2(sg * 0.8f, 0.f); break;
+    case MV_PLANE: m.vel = v2(sg, 0.f); break;
+    default: m.start = v2(0.5f * (x0 + x1) + rng_.range(-1.f, 1.f), rng_.range(m.ylo, m.yhi)); m.vel = v2(0.f, 1.3f); break;
+    }
+    m.col = hexc(V.doodle[rng_.irange(0, 3)]);
+    for (int k = 0; k < 4; k++) { // not the colour of the other ones
+        bool seen = false;
+        for (const Mover& o : movers_) seen |= o.col.x == m.col.x && o.col.y == m.col.y && o.col.z == m.col.z;
+        if (!seen) break;
+        m.col = hexc(V.doodle[(k + 1 + rng_.irange(0, 2)) % 4]);
+    }
+    m.tool = V.doodleTool;
+    m.id = serial_++;
+    movers_.push_back(m);
+}
+
+// They live through the drop: gone (rubbed out) as soon as it ends.
+void NotepadUniverse::manageMovers() {
+    if (stage_ < 3) { movers_.clear(); return; }
+    // a drop reached without its downbeat (a review shot, a seek): bring them in anyway
+    if (movers_.empty()) {
+        const int side = rng_.irange(0, 1);
+        spawnMover(MV_CUBE, side);
+        spawnMover(rng_.irange(1, MV_COUNT - 1), 1 - side);
+    }
+}
+
+void NotepadUniverse::emitMover(const Item& it, std::vector<Mark>& out) {
+    const vec3 ink = inkOf(it.col);
+    const float s = it.s;
+    const float w = (it.tool == T_MARKER ? 0.085f : it.tool == T_CHALK ? 0.08f : 0.055f) * weight_;
+    const float alpha = 0.92f * it.alpha; // (lower for the eraser's ghosts)
+    const vec2 c = v2(it.x, it.y);
+    Rng r(splitmix64((uint64_t)(it.seed * 1000.f) + 23));
+    auto jit = [&](vec2 q) { return v2(q.x + r.range(-1.f, 1.f) * 0.025f * s, q.y + r.range(-1.f, 1.f) * 0.025f * s); };
+    float salt = 0.f;
+    auto line = [&](std::vector<vec2> pts, float width, float a) {
+        for (vec2& q : pts) q = jit(q);
+        salt += 1.37f;
+        emitPolyline(pts, width, ink, a, it.tool, it.seed + salt, wobble_ * 0.6f, 1.f, true, out);
+    };
+    auto hatch = [&](const Poly& poly, float ang, float sp, float a) {
+        int k = 0;
+        for (const auto& l : hatchPolygon(poly, ang, sp)) {
+            const vec2 d = sub(l.second, l.first);
+            const float L = len(d);
+            if (L < 1e-3f) continue;
+            const vec2 u = mul(d, 1.f / L);
+            stroke(out, sub(l.first, mul(u, r.range(-0.03f, 0.07f))), add(l.second, mul(u, r.range(-0.03f, 0.07f))),
+                   w * (it.tool == T_MARKER ? 0.8f : 0.7f), ink, a * 0.6f, it.tool, it.seed + (k++) * 0.77f, wobble_ * 0.3f,
+                   1.f, 0.f, 0.f, true);
+        }
+    };
+    const float p = it.a;
+    switch (it.i0) {
+    case MV_CUBE: {
+        // a wireframe cube turning in 3D, its nearest face hatched, the hidden edges lighter
+        const float yaw = p * 0.75f, pitch = 0.45f + 0.25f * std::sin(p * 0.33f);
+        vec3 v[8];
+        vec2 q[8];
+        for (int i = 0; i < 8; i++) {
+            const vec3 a((i & 1) ? 1.f : -1.f, (i & 2) ? 1.f : -1.f, (i & 4) ? 1.f : -1.f);
+            const vec3 b(a.x * std::cos(yaw) + a.z * std::sin(yaw), a.y, -a.x * std::sin(yaw) + a.z * std::cos(yaw));
+            const vec3 e(b.x, b.y * std::cos(pitch) - b.z * std::sin(pitch), b.y * std::sin(pitch) + b.z * std::cos(pitch));
+            v[i] = e;
+            const float k = 4.f / (4.f + e.z);
+            q[i] = v2(c.x + e.x * k * s * 0.6f, c.y + e.y * k * s * 0.6f);
+        }
+        const int faces[6][4] = {{0, 1, 3, 2}, {4, 5, 7, 6}, {0, 1, 5, 4}, {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 3, 7, 5}};
+        int front = 0;
+        float best = 1e9f;
+        for (int f = 0; f < 6; f++) {
+            float z = 0.f;
+            for (int k = 0; k < 4; k++) z += v[faces[f][k]].z;
+            if (z < best) best = z, front = f;
+        }
+        Poly face;
+        for (int k = 0; k <= 4; k++) face.push_back(q[faces[front][k % 4]]);
+        hatch(face, 0.7f, 0.2f * s, alpha);
+        for (int a = 0; a < 8; a++)
+            for (int b = a + 1; b < 8; b++) {
+                const int d = a ^ b;
+                if (d != 1 && d != 2 && d != 4) continue;
+                const bool back = v[a].z > 0.25f && v[b].z > 0.25f;
+                line({q[a], q[b]}, w * (back ? 0.7f : 1.f), back ? alpha * 0.5f : alpha);
+            }
+        break;
+    }
+    case MV_BALL: {
+        // a ball bouncing on the beat: squashed on the ground, stretched in the air
+        const float h = std::fabs(std::sin(p * PI));
+        const float squash = h < 0.2f ? 0.7f + 1.5f * h : 1.f + 0.15f * h;
+        const float rx = 0.5f * s / std::sqrt(squash), ry = 0.5f * s * squash;
+        const vec2 b = v2(c.x, c.y + ry + h * 2.4f * s);
+        const float a0 = r.range(0.f, 1.f);
+        const Poly ball = circle(b, rx, ry, 18, a0, a0 + TAU + 0.15f);
+        hatch(ball, 0.8f, 0.14f * s, alpha);
+        line(ball, w, alpha);
+        line({v2(c.x - 0.75f * s, c.y), v2(c.x + 0.75f * s, c.y + 0.02f)}, w * 0.7f, alpha * 0.5f); // its ground
+        if (h > 0.35f) // speed lines behind it
+            for (int k = 0; k < 2; k++) {
+                const float yy = b.y + (k ? -0.18f : 0.18f) * s, x0 = b.x - it.r * (rx + 0.15f + 0.12f * k);
+                line({v2(x0, yy), v2(x0 - it.r * 0.4f * s, yy)}, w * 0.7f, alpha * 0.6f);
+            }
+        break;
+    }
+    case MV_RUNNER: {
+        // a stick figure running, a stride per beat
+        const float ph = p * PI, dir = it.r >= 0.f ? 1.f : -1.f, sw = std::sin(ph);
+        const float bob = 0.1f * s * std::fabs(sw);
+        const vec2 hip = v2(c.x, c.y + 0.78f * s + bob), neck = v2(c.x + dir * 0.14f * s, c.y + 1.42f * s + bob);
+        const float a0 = r.range(0.f, 1.f);
+        line(circle(v2(neck.x + dir * 0.06f * s, neck.y + 0.26f * s), 0.21f * s, 0.23f * s, 12, a0, a0 + TAU + 0.1f), w, alpha);
+        line({hip, neck}, w, alpha);
+        auto limb = [&](vec2 root, float a1, float a2, float l1, float l2) {
+            const vec2 k = add(root, v2(dir * std::sin(a1) * l1, -std::cos(a1) * l1));
+            const vec2 e = add(k, v2(dir * std::sin(a2) * l2, -std::cos(a2) * l2));
+            line({root, k, e}, w, alpha);
+        };
+        limb(hip, 0.75f * sw, 0.75f * sw - 0.5f - 0.6f * std::max(0.f, -sw), 0.42f * s, 0.4f * s);
+        limb(hip, -0.75f * sw, -0.75f * sw - 0.5f - 0.6f * std::max(0.f, sw), 0.42f * s, 0.4f * s);
+        const vec2 sh = add(neck, v2(-dir * 0.03f * s, -0.12f * s));
+        limb(sh, -0.9f * sw, -0.9f * sw + 1.3f, 0.3f * s, 0.27f * s);
+        limb(sh, 0.9f * sw, 0.9f * sw + 1.3f, 0.3f * s, 0.27f * s);
+        line({v2(c.x - 0.7f * s, c.y), v2(c.x + 0.7f * s, c.y - 0.02f)}, w * 0.7f, alpha * 0.45f); // the ground
+        break;
+    }
+    case MV_PLANE: {
+        // a paper plane on a loop
+        auto P = [&](float x, float y) { return add(c, mul(rot(v2(x, y), it.r), s)); };
+        const vec2 nose = P(0.8f, 0.f), tail = P(-0.6f, 0.f), wl = P(-0.7f, 0.62f), wr = P(-0.7f, -0.34f), keel = P(-0.4f, -0.2f);
+        hatch({nose, wl, tail, nose}, 0.3f, 0.14f * s, alpha);
+        line({nose, wl, tail, nose}, w, alpha);
+        line({nose, wr, tail}, w, alpha);
+        line({tail, keel, nose}, w * 0.8f, alpha * 0.7f);
+        break;
+    }
+    case MV_ROCKET: {
+        // a rocket going up, a scribbled flame under it (a new scribble on every drawing)
+        auto P = [&](float x, float y) { return v2(c.x + x * s, c.y + y * s); };
+        line({P(0.f, 1.f), P(0.3f, 0.55f), P(0.3f, -0.5f), P(-0.3f, -0.5f), P(-0.3f, 0.55f), P(0.f, 1.f)}, w, alpha);
+        line(circle(P(0.f, 0.22f), 0.13f * s, 0.13f * s, 10), w * 0.8f, alpha);
+        line({P(0.3f, -0.12f), P(0.56f, -0.66f), P(0.3f, -0.5f)}, w, alpha);
+        line({P(-0.3f, -0.12f), P(-0.56f, -0.66f), P(-0.3f, -0.5f)}, w, alpha);
+        std::vector<vec2> flame;
+        for (int k = 0; k <= 7; k++)
+            flame.push_back(P((k % 2 ? 0.22f : -0.22f) * (1.f - k / 9.f), -0.58f - k * 0.11f - r.range(0.f, 0.09f)));
+        emitPolyline(flame, w, inkOf(hexc(VARIANTS[variant_].accent)), alpha, it.tool, it.seed + 7.f, wobble_ * 0.6f, 1.f, true, out);
+        break;
+    }
+    default: break;
+    }
+}
+
+
+// =====================================================================================================
 // The stop-motion clock and the drawings
 // =====================================================================================================
 
@@ -1493,7 +1745,9 @@ void NotepadUniverse::tick(const Frame& f, float since) {
     dirty_ = false;
     boilSeedNow = drawing_ % 3;
     style(f.music);
+    beatNow_ = f.music.hasSong ? f.music.beat : clock_ * 2.0;
     manageDoodles();
+    manageMovers();
     if (levelUpPending_) {
         levelUpPending_ = false;
         spawnDoodle(stage_ >= 2);
