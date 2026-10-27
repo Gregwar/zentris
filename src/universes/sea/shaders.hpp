@@ -588,11 +588,11 @@ vec4 shade(vec2 sP, vec2 wP) {
     vec3 p1 = o + D * t;
     vec3 n1 = nOut(p1);
     if (v2.x > 0.5) {
-        // the ghost: the cube's edges only, faint
+        // the ghost: an empty cube of clear glass, its edges only, faint and pale like the cubes' clear walls
         vec3 a = sort3(abs(p1));
         float edge = smoothstep(px * 2.5 + RO * 0.5, RO * 0.3, H - a.y);
-        vec3 ec = lightP ? tint * 0.45 : mix(tint, vec3(1.0), 0.6);
-        return vec4(mix(ec, uBridgeInk, uBridge), (edge * 0.6 + 0.05) * cover * v1.a);
+        vec3 ec = mix(tint, vec3(1.0), 0.75);
+        return vec4(mix(ec, uBridgeInk, uBridge), (edge * 0.55 + 0.04) * cover * v1.a);
     }
     // ---- in through the glass
     float cosI = clamp(dot(-D, n1), 0.0, 1.0);
