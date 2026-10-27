@@ -159,7 +159,7 @@ constexpr int PAL_FLOATS = (int)(sizeof(Palette) / sizeof(float));
 // The cubes' water: the sea's own color (its near layer's hue, a little more saturated, light), each piece type a
 // small shift around it (hue, brightness, saturation) so the pieces stay apart in the stack and what pours out of
 // them is the sea's water.
-vec3 seaWater(unsigned seaHex, int type) {
+vec3 seaWater(unsigned seaHex, int type, float night) {
     const vec3 c = hex(seaHex);
     const float mx = std::max({c.x, c.y, c.z}), mn = std::min({c.x, c.y, c.z}), dl = mx - mn;
     float h = 0.f;
@@ -173,9 +173,10 @@ vec3 seaWater(unsigned seaHex, int type) {
     //                              hue shift (degrees), brightness, saturation
     static const float SH[7][3] = {{0.f, 1.f, 1.f},     {-18.f, 0.84f, 1.12f}, {18.f, 1.1f, 0.88f}, {-9.f, 1.16f, 0.72f},
                                    {9.f, 0.78f, 1.2f},  {-20.f, 1.14f, 0.85f}, {20.f, 0.86f, 1.16f}};
-    const float hh = std::fmod(h + SH[type][0] + 360.f, 360.f) / 60.f;
-    const float S = std::clamp(std::clamp(sat, 0.45f, 0.75f) * SH[type][2], 0.f, 1.f);
-    const float V = std::clamp(0.82f * SH[type][1], 0.f, 1.f);
+    // at night the water is luminous: moonlit, a little toward cyan, brighter and more saturated than the dark sea
+    const float hh = std::fmod(h - 22.f * night + SH[type][0] + 360.f, 360.f) / 60.f;
+    const float S = std::clamp(std::clamp(sat, 0.45f + 0.15f * night, 0.75f) * SH[type][2], 0.f, 1.f);
+    const float V = std::clamp((0.82f + 0.14f * night) * SH[type][1], 0.f, 1.f);
     const float C = V * S, X = C * (1.f - std::fabs(std::fmod(hh, 2.f) - 1.f)), m = V - C;
     vec3 r;
     if (hh < 1.f) r = vec3(C, X, 0.f);
@@ -198,7 +199,7 @@ Palette paletteOf(int v) {
     p.cont0 = L(d.cont0); p.cont1 = L(d.cont1); p.cont2 = L(d.cont2);
     p.ink = L(d.ink); p.accent = L(d.accent); p.dusk = L(d.dusk);
     for (int i = 0; i < 7; i++) p.piece[i] = L(d.piece[i]);
-    for (int i = 0; i < 7; i++) p.glass[i] = seaWater(d.sea2, i);
+    for (int i = 0; i < 7; i++) p.glass[i] = seaWater(d.sea2, i, d.night);
     p.sunX = d.sunX; p.sunY = d.sunY; p.sunR = d.sunR; p.moon = d.moon; p.stars = d.stars; p.panelA = d.panelA;
     p.clouds = d.clouds; p.lightPanel = d.lightPanel; p.night = d.night;
     return p;

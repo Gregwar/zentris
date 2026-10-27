@@ -647,14 +647,16 @@ void main() {
     off *= min(1.0, 1.1 / max(length(off), 1e-4));
     vec3 behind = bgAt(toWorld(off) * size);
     // caught inside at an edge: it mirrors the cube's own lit water and the sky (bright edges, not dark)
-    if (tir) behind = behind * 0.3 + env(d4) * 0.3 + tint * (lightP ? 0.12 : 0.3);
+    if (tir) behind = behind * 0.3 + env(d4) * 0.3 + tint * (lightP ? 0.12 : 0.55);
     // ---- the colors along the way: green-blue glass where it is thick, the water's own color the deeper through it
     vec3 tN = clamp(tint / 0.75, vec3(0.02), vec3(1.0));   // a darker water absorbs more
     vec3 Tg = exp(-glassLen * vec3(0.75, 0.16, 0.3));
     vec3 Tw = pow(tN, vec3(waterLen * 0.85));
     vec3 col = behind * Tg * Tw;
     // the water glows a little (light scattered in it; more on a dark scene, where it carries the color)
-    col += tint * waterLen * (lightP ? 0.02 : 0.1 + 0.04 * uNight);
+    // the water glows a little (light scattered in it); on a dark scene it is luminous, well above the night behind it
+    if (lightP) col += tint * waterLen * 0.02;
+    else col = col * 0.7 + tint * (0.22 + 0.3 * waterLen) * (0.8 + 0.4 * uNight);
     // light focused through the water onto the cube's bottom: a soft moving caustic
     if (nBottom.y < -0.7 && waterLen > 0.0) {
         vec2 cq = pW.xz * 3.2;
@@ -664,7 +666,7 @@ void main() {
     // ---- the surface: the sky reflected (Fresnel), the sun's sharp highlight
     vec3 rc = env(refl);
     // on a dark scene the glass still catches some light at its edges (the harbor's lights, the moon's sky)
-    if (!lightP) rc += mix(uSkyLow, vec3(1.0), 0.5) * 0.35;
+    if (!lightP) rc += mix(uSkyLow, vec3(1.0), 0.6) * 0.6;
     col = mix(col, rc, F);
     float spec = pow(max(dot(refl, sunDir), 0.0), 220.0);
     col += uSunCol * spec * (lightP ? 1.6 : 1.1);
@@ -681,7 +683,7 @@ void main() {
         float depth = layerTop(2, vW.x) - vW.y;
         if (depth > 0.0) {
             col = mix(col, uSea2 * 0.7, 0.3 * smoothstep(0.0, 0.4, depth));
-            col = mix(col, uDeep * 0.2, darkAt(depth) * 0.7);
+            col = mix(col, uDeep * 0.5, darkAt(depth) * 0.45);   // capped: deep cubes never go near-black
         }
         col = mix(col, uDusk * 0.6, uSlow * 0.3);
         cut = smoothstep(-uPx, uPx, vW.y - sandTop(vW.x) + 0.05);
