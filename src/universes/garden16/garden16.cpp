@@ -1,6 +1,7 @@
-// GARDEN 16: GARDEN as a 16-bit indie game.
+// GARDEN: tiles of earth growing pixel grass and flowers, a 16-bit indie game. (It replaced the first GARDEN, smooth
+// and painterly, whose code stays in src/universes/garden/, left out of the default build.)
 //
-// The same world as GARDEN (clods of earth that grow grass and flowers over a line of earth, banks rising toward the
+// The same world as the first GARDEN (clods of earth that grow grass and flowers over a line of earth, banks rising toward the
 // edges and beside the well with its outer columns, worms in the dirt, a plain sky with one sun or moon), drawn as
 // pixel art at a true low resolution: the whole universe is drawn on the CPU into an indexed canvas where one board
 // cell is a 12 x 12 tile (about 530 x 300 pixels on a 16:9 screen), then palette-mapped and scaled up with nearest
@@ -2030,7 +2031,7 @@ void Garden16Universe::render(const Frame& f, GLuint fbo) {
 
 const UniverseEntry& universe_garden16() {
     static const UniverseEntry e{
-        "GARDEN 16", "GARDEN as a 16-bit indie game: tiles of soil growing pixel grass and flowers",
+        "GARDEN", "tiles of earth growing pixel grass and flowers",
         [] { return std::unique_ptr<Universe>(new Garden16Universe()); },
         [](const SongLook& l) {
             return 0.7f + 0.25f * l.airWeight + 0.2f * l.dynamics + 0.15f * (1.f - smoothstepf(130.f, 170.f, l.bpm));

@@ -71,7 +71,7 @@ endif()
 # in src/universes/, picked up automatically; the list of universes is src/universes/registry.def).
 # Universes listed in ZENTRIS_DISABLED_UNIVERSES are not built at all: their sources and assets are skipped and their
 # line is dropped from the registry the game is compiled with (generated/universes/registry_enabled.def).
-set(ZENTRIS_DISABLED_UNIVERSES "pixel;cloudscape;synthwave" CACHE STRING
+set(ZENTRIS_DISABLED_UNIVERSES "pixel;cloudscape;synthwave;garden" CACHE STRING
     "Universes (folder names in src/universes/) left out of the build, separated by ;")
 file(GLOB ZEN_UNIVERSE_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/universes/*/*.cpp)
 foreach(id ${ZENTRIS_DISABLED_UNIVERSES})

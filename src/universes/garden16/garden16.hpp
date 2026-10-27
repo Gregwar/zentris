@@ -1,5 +1,5 @@
 #pragma once
-// GARDEN 16: GARDEN as a 16-bit indie game (see garden16.cpp).
+// GARDEN: tiles of earth growing pixel grass and flowers, a 16-bit indie game (see garden16.cpp).
 #include <string>
 #include <vector>
 

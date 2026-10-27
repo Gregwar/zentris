@@ -1,5 +1,5 @@
 #pragma once
-// GARDEN 16's drawing surface: an indexed-color canvas at the universe's native low resolution (one board cell is
+// GARDEN's drawing surface: an indexed-color canvas at the universe's native low resolution (one board cell is
 // CELL x CELL pixels, about 530 x 300 pixels on a 16:9 screen). Everything is drawn here on the CPU in palette
 // indices; the screen only gets it at the end, palette-mapped (the palette itself animates, like a 16-bit console's
 // CGRAM) and scaled up with nearest filtering. Each pixel also carries its class (sky, dirt, tile, HUD...), so the

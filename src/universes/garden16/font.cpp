@@ -1,4 +1,4 @@
-// GARDEN 16 borrows PIXEL's two hand-drawn bitmap fonts: a 3x5 capitals font for labels and small print, and a 5x7 font (with
+// GARDEN borrows PIXEL's two hand-drawn bitmap fonts: a 3x5 capitals font for labels and small print, and a 5x7 font (with
 // lower case and descenders) for titles, numbers and big words. Glyphs are proportional: each row string's
 // length is the glyph's width.
 #include <cctype>

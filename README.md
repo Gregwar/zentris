@@ -38,7 +38,7 @@ song, and songs change universe with a transition on the beat.
 </tr>
 <tr>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/becac93004878065dbdb2eec1a5f3ea6a91e9ded/docs/universes/laser.jpg"><br><b>LASER SHOW</b>: every piece projected by its own laser</td>
-<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/becac93004878065dbdb2eec1a5f3ea6a91e9ded/docs/universes/garden.jpg"><br><b>GARDEN</b>: clods of earth that grow grass and flowers</td>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/becac93004878065dbdb2eec1a5f3ea6a91e9ded/docs/universes/garden.jpg"><br><b>GARDEN</b>: tiles of earth growing pixel grass and flowers</td>
 </tr>
 <tr>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/f5b149393574b12b9a47ec4ab30cb19c21c6283f/docs/universes/sea.jpg"><br><b>SEA</b>: glass cubes of water over a rising 3D sea</td>
@@ -57,6 +57,7 @@ Disabled for now (not built; their code stays in the repository):
 | PIXEL | Too close to a classical Tetris look |
 | SYNTHWAVE | To be redesigned (minimal neon) |
 | CLOUDSCAPE | To be reworked (nights only) |
+| GARDEN (smooth) | Replaced by its 16-bit version, now GARDEN (`src/universes/garden16/`) |
 
 More in [docs/universes.md](https://github.com/Gregwar/zentris/blob/main/docs/universes.md): every universe and its variants, the transitions, and the
 roadmap of 100 universes. To make a new one, see [docs/adding-a-universe.md](https://github.com/Gregwar/zentris/blob/main/docs/adding-a-universe.md).
@@ -116,5 +117,5 @@ cmake -S . -B build && cmake --build build -j
 ./build/zentris ~/Music
 ```
 
-`-DZENTRIS_DISABLED_UNIVERSES="pixel;cloudscape;synthwave"` (the default) lists the universes left out of the build;
+`-DZENTRIS_DISABLED_UNIVERSES="pixel;cloudscape;synthwave;garden"` (the default) lists the universes left out of the build;
 `-DZENTRIS_DISABLED_UNIVERSES=""` builds them all.
