@@ -530,20 +530,19 @@ void AbyssUniverse::onEvent(const GameEvent& ev, const Game&) {
         for (auto& c : ev.cells) {
             const vec3 p = layout::cellPos((float)c.x, (float)c.y);
             const int type = std::clamp(c.type, 0, 6);
-            // the jelly is caught in a bubble of water that rises to the top of the sea
+            // the jelly dissolves into a stream of small air bubbles rimmed with its color, rising off the top
             const float delay = std::fabs(c.x - 4.5f) * 0.025f;
-            Bubble b;
-            b.x = p.x; b.y = p.y; b.vx = rng_.range(-0.25f, 0.25f); b.vy = 0.f; b.t = 0.f; b.delay = delay;
-            b.r = rng_.range(0.56f, 0.62f); b.seed = rng_.range(0.f, 10.f); b.type = type;
-            b.buoy = rng_.range(2.f, 4.6f); b.delay += rng_.range(0.f, 0.25f);
-            bubbles_.push_back(b);
-            // a few tiny bubbles break away with it
-            const int n = tetris ? 3 : 2;
+            Dying d;
+            d.x = p.x; d.y = p.y; d.t = 0.f; d.delay = delay; d.out = 0.f;
+            d.vx = d.vy = 0.f; d.type = type; d.mask = 0; d.sink = false;
+            dying_.push_back(d);
+            const int n = tetris ? 10 : 8;
             for (int i = 0; i < n; i++) {
                 Bubble m;
-                m.x = p.x + rng_.range(-0.4f, 0.4f); m.y = p.y + rng_.range(-0.4f, 0.2f);
-                m.vx = rng_.range(-0.3f, 0.3f); m.vy = 0.f; m.t = 0.f; m.delay = delay + rng_.range(0.1f, 0.4f);
-                m.r = rng_.range(0.07f, 0.16f); m.seed = rng_.range(0.f, 10.f); m.type = -1; m.buoy = rng_.range(3.5f, 6.f);
+                m.x = p.x + rng_.range(-0.42f, 0.42f); m.y = p.y + rng_.range(-0.42f, 0.42f);
+                m.vx = rng_.range(-0.2f, 0.2f); m.vy = 0.f; m.t = 0.f; m.delay = delay + rng_.range(0.f, 0.3f);
+                m.r = 0.05f + 0.17f * std::pow(rng_.uniform(), 2.f); m.seed = rng_.range(0.f, 10.f); m.type = type;
+                m.buoy = (1.6f + 9.f * m.r) * rng_.range(0.85f, 1.15f); // its rising speed: the bigger, the faster
                 bubbles_.push_back(m);
             }
         }
@@ -761,36 +760,19 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
         return d.sink ? d.t > 7.f : d.t > d.delay + 0.5f;
     }), dying_.end());
 
-    // Bubbles: they form around the jelly, then rise faster and faster, wobbling, and pop at the top of the screen.
+    // Bubbles: they rise at their own speed, zigzagging a little, and leave through the top of the screen.
     {
         const float top = viewC_.y + viewH_.y;
         for (Bubble& b : bubbles_) {
             b.t += dt;
-            const float t = b.t - b.delay;
-            if (t < 0.35f) continue;
-            b.vy += b.buoy * dt;
-            b.vy *= std::exp(-0.45f * dt);
-            b.vx += 0.9f * std::sin(b.t * (b.type >= 0 ? 2.1f : 3.7f) + b.seed) * dt;
-            b.vx *= std::exp(-1.2f * dt);
+            if (b.t < b.delay) continue;
+            b.vy += (b.buoy - b.vy) * (1.f - std::exp(-2.5f * dt));
+            b.vx += 1.2f * std::sin(b.t * (3.f + 4.f * (0.25f - b.r)) + b.seed) * dt;
+            b.vx *= std::exp(-1.5f * dt);
             b.x += b.vx * dt;
             b.y += b.vy * dt;
-            if (b.y + b.r * 0.5f > top) {
-                // the bubble pops: a little ring of droplets, the jelly's light let go
-                const int n = b.type >= 0 ? 10 : 3;
-                const vec3 col = b.type >= 0 ? lerp(pal_.piece[b.type], vec3(1.f), 0.3f) : pal_.snow;
-                for (int i = 0; i < n; i++) {
-                    Spark s;
-                    const float a = TAU * (i + rng_.uniform() * 0.5f) / n;
-                    s.x = b.x + std::cos(a) * b.r; s.y = b.y + std::sin(a) * b.r;
-                    s.vx = std::cos(a) * rng_.range(0.8f, 1.8f); s.vy = std::sin(a) * rng_.range(0.8f, 1.8f);
-                    s.t = 0.f; s.life = rng_.range(0.3f, 0.6f); s.delay = 0.f; s.size = rng_.range(0.03f, 0.06f) * (b.type >= 0 ? 1.f : 0.6f);
-                    s.col = col; s.twinkle = rng_.range(0.f, 10.f); s.kind = 1;
-                    sparks_.push_back(s);
-                }
-                b.t = -1e9f; // gone
-            }
         }
-        bubbles_.erase(std::remove_if(bubbles_.begin(), bubbles_.end(), [](const Bubble& b) { return b.t < -1e8f; }),
+        bubbles_.erase(std::remove_if(bubbles_.begin(), bubbles_.end(), [&](const Bubble& b) { return b.y - b.r > top; }),
                        bubbles_.end());
     }
 
@@ -991,22 +973,16 @@ void AbyssUniverse::buildBoard(const Game& g) {
             tile(d.x, d.y, 0.5f, 0.5f, pal_.piece[d.type], a, 0, -1.f, d.type, d.mask, 1.f, 0.08f + 0.92f * on * flick);
             continue;
         }
-        const float t = d.t - d.delay;
-        const float k = saturate(t / 0.5f);
-        tile(d.x, d.y, 0.5f, 0.5f, pal_.piece[d.type], 1.f, 2, -1.f, d.type, 0, k);
+        const float k = smoothstepf(0.f, 0.3f, d.t - d.delay);
+        tile(d.x, d.y, 0.5f, 0.5f, pal_.piece[d.type], 1.f - k, 0, -1.f, d.type, 0, 1.f - 0.35f * k, 1.f);
     }
-    // Cleared jellies rising in their bubbles.
+    // Air bubbles rising from the cleared rows.
     for (const Bubble& b : bubbles_) {
         const float t = b.t - b.delay;
         if (t < 0.f) continue;
-        const float form = smoothstepf(0.f, 0.35f, t);
-        if (b.type >= 0) {
-            const float bob = 0.04f * std::sin(b.t * 5.f + b.seed);
-            tile(b.x, b.y + bob, 0.5f, 0.5f, pal_.piece[b.type], 1.f, 0, -1.f, b.type, 0, lerpf(1.f, 0.62f, form), 1.1f);
-        }
-        const float r = b.r * (b.type >= 0 ? lerpf(0.75f, 1.f, form) : form);
-        const vec3 tint = b.type >= 0 ? lerp(pal_.piece[b.type], pal_.snow, 0.5f) : pal_.snow;
-        tile(b.x, b.y, r + 0.08f, r + 0.08f, tint, form, 5, b.t, b.type, 0, r, b.seed);
+        const float form = smoothstepf(0.f, 0.2f, t);
+        const float r = b.r * lerpf(0.4f, 1.f, form);
+        tile(b.x, b.y, r + 0.06f, r + 0.06f, pal_.piece[std::clamp(b.type, 0, 6)], 0.55f * form, 5, b.t, b.type, 0, r, b.seed);
     }
     // The falling piece and its ghost.
     if (g.hasPiece()) {

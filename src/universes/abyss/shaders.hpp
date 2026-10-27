@@ -624,15 +624,16 @@ void main() {
         float aa = px / R * 1.2;
         float disc = 1.0 - smoothstep(1.0 - aa, 1.0, r);
         if (disc <= 0.0) discard;
-        float skin = exp(-pow((1.0 - r) / (0.05 + aa), 2.0));
+        float skin = exp(-pow((1.0 - r) / (0.09 + aa), 2.0));
         float fres = pow(clamp(r, 0.0, 1.0), 4.0);
         vec2 q = p / R;
         float spec = exp(-dot(q - vec2(-0.38, 0.42), q - vec2(-0.38, 0.42)) / 0.012);
         float arc = exp(-pow((r - 0.8) / 0.05, 2.0)) * smoothstep(0.2, 0.8, dot(normalize(q + 1e-4), vec2(-0.55, 0.83)));
         float glint = exp(-pow((r - 0.82) / 0.06, 2.0)) * smoothstep(0.5, 0.95, dot(normalize(q + 1e-4), vec2(0.5, -0.86)));
-        vec3 col = pc * (0.05 + 0.35 * fres) + mix(pc, vec3(1.0), 0.6) * skin * 0.9
-                 + vec3(0.9, 1.0, 1.0) * (spec * 0.9 + arc * 0.45 + glint * 0.25);
-        float a = clamp(0.04 + 0.3 * fres + 0.7 * skin + spec * 0.8 + arc * 0.4, 0.0, 1.0) * disc;
+        // an air bubble: empty, only its rim in the jelly's color and a small glint of light
+        vec3 rimC = mix(pc, vec3(1.0), 0.3);
+        vec3 col = rimC * (skin * 0.8 + fres * 0.25) + vec3(0.9, 1.0, 1.0) * (spec * 0.7 + arc * 0.2);
+        float a = clamp(0.25 * fres + 0.6 * skin + spec * 0.6 + arc * 0.2, 0.0, 1.0) * disc;
         col *= disc * alpha * (1.0 - uBridge);
         frag = vec4(col, a * alpha * (1.0 - uBridge));
         return;
