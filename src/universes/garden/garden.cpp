@@ -544,7 +544,7 @@ void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
             // it stays one with the earth around it while it is crushed
             d.mask = s.id >= 0 ? maskOf(c.x, c.y) : 0;
             d.nc = s.id >= 0 ? s.nc : v2((float)c.x, -(float)c.y);
-            d.tex = v2(p.x, layout::cellPos((float)c.x, (float)(c.y - s.sunk)).y);
+            d.tex = d.nc; // its own grain, as it fell and lay
             d.t = 0.f;
             d.delay = 0.f;
             d.seed = s.seed;
@@ -1442,9 +1442,8 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
             if (root) {
                 m |= (1 << 2) | (1 << 4) | (1 << 5); // (the gradient gives it the ground's color)
             }
-            // landed earth is textured in the world's frame where it landed, like the ground line (one continuous
-            // earth), and its texture sinks with it when rows below it are cleared
-            const vec2 tex = v2(p.x, layout::cellPos((float)x, (float)(y - s.sunk)).y);
+            // landed earth keeps the grain (and pebbles) it fell with: the piece's own frame, moving with it
+            const vec2 tex = s.nc;
             surf_ = vec3(1e5f, 0.f, 0.f); // the stack's envelope (CELL_FS)
             cell(p.x, p.y, 1.f, m, pal_.piece[s.type], 1.f, tex, 0.f, false, 0.f, moss, blend,
                  root ? ROOT : 0.f);
@@ -1464,7 +1463,7 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
             continue;
         }
         const float k = smoothstepf(0.f, 0.36f, d.t - d.delay);
-        cell(d.x, d.y - 0.12f * k * k, 1.f, d.mask, pal_.piece[d.type], 1.f, v2(d.x, d.y), std::max(0.001f, k), false, 0.f, 0.f);
+        cell(d.x, d.y - 0.12f * k * k, 1.f, d.mask, pal_.piece[d.type], 1.f, d.nc, std::max(0.001f, k), false, 0.f, 0.f);
     }
     surf_ = vec3(-1e4f, -1e4f, -1e4f);
 }
