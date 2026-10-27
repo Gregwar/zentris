@@ -34,8 +34,8 @@ in vec2 vUv;
 out vec4 frag;
 uniform vec4 uView;          // center x, y, half width, half height (board units)
 uniform sampler2D uLight, uStain;
-uniform vec3 uFelt, uFiber, uNight, uBridgeCol, uGlowCol;
-uniform float uKind, uGrain, uDye, uSlow, uBridge, uGlow, uTime, uSeed, uLightK, uSheen, uAmb;
+uniform vec3 uFelt, uFiber, uNight, uBridgeCol;
+uniform float uKind, uGrain, uDye, uSlow, uBridge, uTime, uSeed, uLightK, uSheen, uAmb;
 uniform vec4 uColL, uColR;
 float grainAt(vec2 p, out float sheen) {
     float g;
@@ -78,9 +78,6 @@ void main() {
     L *= 1.0 - 0.6 * max(box(p, uColL), box(p, uColR));
     L = L / (1.0 + max(max(L.r, L.g), L.b) * 0.5);
     vec3 col = alb * (uAmb + L * uLightK) + L * uSheen * sheen;
-    // a peak's glow, close around the well
-    vec2 dw = max(abs(p) - vec2(5.2, 10.1), 0.0);
-    col += uGlowCol * uGlow * exp(-length(dw) / 2.5) * 0.25;
     // the night of slow motion
     col = mix(col, uNight * (0.8 + 0.4 * g) + st.rgb * uDye * 0.3, uSlow * 0.75);
     col = mix(col, uBridgeCol, uBridge);
