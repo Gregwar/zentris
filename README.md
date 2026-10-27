@@ -49,7 +49,7 @@ song, and songs change universe with a transition on the beat.
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/412230bfad663a226675f239505670847baf2334/docs/universes/prism.jpg"><br><b>PRISM</b>: glass cubes in the dark, slow beams of light, a rainbow on the drop</td>
 </tr>
 <tr>
-<td><img src="docs/universes/lightsource.jpg"><br><b>LIGHTSOURCE</b>: a dim room lit by the falling piece, the stack casting its shadows</td>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/bcae1a6c7d368487a776091040d12337957c7555/docs/universes/lightsource.jpg"><br><b>LIGHTSOURCE</b>: a dim room lit by the falling piece, the stack casting its shadows</td>
 <td></td>
 </tr>
 </table>
