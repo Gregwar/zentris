@@ -86,13 +86,26 @@ vec4 groundSide(float seed, bool right) {
     return vec4{lip, bank, s, s + (tall ? 9.f : 7.f) + 8.f * h4};
 }
 
+// How far the ground beside the well is raised on each side (left, right): it follows the earth in the well's outer
+// columns (garden.cpp's simulate), up to the top of that column's solid run of clods from the bottom.
+float g_raise[2] = {0.f, 0.f};
+// the raised ground at |x| = a for a raise r: from the top of the well's outer column, falling away smoothly (an
+// exponential, longer for a taller column) to the bank; merged with the bank by a smooth maximum (no dip, no bump)
+float shelfY(float a, float r) { return -10.05f + r * smoothstepf(4.55f, 4.7f, a) * std::exp(-std::max(0.f, a - 5.f) / (2.5f + 0.35f * r)); }
+float smax(float a, float b, float k) {
+    const float h = std::max(k - std::fabs(a - b), 0.f) / k;
+    return std::max(a, b) + h * h * k * 0.25f;
+}
+
 // The ground line's top edge (board y) at board x; the same function as SKY_FS's groundY.
 float groundY(float x, float seed) {
     const float a = std::fabs(x);
     const vec4 g = groundSide(seed, x > 0.f);
     const float side = smoothstepf(6.f, 12.f, a);
-    return -10.05f + g.x * smoothstepf(5.5f, 7.6f, a) + 0.25f * smoothstepf(7.6f, 11.f, a) + g.y * std::pow(smoothstepf(g.z, g.w, a), 1.3f) +
+    const float base = -10.05f + g.x * smoothstepf(5.5f, 7.6f, a) + 0.25f * smoothstepf(7.6f, 11.f, a) + g.y * std::pow(smoothstepf(g.z, g.w, a), 1.3f) +
            (0.22f * std::sin(x * 0.37f + seed) + 0.12f * std::sin(x * 0.91f + seed * 1.7f) + 0.3f * std::sin(x * 0.17f + seed * 2.1f)) * side;
+    const float r = g_raise[x > 0.f ? 1 : 0];
+    return r > 0.01f ? smax(base, shelfY(a, r), 0.8f * std::min(1.f, r)) : base;
 }
 
 // The variants (sRGB): the sky (top, at the horizon), the sun or moon, the drop's glow, the ground (top, deep, its
@@ -701,6 +714,16 @@ void GardenUniverse::simulate(const Game& game, const MusicState& music, float d
     }
     float wm = smoothstepf(0.2f, 1.f, lv_), wp = smoothstepf(1.1f, 2.f, lv_);
     const bool over = overT_ >= 0.f;
+
+    // The ground beside the well follows the earth in the well's outer columns: each side rises to the top of the
+    // solid run of clods from the bottom of its column (and sinks back as rows clear), smoothly.
+    for (int side = 0; side < 2; side++) {
+        const int col = side == 0 ? 0 : Game::W - 1;
+        int n = 0;
+        while (n < Game::H && game.cell(col, Game::H - 1 - n).type >= 0) n++;
+        const float target = over ? 0.f : (float)n;
+        g_raise[side] += (target - g_raise[side]) * (1.f - std::exp(-wdt * 3.f));
+    }
 
     // Is this peak a drop? The HUD's section says it when there is one; else the song's drive (a drop's sections
     // drive harder than a chorus').
@@ -1568,6 +1591,39 @@ void GardenUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<
         return ugl::luma(lerp(sky, pal_.dusk, 0.85f * slow_));
     };
     const vec3 earthInk = lerp(pal_.dry, vec3(1.f), 0.45f) * (1.f - 0.3f * slow_);
+    // how much of a pixel box (x0, y0, x1, y1) has earth behind it (0..1)
+    auto earthBehind = [&](float x0, float x1, float y0, float y1) {
+        int n = 0, in = 0;
+        for (int i = 0; i <= 8; i++)
+            for (int j = 0; j <= 2; j++) {
+                const float px = lerpf(x0, x1, i / 8.f), py = lerpf(y0, y1, j / 2.f);
+                const float bx = viewC_.x + (px / width_ * 2.f - 1.f) * viewH_.x;
+                const float by = viewC_.y - (py / height_ * 2.f - 1.f) * viewH_.y;
+                n++;
+                if (by < groundY(bx, seedF_) + 0.15f) in++;
+            }
+        return (float)in / (float)n;
+    };
+    // a soft label: a rounded box of color c at alpha a, fading out over f pixels around it (vertex alpha)
+    auto softLabel = [&](float x0, float y0, float x1, float y1, float f, const vec3& c, float a) {
+        if (a <= 0.003f) return;
+        std::vector<Vert> v;
+        const float X[4] = {x0 - f, x0, x1, x1 + f}, Y[4] = {y0 - f, y0, y1, y1 + f};
+        auto al = [&](int i, int j) { return (i == 0 || i == 3 || j == 0 || j == 3) ? 0.f : a; };
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++) {
+                const Vert p00{X[i], Y[j], c.x, c.y, c.z, al(i, j)}, p10{X[i + 1], Y[j], c.x, c.y, c.z, al(i + 1, j)},
+                    p11{X[i + 1], Y[j + 1], c.x, c.y, c.z, al(i + 1, j + 1)}, p01{X[i], Y[j + 1], c.x, c.y, c.z, al(i, j + 1)};
+                const Vert t[6] = {p00, p10, p11, p00, p11, p01};
+                v.insert(v.end(), t, t + 6);
+            }
+        glUseProgram(progShape_);
+        set2f(progShape_, "uRes", (float)width_, (float)height_);
+        glBindVertexArray(shapeVao_);
+        glBindBuffer(GL_ARRAY_BUFFER, shapeVbo_);
+        glBufferData(GL_ARRAY_BUFFER, v.size() * sizeof(Vert), v.data(), GL_STREAM_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)v.size());
+    };
     std::vector<float> q;
     for (const HudText& h : hud) {
         if (h.alpha <= 0.01f || h.text.empty()) continue;
@@ -1583,10 +1639,21 @@ void GardenUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<
         vec3 accent = lerp(pal_.accent, ink, 0.2f);
         const float alpha = saturate(h.alpha);
         q.clear();
+        // the columns' lines (labels, values, notices) stay readable when the ground rises behind them: a soft pale
+        // label behind the line, as soon as some earth is behind it, the line then set in the dark ink
+        const bool backed = h.role == HUD_LABEL || h.role == HUD_VALUE || h.role == HUD_NOTICE || h.role == HUD_KEY;
         auto place = [&](const Font& f, const std::string& text, float size, float track, float dy = 0.f) {
             const float w = textWidth(f, text, size, track);
             const float x = ugl::hudLeft(h, w, width_);
             ink = inkAt(x + w * 0.5f, h.y + dy + size * 0.8f);
+            if (backed) {
+                const float cov = earthBehind(x - size * 0.4f, x + w + size * 0.4f, h.y + dy + size * 0.1f, h.y + dy + size * 1.1f);
+                if (cov > 0.f) {
+                    softLabel(x - size * 0.45f, h.y + dy - size * 0.05f, x + w + size * 0.45f, h.y + dy + size * 1.15f, size * 0.55f,
+                              lerp(pal_.skyLow, vec3(1.f), 0.65f) * (1.f - 0.3f * slow_), 0.86f * smoothstepf(0.f, 0.12f, cov) * alpha);
+                    ink = darkInk;
+                }
+            }
             accent = lerp(pal_.accent, ink, 0.2f);
             textQuads(f, text, x, h.y + dy, size, track, q);
         };
@@ -1741,6 +1808,7 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
             const vec4 gl = groundSide(seedF_, false), gr = groundSide(seedF_, true);
             set4f(progSky_, "uGroundL", gl.x, gl.y, gl.z, gl.w);
             set4f(progSky_, "uGroundR", gr.x, gr.y, gr.z, gr.w);
+            set2f(progSky_, "uRaise", g_raise[0], g_raise[1]);
         }
         set1f(progSky_, "uPx", px_);
         set1f(progSky_, "uStars", pal_.stars);

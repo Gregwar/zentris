@@ -85,12 +85,19 @@ uniform vec3 uSkyTop, uSkyLow, uSunCol, uGlow, uGround, uGroundDeep, uLip, uBrid
 uniform vec4 uSun;           // x, y, radius, moon (0 / 1)
 uniform float uGlowAmt, uSlow, uBridge, uSeed, uPx, uStars, uVeil, uDry, uHaze, uLush;
 uniform vec4 uGroundL, uGroundR; // each bank: lip, height, start, end (not mirrored)
+uniform vec2 uRaise;             // the ground raised beside the well (left, right), following the outer columns
 float groundY(float x) {
     float a = abs(x);
     vec4 g = x > 0.0 ? uGroundR : uGroundL;
     float side = smoothstep(6.0, 12.0, a);
-    return -10.05 + g.x * smoothstep(5.5, 7.6, a) + 0.25 * smoothstep(7.6, 11.0, a) + g.y * pow(smoothstep(g.z, g.w, a), 1.3)
+    float r = x > 0.0 ? uRaise.y : uRaise.x;
+    float base = -10.05 + g.x * smoothstep(5.5, 7.6, a) + 0.25 * smoothstep(7.6, 11.0, a) + g.y * pow(smoothstep(g.z, g.w, a), 1.3)
            + (0.22 * sin(x * 0.37 + uSeed) + 0.12 * sin(x * 0.91 + uSeed * 1.7) + 0.3 * sin(x * 0.17 + uSeed * 2.1)) * side;
+    if (r <= 0.01) return base;
+    float shelf = -10.05 + r * smoothstep(4.55, 4.7, a) * exp(-max(0.0, a - 5.0) / (2.5 + 0.35 * r));
+    float k = 0.8 * min(1.0, r);
+    float h = max(k - abs(base - shelf), 0.0) / k;
+    return max(base, shelf) + h * h * k * 0.25;
 }
 void main() {
     vec2 w = uView.xy + (vUv * 2.0 - 1.0) * uView.zw;
