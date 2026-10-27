@@ -1080,7 +1080,7 @@ void Garden16Universe::buildPalette() {
     p[DUST] = mix(p[G_HI], C3{1, 1, 1}, 0.3f);
     p[ROOT] = mix(H(V.dry), C3{1.f, 0.95f, 0.85f}, 0.25f);
     p[EARTH_INK] = C3{0.96f, 0.91f, 0.78f}; // straw letters set in the earth, in every light
-    for (int t = 0; t < 7; t++) ramp5(H(V.soil[t]), shade, &p[PIECE0 + t * 5]);
+    for (int t = 0; t < 7; t++) ramp5(mix(H(V.ground), H(V.soil[t]), 0.4f), shade, &p[PIECE0 + t * 5]);
     // slow motion: dusk falls over the garden (the stack keeps more of its color, the HUD all of it)
     if (slow_ > 0.001f) {
         const C3 dusk = H(V.dusk);
@@ -1473,69 +1473,28 @@ void Garden16Universe::drawAir(bool far) {
 // Drawing: tiles
 // =====================================================================================================
 
-// One pixel of a 12 x 12 tile of earth: a clump of soil in the piece's own earth, crumbly clusters of three shades
-// (lit from the upper left), little dark pores, a pebble, now and then a pale root; a dark outline that is ragged
-// on the open sides (a pixel bitten off here and there), no seam inside the piece. 255: transparent.
+// One pixel of a 12 x 12 tile of earth: the very tile the ground is made of (the same lumps, specks and pebbles
+// from the same patterns, the same lit left edge and shaded right edge on a step), in the ground's ramp tinted a
+// little toward the piece's own soil; a clean dark outline around the piece, no seam inside it. 255: transparent.
 uint8_t Garden16Universe::tilePx(int t, int m, uint32_t seed, int i, int j) const {
     const bool oL = !(m & M_L), oR = !(m & M_R), oD = !(m & M_D), oU = !(m & M_U);
     const int E = CELL - 1;
-    // ragged edges: per position along an open side, the edge is bitten in by a pixel (two at the corners)
-    auto bite = [&](int along, int side) {
-        const float h = hash01(along, 40 + side, seed);
-        return (along <= 0 || along >= E) ? 1 : (h < 0.3f ? 1 : 0);
-    };
-    bool clear = false, outline = false;
-    auto edge = [&](bool open, int d, int along, int side) {
-        if (!open) return;
-        const int r = bite(along, side);
-        if (d < r) clear = true;
-        else if (d == r) outline = true;
-    };
-    edge(oL, i, j, 0);
-    edge(oR, E - i, j, 1);
-    edge(oU, j, i, 2);
-    edge(oD, E - j, i, 3);
-    // the cut corners: two pixels when both sides are open
-    if ((oL && oU && i + j < 2) || (oR && oU && (E - i) + j < 2) || (oL && oD && i + (E - j) < 2) || (oR && oD && (E - i) + (E - j) < 2))
-        clear = true;
-    if (clear) return 255;
-    if (outline) return PC(t, 0);
+    if ((oL && i == 0) || (oR && i == E) || (oU && j == 0) || (oD && j == E)) return PC(t, 0);
     // concave corners (two sides joined, the diagonal not): a pixel of outline turns the corner
     if ((i == 0 && j == 0 && !(m & M_LU)) || (i == E && j == 0 && !(m & M_RU)) || (i == 0 && j == E && !(m & M_LD)) ||
         (i == E && j == E && !(m & M_RD)))
         return PC(t, 0);
-    // a pebble on one tile in two: a pale stone, lit top-left, its shadow under it
-    if (seed & 16) {
-        const int px = 3 + (int)((seed >> 8) % 5), py = 3 + (int)((seed >> 12) % 5);
-        const int dx = i - px, dy = j - py;
-        if (dx >= 0 && dx < 2 && dy >= 0 && dy < 2) return dx + dy == 0 ? PEB_HI : (dx + dy == 2 ? PEB_SH : PEB);
-        if (dy == 2 && dx >= 0 && dx < 2) return PC(t, 1);
-    }
-    // a pale root, one tile in four: a little meandering line
-    if ((seed & 96) == 96) {
-        const int ry = 4 + (int)((seed >> 16) % 5);
-        const int x0 = 2 + (int)((seed >> 20) % 3), len = 4 + (int)((seed >> 22) % 3);
-        if (i >= x0 && i < x0 + len) {
-            const int y = ry + (((i + (int)(seed >> 24)) / 2) % 2);
-            if (j == y) return ROOT;
-        }
-    }
-    // crumbly clusters: value noise on a 3-pixel lattice plus a grain, the light from the upper left
-    auto lat = [&](int x, int y) { return hash01(x, y, seed * 31u + 7u); };
-    const float fx = (i + 0.5f) / 3.f, fy = (j + 0.5f) / 3.f;
-    const int ix = (int)fx, iy = (int)fy;
-    const float ux = fx - ix, uy = fy - iy;
-    const float a = lat(ix, iy), b = lat(ix + 1, iy), c = lat(ix, iy + 1), d = lat(ix + 1, iy + 1);
-    float n = (a + (b - a) * ux) + ((c + (d - c) * ux) - (a + (b - a) * ux)) * uy;
-    n = n * 0.75f + hash01(i, j, seed) * 0.25f;
-    n += (0.5f - (i + j) / (2.f * E)) * 0.35f;
-    if (oU && j <= 2) n += 0.12f;   // the lit top of a clod
-    if (oD && j >= E - 2) n -= 0.12f;
-    if (n < 0.22f && hash01(i, j, seed + 3u) < 0.45f) return PC(t, 0); // a pore
-    if (n < 0.36f) return PC(t, 1);
-    if (n > 0.74f) return PC(t, 4);
-    if (n > 0.6f) return PC(t, 3);
-    return PC(t, 2);
+    const auto& pt = pat_[seed & 7];
+    const bool mir = (seed >> 3) & 1;
+    const int v = pt[j][mir ? E - i : i];
+    uint8_t col;
+    if (v == 3) col = PEB_HI;
+    else if (v == 4) col = PEB;
+    else if (v == 5) col = PEB_SH;
+    else col = v == 0 ? PC(t, 2) : v == 1 ? PC(t, 1) : PC(t, 3);
+    if (oL && i == 1) col = PC(t, 3);       // a lit edge facing left, as on the ground's steps
+    if (oR && i == E - 1) col = PC(t, 1);   // a shaded edge facing right
+    return col;
 }
 
 void Garden16Universe::drawTile(int X0, int Y0, int type, int mask, uint32_t seed, uint8_t cls) {
@@ -1734,8 +1693,8 @@ void Garden16Universe::drawMini(Canvas& cv, int X0, int Y0, int size, int t, int
                 continue;
             uint8_t v;
             if ((i == 0 && oL) || (i == E && oR) || (j == 0 && oU) || (j == E && oD)) v = PC(t, 0);
-            else if ((j == 1 && oU) || (i == 1 && oL)) v = PC(t, 3);
-            else if ((j == E - 1 && oD) || (i == E - 1 && oR)) v = PC(t, 1);
+            else if (i == 1 && oL) v = PC(t, 3);
+            else if (i == E - 1 && oR) v = PC(t, 1);
             else {
                 const float h = hash01(X0 + i, Y0 + j, 911);
                 v = h < 0.18f ? PC(t, 1) : (h > 0.88f ? PC(t, 3) : PC(t, 2));
