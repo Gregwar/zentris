@@ -131,7 +131,7 @@ float tooth(vec2 p) { return 0.55 * vnoise(p * 29.0) + 0.3 * vnoise(p * 71.0 + 1
 float toolCov(float tool, float cov, vec2 p, float along, float seed, float edge) {
     if (tool > 4.5 && tool < 5.5) { // coloured pencil: waxier, covers more
         float g = tooth(p);
-        return cov * (0.85 + 0.15 * vnoise(vec2(along * 1.7, seed))) * smoothstep(0.0, 0.5, g + 0.42 - 0.3 * edge);
+        return cov * (0.85 + 0.15 * vnoise(vec2(along * 1.7, seed))) * smoothstep(0.0, 0.45, g + 0.55 - 0.3 * edge);
     }
     if (tool < 0.5) {
         float g = tooth(p);
@@ -279,6 +279,9 @@ void main() {
             pc = 0.5 + 0.38 * vnoise(vec2(q.x * 1.6, q.y * 16.0) + seed) + 0.12 * vnoise(q * 5.0);
             along = q.x;
         }
+        // an even layer of colour under the lines (a pencil's side, chalk rubbed in): the cell reads as coloured in
+        if (kind < 1.5 && pat < 2.5 && vE.w > 0.0)
+            pc = 1.0 - (1.0 - pc) * (1.0 - vE.w * (0.8 + 0.2 * vnoise(q * vec2(1.3, 9.0) + seed)));
         cov = region * pc;
         edge = 0.3;
     }
