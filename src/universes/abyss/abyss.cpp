@@ -536,15 +536,16 @@ void AbyssUniverse::onEvent(const GameEvent& ev, const Game&) {
             d.x = p.x; d.y = p.y; d.t = 0.f; d.delay = delay; d.out = 0.f;
             d.vx = d.vy = 0.f; d.type = type; d.mask = 0; d.sink = false;
             dying_.push_back(d);
-            const int n = tetris ? 10 : 8;
+            // deep down, the air bursts out of the jelly as a spray of tiny bubbles: flung outward fast, braked
+            // hard by the water; touching ones merge into bigger bubbles, which rise slowly
+            const int n = tetris ? 30 : 24;
             for (int i = 0; i < n; i++) {
                 Bubble m;
-                // deep down, the air bursts out of the jelly: flung outward fast, braked by the water, then rising
-                const float a = rng_.range(0.f, TAU), sp = rng_.range(2.f, 5.5f);
-                m.x = p.x + rng_.range(-0.25f, 0.25f); m.y = p.y + rng_.range(-0.25f, 0.25f);
-                m.vx = std::cos(a) * sp; m.vy = std::sin(a) * sp; m.t = 0.f; m.delay = delay + rng_.range(0.f, 0.06f);
-                m.r = 0.05f + 0.17f * std::pow(rng_.uniform(), 2.f); m.seed = rng_.range(0.f, 10.f); m.type = type;
-                m.buoy = (1.f + 6.f * m.r) * rng_.range(0.85f, 1.15f); // its rising speed: the bigger, the faster
+                const float a = rng_.range(0.f, TAU), sp = rng_.range(4.f, 10.f);
+                m.x = p.x + rng_.range(-0.2f, 0.2f); m.y = p.y + rng_.range(-0.2f, 0.2f);
+                m.vx = std::cos(a) * sp; m.vy = std::sin(a) * sp; m.t = 0.f; m.delay = delay + rng_.range(0.f, 0.04f);
+                m.r = rng_.range(0.04f, 0.075f); m.seed = rng_.range(0.f, 10.f); m.type = type;
+                m.buoy = 1.f + 6.f * m.r; // its rising speed: the bigger, the faster
                 bubbles_.push_back(m);
             }
         }
@@ -775,8 +776,36 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
             b.x += b.vx * dt;
             b.y += b.vy * dt;
         }
-        bubbles_.erase(std::remove_if(bubbles_.begin(), bubbles_.end(), [&](const Bubble& b) { return b.y - b.r > top; }),
+        // touching bubbles merge (their air adds up: the radius of the summed volume); swept along x
+        std::sort(bubbles_.begin(), bubbles_.end(), [](const Bubble& a, const Bubble& b) { return a.x < b.x; });
+        for (size_t i = 0; i < bubbles_.size(); i++) {
+            Bubble& a = bubbles_[i];
+            if (a.r <= 0.f || a.t < a.delay + 0.12f) continue;
+            for (size_t j = i + 1; j < bubbles_.size() && bubbles_[j].x - a.x < 0.6f; j++) {
+                Bubble& b = bubbles_[j];
+                if (b.r <= 0.f || b.t < b.delay + 0.12f) continue;
+                const float dx = b.x - a.x, dy = b.y - a.y, rr = (a.r + b.r) * 1.05f;
+                const float d2 = dx * dx + dy * dy;
+                // young bubbles near each other drift together (the spray gathers into fewer, bigger bubbles)
+                if (d2 < 0.36f && d2 > rr * rr && a.t - a.delay < 2.5f && b.t - b.delay < 2.5f) {
+                    const float d = std::sqrt(d2), f = 3.f * (1.f - d / 0.6f) * dt / d;
+                    const float wa = b.r * b.r * b.r / (a.r * a.r * a.r + b.r * b.r * b.r);
+                    a.vx += dx * f * wa; a.vy += dy * f * wa;
+                    b.vx -= dx * f * (1.f - wa); b.vy -= dy * f * (1.f - wa);
+                }
+                if (d2 > rr * rr || a.r + b.r > 0.5f) continue;
+                const float va = a.r * a.r * a.r, vb = b.r * b.r * b.r, v = va + vb;
+                a.x = (a.x * va + b.x * vb) / v; a.y = (a.y * va + b.y * vb) / v;
+                a.vx = (a.vx * va + b.vx * vb) / v; a.vy = (a.vy * va + b.vy * vb) / v;
+                a.r = std::cbrt(v);
+                a.buoy = 1.f + 6.f * a.r;
+                if (vb > va) a.type = b.type;
+                b.r = 0.f;
+            }
+        }
+        bubbles_.erase(std::remove_if(bubbles_.begin(), bubbles_.end(), [&](const Bubble& b) { return b.r <= 0.f || b.y - b.r > top; }),
                        bubbles_.end());
+        if (bubbles_.size() > 3000) bubbles_.erase(bubbles_.begin(), bubbles_.begin() + (bubbles_.size() - 3000));
     }
 
     // The anglerfish's lure wanders slowly beside the well while the bonus lasts.
@@ -985,7 +1014,7 @@ void AbyssUniverse::buildBoard(const Game& g) {
         if (t < 0.f) continue;
         const float form = smoothstepf(0.f, 0.08f, t);
         const float r = b.r * lerpf(0.4f, 1.f, form);
-        tile(b.x, b.y, r + 0.06f, r + 0.06f, pal_.piece[std::clamp(b.type, 0, 6)], 0.55f * form, 5, b.t, b.type, 0, r, b.seed);
+        tile(b.x, b.y, r + 0.06f, r + 0.06f, pal_.piece[std::clamp(b.type, 0, 6)], lerpf(1.f, 0.55f, smoothstepf(0.08f, 0.2f, b.r)) * form, 5, b.t, b.type, 0, r, b.seed);
     }
     // The falling piece and its ghost.
     if (g.hasPiece()) {
