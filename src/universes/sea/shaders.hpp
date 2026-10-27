@@ -54,8 +54,9 @@ float layerBase(int k) { return uLevel + L_OFF[k] * uSpread; }
 float sandTop(float x) { return -9.35 + 0.55 * sin(x * 0.21 + 1.3) + 0.3 * sin(x * 0.53 + 0.4) + 0.1 * sin(x * 1.37 + 2.0); }
 // how dark the water is this far under the surface (sea.cpp's darkAt)
 float darkAt(float depth) { return smoothstep(0.5, 10.0, depth); }
-// the well's panel: more opaque over the dark depths, so the glass stays easy to read there
-float panelK(float pa, vec2 w) { return mix(pa, 0.88, smoothstep(2.0, 10.0, layerTop(2, w.x) - w.y)); }
+// the well's panel: more opaque over the dark depths, so the glass stays easy to read there (in proportion to its
+// own opacity: a light panel stays a light veil)
+float panelK(float pa, vec2 w) { return mix(pa, min(0.88, pa * 1.45), smoothstep(2.0, 10.0, layerTop(2, w.x) - w.y)); }
 
 )";
 

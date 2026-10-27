@@ -125,7 +125,7 @@ const VariantDef VARIANTS[] = {
      0x1b3348, 0x1f88b8, 0x2a2f5a,
      {0x14c0cc, 0x1e56b0, 0x7a4cc8, 0x1fa676, 0x0a7a84, 0x6aa8f4, 0x8ad6a8},
      {0x0f8f9a, 0x2556b8, 0x6a46b8, 0x1f8a52, 0xc07a14, 0x3f8fd0, 0xb84a72},
-     -14.f, 8.5f, 1.0f, 0.f, 0.f, 0.6f, 0.3f, 1.f, 0.f},
+     -14.f, 8.5f, 1.0f, 0.f, 0.f, 0.1f, 0.3f, 1.f, 0.f},
     // A golden hour: a low sun in an apricot haze, a sea of copper and slate, a dusky panel; bright clear waters.
     {"GOLDEN HOUR", 0x34446e, 0xf4b47c, 0xffe4b4, 0xf2a888, 0x3a3248, 0x2a2534,
      0xe0aa88, 0x8a7c94, 0x3a4870, 0x1a2242, 0xffe8d4, 0xf2c6a0, 0x2c3048, 0x1a2140,
@@ -141,7 +141,7 @@ const VariantDef VARIANTS[] = {
      0x232c30, 0x3c8a86, 0x2a3040,
      {0x16a2b6, 0x2a5a90, 0x5a54a6, 0x2e9a64, 0x0e6a6c, 0x5c98d0, 0x7cc496},
      {0x168a96, 0x2a5a96, 0x5e4c9e, 0x2a8a52, 0xb07420, 0x4a84bc, 0xa84a62},
-     -12.f, 7.f, 0.95f, 0.f, 0.f, 0.62f, 0.75f, 1.f, 0.f},
+     -12.f, 7.f, 0.95f, 0.f, 0.f, 0.1f, 0.75f, 1.f, 0.f},
     // A night harbor: a deep blue night, a moon, boats with lit windows; pale, luminous waters in the glass.
     {"NIGHT HARBOR", 0x070d22, 0x1c2a4c, 0xe8ecf4, 0x2a3658, 0x0a0f1c, 0x1a2236,
      0x26385c, 0x17284c, 0x0d1a38, 0x060c1c, 0xa4b8d4, 0x34466c, 0x0c1426, 0x0c1428,
@@ -1505,7 +1505,7 @@ float SeaUniverse::bgLuma(float bx, float by) const {
     if (by >= -10.f) c = lerp(c, pal_.stormSea, by < layerTop(0, bx) ? storm_ * 0.65f : 0.f);
     c = lerp(c, pal_.dusk, slow_ * 0.75f);
     if (std::fabs(bx) < 5.1f && std::fabs(by) < 10.1f)
-        c = lerp(c, pal_.panel, lerpf(pal_.panelA, 0.88f, by < top2 ? smoothstepf(2.f, 10.f, top2 - by) : 0.f));
+        c = lerp(c, pal_.panel, lerpf(pal_.panelA, std::min(0.88f, pal_.panelA * 1.45f), by < top2 ? smoothstepf(2.f, 10.f, top2 - by) : 0.f));
     return ugl::luma(c);
 }
 
