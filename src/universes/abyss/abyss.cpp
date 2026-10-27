@@ -530,24 +530,21 @@ void AbyssUniverse::onEvent(const GameEvent& ev, const Game&) {
         for (auto& c : ev.cells) {
             const vec3 p = layout::cellPos((float)c.x, (float)c.y);
             const int type = std::clamp(c.type, 0, 6);
-            Dying d;
-            d.x = p.x; d.y = p.y; d.t = 0.f; d.delay = std::fabs(c.x - 4.5f) * 0.025f; d.out = 0.f;
-            d.vx = d.vy = 0.f; d.type = type; d.mask = 0; d.sink = false;
-            dying_.push_back(d);
-            // the row bursts into plankton sparks drifting up
-            const int n = tetris ? 4 : 3;
+            // the jelly is caught in a bubble of water that rises to the top of the sea
+            const float delay = std::fabs(c.x - 4.5f) * 0.025f;
+            Bubble b;
+            b.x = p.x; b.y = p.y; b.vx = rng_.range(-0.25f, 0.25f); b.vy = 0.f; b.t = 0.f; b.delay = delay;
+            b.r = rng_.range(0.56f, 0.62f); b.seed = rng_.range(0.f, 10.f); b.type = type;
+            b.buoy = rng_.range(2.f, 4.6f); b.delay += rng_.range(0.f, 0.25f);
+            bubbles_.push_back(b);
+            // a few tiny bubbles break away with it
+            const int n = tetris ? 3 : 2;
             for (int i = 0; i < n; i++) {
-                Spark s;
-                s.x = p.x + rng_.range(-0.45f, 0.45f);
-                s.y = p.y + rng_.range(-0.45f, 0.45f);
-                const float a = rng_.range(0.f, TAU);
-                const float sp = rng_.range(0.4f, 1.8f);
-                s.vx = std::cos(a) * sp;
-                s.vy = std::sin(a) * sp + rng_.range(0.3f, 0.9f);
-                s.t = 0.f; s.life = rng_.range(0.5f, 0.9f); s.delay = d.delay; s.size = rng_.range(0.04f, 0.1f);
-                s.col = lerp(pal_.piece[type], pal_.glow, rng_.range(0.f, 0.5f));
-                s.twinkle = rng_.range(0.f, 10.f); s.kind = 0;
-                sparks_.push_back(s);
+                Bubble m;
+                m.x = p.x + rng_.range(-0.4f, 0.4f); m.y = p.y + rng_.range(-0.4f, 0.2f);
+                m.vx = rng_.range(-0.3f, 0.3f); m.vy = 0.f; m.t = 0.f; m.delay = delay + rng_.range(0.1f, 0.4f);
+                m.r = rng_.range(0.07f, 0.16f); m.seed = rng_.range(0.f, 10.f); m.type = -1; m.buoy = rng_.range(3.5f, 6.f);
+                bubbles_.push_back(m);
             }
         }
         if (tetris) {
@@ -764,6 +761,39 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
         return d.sink ? d.t > 7.f : d.t > d.delay + 0.5f;
     }), dying_.end());
 
+    // Bubbles: they form around the jelly, then rise faster and faster, wobbling, and pop at the top of the screen.
+    {
+        const float top = viewC_.y + viewH_.y;
+        for (Bubble& b : bubbles_) {
+            b.t += dt;
+            const float t = b.t - b.delay;
+            if (t < 0.35f) continue;
+            b.vy += b.buoy * dt;
+            b.vy *= std::exp(-0.45f * dt);
+            b.vx += 0.9f * std::sin(b.t * (b.type >= 0 ? 2.1f : 3.7f) + b.seed) * dt;
+            b.vx *= std::exp(-1.2f * dt);
+            b.x += b.vx * dt;
+            b.y += b.vy * dt;
+            if (b.y + b.r * 0.5f > top) {
+                // the bubble pops: a little ring of droplets, the jelly's light let go
+                const int n = b.type >= 0 ? 10 : 3;
+                const vec3 col = b.type >= 0 ? lerp(pal_.piece[b.type], vec3(1.f), 0.3f) : pal_.snow;
+                for (int i = 0; i < n; i++) {
+                    Spark s;
+                    const float a = TAU * (i + rng_.uniform() * 0.5f) / n;
+                    s.x = b.x + std::cos(a) * b.r; s.y = b.y + std::sin(a) * b.r;
+                    s.vx = std::cos(a) * rng_.range(0.8f, 1.8f); s.vy = std::sin(a) * rng_.range(0.8f, 1.8f);
+                    s.t = 0.f; s.life = rng_.range(0.3f, 0.6f); s.delay = 0.f; s.size = rng_.range(0.03f, 0.06f) * (b.type >= 0 ? 1.f : 0.6f);
+                    s.col = col; s.twinkle = rng_.range(0.f, 10.f); s.kind = 1;
+                    sparks_.push_back(s);
+                }
+                b.t = -1e9f; // gone
+            }
+        }
+        bubbles_.erase(std::remove_if(bubbles_.begin(), bubbles_.end(), [](const Bubble& b) { return b.t < -1e8f; }),
+                       bubbles_.end());
+    }
+
     // The anglerfish's lure wanders slowly beside the well while the bonus lasts.
     lureX_ = -13.8f + 1.3f * std::sin(slowT_ * 0.23f) ;
     lureY_ = -3.4f + 1.f * std::sin(slowT_ * 0.37f + 1.f);
@@ -964,6 +994,19 @@ void AbyssUniverse::buildBoard(const Game& g) {
         const float t = d.t - d.delay;
         const float k = saturate(t / 0.5f);
         tile(d.x, d.y, 0.5f, 0.5f, pal_.piece[d.type], 1.f, 2, -1.f, d.type, 0, k);
+    }
+    // Cleared jellies rising in their bubbles.
+    for (const Bubble& b : bubbles_) {
+        const float t = b.t - b.delay;
+        if (t < 0.f) continue;
+        const float form = smoothstepf(0.f, 0.35f, t);
+        if (b.type >= 0) {
+            const float bob = 0.04f * std::sin(b.t * 5.f + b.seed);
+            tile(b.x, b.y + bob, 0.5f, 0.5f, pal_.piece[b.type], 1.f, 0, -1.f, b.type, 0, lerpf(1.f, 0.62f, form), 1.1f);
+        }
+        const float r = b.r * (b.type >= 0 ? lerpf(0.75f, 1.f, form) : form);
+        const vec3 tint = b.type >= 0 ? lerp(pal_.piece[b.type], pal_.snow, 0.5f) : pal_.snow;
+        tile(b.x, b.y, r + 0.08f, r + 0.08f, tint, form, 5, b.t, b.type, 0, r, b.seed);
     }
     // The falling piece and its ghost.
     if (g.hasPiece()) {

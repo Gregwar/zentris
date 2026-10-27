@@ -614,6 +614,29 @@ void main() {
         frag = vec4(col * cov * alpha * (1.0 - uBridge), a * (1.0 - uBridge));
         return;
     }
+    if (kind == 5) {
+        // A bubble of water (v3.x: radius, v3.y: seed, v2.y: age): a thin bright skin, the light caught on its
+        // upper side, a faint glint below, almost clear inside; it wobbles as it rises.
+        float R = v3.x;
+        float ang = atan(p.y, p.x);
+        float wob = 1.0 + 0.035 * sin(ang * 2.0 + age * 6.0 + v3.y) + 0.02 * sin(ang * 3.0 - age * 4.3 + v3.y * 2.0);
+        float r = length(p) / (R * wob);
+        float aa = px / R * 1.2;
+        float disc = 1.0 - smoothstep(1.0 - aa, 1.0, r);
+        if (disc <= 0.0) discard;
+        float skin = exp(-pow((1.0 - r) / (0.05 + aa), 2.0));
+        float fres = pow(clamp(r, 0.0, 1.0), 4.0);
+        vec2 q = p / R;
+        float spec = exp(-dot(q - vec2(-0.38, 0.42), q - vec2(-0.38, 0.42)) / 0.012);
+        float arc = exp(-pow((r - 0.8) / 0.05, 2.0)) * smoothstep(0.2, 0.8, dot(normalize(q + 1e-4), vec2(-0.55, 0.83)));
+        float glint = exp(-pow((r - 0.82) / 0.06, 2.0)) * smoothstep(0.5, 0.95, dot(normalize(q + 1e-4), vec2(0.5, -0.86)));
+        vec3 col = pc * (0.05 + 0.35 * fres) + mix(pc, vec3(1.0), 0.6) * skin * 0.9
+                 + vec3(0.9, 1.0, 1.0) * (spec * 0.9 + arc * 0.45 + glint * 0.25);
+        float a = clamp(0.04 + 0.3 * fres + 0.7 * skin + spec * 0.8 + arc * 0.4, 0.0, 1.0) * disc;
+        col *= disc * alpha * (1.0 - uBridge);
+        frag = vec4(col, a * alpha * (1.0 - uBridge));
+        return;
+    }
     if (kind == 4) {
         // The bonus gauge: a glowing orb filling with living light (v3: level, ready, active, radius).
         float R = v3.w;

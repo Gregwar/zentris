@@ -132,6 +132,9 @@ private:
     std::vector<Spark> sparks_;
     struct Dying { float x, y, t, delay, out, vx, vy; int type, mask; bool sink; };
     std::vector<Dying> dying_;
+    // a cleared cell's jelly (type >= 0) or a tiny trailing bubble (type -1) rising in a bubble to the top, where it pops
+    struct Bubble { float x, y, vx, vy, t, delay, r, seed, buoy; int type; };
+    std::vector<Bubble> bubbles_;
     float tetrisT_ = 99.f;
 
     // ---- Game state seen by the universe.
