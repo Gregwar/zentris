@@ -46,7 +46,7 @@ song, and songs change universe with a transition on the beat.
 </tr>
 <tr>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/b67ac49424e5ab95314c82ff51f9b3ff7381f23d/docs/universes/marbles.jpg"><br><b>MARBLES</b>: glass marbles in square tiles, thrown out into a landscape where they pile up</td>
-<td></td>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/de7f2dce34ea2837ecf21625565fdc9911e1a247/docs/universes/prism.jpg"><br><b>PRISM</b>: glass cubes in the dark, slow beams of light, a rainbow on the drop</td>
 </tr>
 </table>
 
