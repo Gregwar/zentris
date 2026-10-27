@@ -38,7 +38,7 @@ song, and songs change universe with a transition on the beat.
 </tr>
 <tr>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/becac93004878065dbdb2eec1a5f3ea6a91e9ded/docs/universes/laser.jpg"><br><b>LASER SHOW</b>: every piece projected by its own laser</td>
-<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/becac93004878065dbdb2eec1a5f3ea6a91e9ded/docs/universes/garden.jpg"><br><b>GARDEN</b>: tiles of earth growing pixel grass and flowers</td>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/210013d9eb38de1166e8753be86cea34904be746/docs/universes/garden.jpg"><br><b>GARDEN</b>: tiles of earth growing pixel grass and flowers</td>
 </tr>
 <tr>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/f5b149393574b12b9a47ec4ab30cb19c21c6283f/docs/universes/sea.jpg"><br><b>SEA</b>: glass cubes of water over a rising 3D sea</td>
