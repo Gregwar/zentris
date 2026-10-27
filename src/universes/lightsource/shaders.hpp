@@ -257,8 +257,10 @@ void main() {
     int conn = int(vA2.w + 0.5);
     vec2 q = vQ;
     float g = kind > 0.5 && kind < 1.5 ? 0.065 : 0.035;
-    vec2 lo = vec2((conn & 1) != 0 ? -0.62 : -0.5 + g, (conn & 8) != 0 ? -0.62 : -0.5 + g);
-    vec2 hi = vec2((conn & 2) != 0 ? 0.62 : 0.5 - g, (conn & 4) != 0 ? 0.62 : 0.5 - g);
+    // (a connected side runs on past the cell: far enough that the ghost's rim never shows at the seam)
+    float ext = kind > 0.5 && kind < 1.5 ? 0.9 : 0.62;
+    vec2 lo = vec2((conn & 1) != 0 ? -ext : -0.5 + g, (conn & 8) != 0 ? -ext : -0.5 + g);
+    vec2 hi = vec2((conn & 2) != 0 ? ext : 0.5 - g, (conn & 4) != 0 ? ext : 0.5 - g);
     vec2 c = (lo + hi) * 0.5, he = (hi - lo) * 0.5;
     float rad = 0.1;
     vec2 qc = q - c;
@@ -275,12 +277,16 @@ void main() {
     float aa = uPx / max(scale, 1e-3);
     vec3 alb = vA1.rgb, em = vA2.rgb;
     if (kind > 0.5 && kind < 1.5) {
-        // the ghost: a thin outline just inside the piece's contour
+        // the ghost: a thin self-lit outline just inside the piece's contour, in the falling piece's hue, on a
+        // darker rim on both sides of it: it reads whatever the light behind it
         // (the ghost's shape is inset by 0.065: the line runs along its edge)
         float line = 1.0 - smoothstep(0.0, aa * 1.2, abs(sd + 0.012) - 0.012);
-        float a = line * vA0.w;
-        vec3 col = mix(uGhost, uBridgeInk, uBridge);
-        frag = vec4(col * a, a);
+        float rim = 1.0 - smoothstep(0.0, aa * 1.2, abs(sd + 0.012) - 0.012 - aa * 2.2);
+        vec3 hue = mix(alb, uBridgeInk, uBridge);
+        float aRim = 0.5 * rim * (1.0 - line);
+        vec3 col = hue * line;
+        float a = line + aRim;
+        frag = vec4(col, min(a, 1.0)) * vA0.w;
         return;
     }
     if (kind > 2.5) {
