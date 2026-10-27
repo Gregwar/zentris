@@ -1312,7 +1312,7 @@ void NotepadUniverse::emit(const Item& it, int age, bool residue, std::vector<Ma
         }
         // coloured in once the outline is done
         if (it.i1 && S.fillable && (residue || drawn >= segs)) {
-            const float fillDrawn = residue ? 1.f : saturate((drawn - segs) / (segs * 0.6f) + 0.35f);
+            const float fillDrawn = 1.f; // coloured in at once when the outline is closed
             const float sp = (it.tool == T_MARKER ? 0.16f : 0.11f) * std::sqrt(it.s);
             Poly poly;
             for (const vec2& q : S.lines[0]) poly.push_back(add(v2(it.x, it.y), mul(rot(q, it.r), it.s * 0.94f)));
@@ -1361,14 +1361,8 @@ void NotepadUniverse::emitCell(const Item& it, int age, bool residue, std::vecto
     const int type = std::clamp(it.i0, 0, 6);
     const float s = it.s, h = 0.5f * s;
     const float inset = 0.075f * s;
-    float reveal = 1.f;
-    if (!residue && !(it.i2 & 8)) {
-        // new: the outline comes first, then the colour, stroke after stroke
-        const float fast = handSpeed_;
-        const float k = (age + 1) * fast - 0.55f;
-        reveal = saturate(k * 1.6f);
-        if (reveal <= 0.f) return;
-    }
+    (void)age; // a new cell is coloured in all at once, in the drawing it appears in (with its outline)
+    const float reveal = 1.f;
     eraseNow = residue ? 0.f : it.a;
     eraseSeedNow = it.seed * 3.1f;
     const float calm = stage_ == 0 ? 1.06f : stage_ == 3 ? 0.9f : 1.f;
@@ -1460,8 +1454,8 @@ void NotepadUniverse::emitOutline(const Item& it, int age, bool residue, std::ve
     const float s = it.s, inset = 0.075f * s;
     const bool ghost = it.i1 == 1;
     Rng r(splitmix64((uint64_t)(it.seed * 1000.f) + 3));
-    float drawnRuns = (float)runs.size();
-    if (!residue && !ghost) drawnRuns = runs.size() * saturate((age + 1) * (0.45f + 0.6f * handSpeed_));
+    (void)age; // the whole outline in one drawing, with its colouring
+    const float drawnRuns = (float)runs.size();
     auto toWorld = [&](float gx, float gy) { return v2(it.x + (gx - 0.5f) * s, it.y + (gy - 0.5f) * s); };
     const vec3 ink = inkOf(it.col);
     const float width = V.outlineW * it.b * (ghost ? 0.8f : 1.f) * (0.75f + 0.25f * s);
