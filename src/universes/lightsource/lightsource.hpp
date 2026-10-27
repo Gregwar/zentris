@@ -97,10 +97,10 @@ private:
     vec3 lightOf(int type, float m = 0.f) const;
     vec3 emitOf(int type, float m = 0.f) const;
     vec3 pieceCol(int type, float m = 0.f) const;
-    vec3 monoTint(int type) const; // the piece's shade of the drop's color (max channel 1)
+    vec3 monoTint(int type) const; // the piece's shade of its side's drop color (max channel 1)
 
-    // ---- A drop's color: one hue per drop (from the song's seed and the drop's index, never the last one's).
-    vec3 dropHue_{1.f};
+    // ---- A drop's colors: a pair per drop (from the song's seed and the drop's index, never the last pair).
+    vec3 dropHue_{1.f}, dropHue2_{1.f}; // side A's and side B's
     int dropIndex_ = 0, lastHue_ = -1;
     uint64_t songSeed_ = 0;
     float monoOf(int id) const;
