@@ -80,6 +80,8 @@ private:
         bool retiring = false;
         float light = 0.f, prevLight = 0.f, twinkle = 0.f;
         float spin = 0.f;
+        bool flying = true;    // thrown, has not touched anything yet
+        float rollT = 0.f;     // time spent rolling since it landed
     };
     std::vector<Marble> marbles_;
     void launch(vec2 from, int type, float seed, float rot, float delay, float vigor);
@@ -87,7 +89,8 @@ private:
     void simulateMarbles(float dt);
     bool pickTarget(float x0, float y0, float r, vec2& out);
     void seedMarbles(int n);
-    void wakeAround(vec2 p, float rad);
+    void buildGrid();
+    bool exposed(int i) const;
     std::vector<int> gridHead_, gridNext_;
     int gridW_ = 1, gridH_ = 1;
     float gridX0_ = -24.f, gridY0_ = -14.f;
@@ -151,7 +154,7 @@ private:
     GLuint progSky_ = 0, progMarble_ = 0, progFx_ = 0, progText_ = 0, progShape_ = 0, progPost_ = 0;
     GLuint quadVbo_ = 0, marbleVao_ = 0, marbleVbo_ = 0, fxVao_ = 0, fxVbo_ = 0, textVao_ = 0, textVbo_ = 0, shapeVao_ = 0,
            shapeVbo_ = 0;
-    ugl::Target sceneT_;
+    ugl::Target sceneT_, bgT_;   // the frame; the sky and the land alone (seen through the marbles)
     mat4 vp_;
     vec2 viewC_{0, 0.4f}, viewH_{22, 12.4f};
     float px_ = 0.05f;
@@ -162,7 +165,7 @@ private:
     Palette pal_{};
     uint64_t seed_ = 0;
     float seedF_ = 0.f;
-    bool needSeed_ = true;
+    float vivid_ = 0.f;   // 0 the soft colors of the song .. 1 the drop's rich, glowing ones
 
     // ---- Scene level: continuous 0 calm .. 2 peak.
     int level_ = 1;
