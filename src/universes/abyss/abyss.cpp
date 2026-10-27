@@ -541,11 +541,11 @@ void AbyssUniverse::onEvent(const GameEvent& ev, const Game&) {
             const int n = tetris ? 30 : 24;
             for (int i = 0; i < n; i++) {
                 Bubble m;
-                const float a = rng_.range(0.f, TAU), sp = rng_.range(4.f, 10.f);
+                const float a = rng_.range(0.f, TAU), sp = rng_.range(8.f, 18.f);
                 m.x = p.x + rng_.range(-0.2f, 0.2f); m.y = p.y + rng_.range(-0.2f, 0.2f);
                 m.vx = std::cos(a) * sp; m.vy = std::sin(a) * sp; m.t = 0.f; m.delay = delay + rng_.range(0.f, 0.04f);
                 m.r = rng_.range(0.04f, 0.075f); m.seed = rng_.range(0.f, 10.f); m.type = type;
-                m.buoy = 1.f + 6.f * m.r; // its rising speed: the bigger, the faster
+                m.buoy = 2.5f + 10.f * m.r; // its rising speed: the bigger, the faster
                 bubbles_.push_back(m);
             }
         }
@@ -770,7 +770,7 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
             b.t += dt;
             if (b.t < b.delay) continue;
             // the water brakes the burst quickly; then the bubble settles into its slow rise, wobbling
-            const float k = 1.f - std::exp(-4.f * dt);
+            const float k = 1.f - std::exp(-7.f * dt);
             b.vy += (b.buoy - b.vy) * k;
             b.vx += -b.vx * k + 1.2f * std::sin(b.t * (3.f + 4.f * (0.25f - b.r)) + b.seed) * dt;
             b.x += b.vx * dt;
@@ -798,7 +798,7 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
                 a.x = (a.x * va + b.x * vb) / v; a.y = (a.y * va + b.y * vb) / v;
                 a.vx = (a.vx * va + b.vx * vb) / v; a.vy = (a.vy * va + b.vy * vb) / v;
                 a.r = std::cbrt(v);
-                a.buoy = 1.f + 6.f * a.r;
+                a.buoy = 2.5f + 10.f * a.r;
                 if (vb > va) a.type = b.type;
                 b.r = 0.f;
             }
