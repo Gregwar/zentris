@@ -1,16 +1,15 @@
 // SEA: glass cubes of water over a sea that rises with the cleared lines.
 //
 // One world, seen from the side: a plain sky over a sea in three layers like cut paper (far, middle, near), each with
-// its own slow swell and a few glints of light, over a sandy bed. Every cell of a piece is its own small sealed cube of
-// colored glass, full of clear water (a thin air gap under the lid), with a gap to its neighbours: four cubes per
-// piece. The glass shows the scene behind it, bent (a copy of the scene drawn so far), filtered by its color, darker
-// where it is thick, with bright rims and a crisp specular; the water's surface stays level in the world.
+// its own slow swell and a few glints of light, over a sandy bed. Every cell of a piece is its own small glass cube
+// holding colored water (an air gap under the lid), with a gap to its neighbours: four cubes per piece. Thin walls,
+// mostly transparent: the scene behind shows through (a copy of the scene drawn so far, bent through the water), crisp
+// thin rims, a small glint; the water's surface stays level in the world. Three looks (ZEN_SEA_LOOK=A|B|C).
 //
-// The song starts with no sea at all, only the sand. A cleared row's cubes are thrown out of the well, up and outward,
-// spinning a little; cracks spread over each from a point of impact as it flies, water spurting through them, then it
-// bursts: its glass shatters into shards (they lie on the sand a moment) and its water escapes as one generous mass
-// with spray around it, onto the sand (where it runs on and soaks in) or into the sea (under the sea already: a pale
-// churning plume and bubbles). A cube reaching the sand first breaks on it. The sea rises as that water lands, smoothly, for
+// The song starts with no sea at all, only the sand. A cleared row's cubes are thrown out of the well to their side and
+// land on the sand intact; one crack opens in each cube's glass and its water jets out of it under pressure (the level
+// inside dropping), running over the sand into the sea or, under the sea already, churning out as a pale plume with
+// bubbles. Empty, the cracked cube fades into the sand a moment later. The sea rises as that water lands, smoothly, for
 // the whole song, up to about three quarters of the well's height. The deeper it gets, the darker its depths (down to
 // a near-black blue, a few points of light living there) and the more life it holds, in layers: small schools of fish
 // near the surface, jellyfish drifting and pulsing in the middle water, an anglerfish and siphonophores in the dark.
@@ -31,6 +30,7 @@
 #include "universes/sea/sea.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
@@ -89,8 +89,19 @@ constexpr float BOAT_LEVEL = -8.3f;
 constexpr float SEA_LINES = 14.f;
 // the sandy bed's mean height (sandTop)
 constexpr float SAND_Y = -9.35f;
-// how full the cubes are (a thin air gap under the lid, the same in every one)
-constexpr float C_FULL = 0.86f;
+// how full the cubes are (an air gap under the lid, so the water's surface shows)
+constexpr float C_FULL = 0.7f;
+// The glass's look, chosen with ZEN_SEA_LOOK: A (0) clear glass holding colored water, B (1) tinted glass holding clear
+// water, C (2, the default) clear glass with a colored rim holding colored water lit from within.
+int glassLook() {
+    static const int look = [] {
+        const char* e = std::getenv("ZEN_SEA_LOOK");
+        if (!e || !*e) return 2;
+        const char c = (char)(*e | 0x20);
+        return c == 'a' ? 0 : c == 'b' ? 1 : 2;
+    }();
+    return look;
+}
 // clear water, almost colorless (linear)
 const vec3 WATER{0.74f, 0.86f, 0.95f};
 // the layers (WAVE_GLSL's L_OFF, L_AMP, L_FRQ, L_SPD)
@@ -747,24 +758,45 @@ void SeaUniverse::sprayBurst(float x, int n, float power) {
 void SeaUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
     case GameEvent::Clear: {
-        // The row's cubes are thrown out of the well, up and outward to their side, spinning a little (the row
-        // itself is gone from the board at once); cracks spread over each as it flies, then it bursts.
+        // The row's cubes are thrown out of the well to their side (the row itself is gone from the board at once):
+        // each lands on the sand, a crack opens in its glass and its water jets out of it.
         const int n = std::min(ev.count, 4);
         for (auto& c : ev.cells) {
             if (c.y < 0 || c.y >= Game::H || c.x < 0 || c.x >= Game::W) continue;
             const vec3 p = layout::cellPos((float)c.x, (float)c.y);
-            const float dx = c.x - (Game::W - 1) * 0.5f, side = dx < 0.f ? -1.f : 1.f, out = std::fabs(dx) / ((Game::W - 1) * 0.5f);
+            const float dx = c.x - (Game::W - 1) * 0.5f;
             Flyer fl{};
             fl.p = v2(p.x, p.y);
-            fl.v = v2(side * (6.f + 4.5f * out + rng_.range(0.f, 1.5f)) * (1.f + 0.08f * (n - 1)), rng_.range(8.5f, 11.f) + 0.5f * (n - 1));
-            fl.spin = -side * rng_.range(1.5f, 4.f);
-            // the inner ones fly a little longer, so that they all break out to the sides; the cracks show first
-            fl.breakAt = rng_.range(0.52f, 0.66f) + 0.2f * (1.f - out);
-            fl.crackAt = fl.breakAt - rng_.range(0.28f, 0.4f);
+            fl.side = dx < 0.f ? -1 : 1;
+            const float side = (float)fl.side;
             fl.type = std::clamp((int)c.type, 0, 6);
             fl.seed = rng_.range(0.f, 50.f);
+            fl.fill = C_FULL;
             // each cube's water: a tenth of a line of sea (more for a Tetris)
             fl.water = (n >= 4 ? 1.5f : 1.f) / Game::W;
+            const float x = landingX(fl.side);
+            const float slope = std::atan((sandTop(x + 0.4f) - sandTop(x - 0.4f)) / 0.8f);
+            fl.restRot = slope + rng_.range(-0.12f, 0.12f);
+            fl.rest = v2(x, sandTop(x) + 0.4f);
+            // a ballistic toss that lands just short of its place (it slides into it as it settles)
+            fl.T = 0.7f + 0.035f * std::fabs(x - p.x) + rng_.range(0.f, 0.12f);
+            const vec2 aim = v2(fl.rest.x - side * 0.2f, fl.rest.y + 0.06f);
+            fl.v = v2((aim.x - p.x) / fl.T, (aim.y - p.y) / fl.T + 0.5f * 22.f * fl.T);
+            // it turns as it flies (a quarter turn more now and then)
+            fl.landRot = fl.restRot - side * rng_.range(0.25f, 0.5f);
+            const float turns = (float)rng_.irange(0, 1);
+            fl.spin = (fl.landRot - side * PI * 0.5f * turns) / fl.T;
+            // the crack opens as it lands, on the face turned out to sea and up; the water jets that way
+            fl.crackAt = rng_.range(0.04f, 0.14f);
+            fl.leakAt = fl.crackAt + 0.12f;
+            fl.jet = v2(side * 0.82f, 0.57f);
+            {
+                const float c = std::cos(-fl.restRot), s = std::sin(-fl.restRot);
+                vec2 lp = v2(c * fl.jet.x - s * fl.jet.y, s * fl.jet.x + c * fl.jet.y);
+                const float m = std::max(std::fabs(lp.x), std::fabs(lp.y));
+                fl.crackP = v2(lp.x / m * 0.33f, lp.y / m * 0.33f);
+            }
+            fl.state = F_FLY;
             flyers_.push_back(fl);
         }
         if (ev.count >= 4) {
@@ -810,120 +842,169 @@ void SeaUniverse::onEvent(const GameEvent& ev, const Game&) {
     }
 }
 
-// A thrown cube bursts: its glass shatters into shards that fall and lie on the sand a moment, and its water escapes
-// as one generous mass with spray around it, carrying the cube's momentum, falling onto the sand (where it runs on and
-// soaks in) or into the sea (which rises as it lands); under the sea already, it churns out as a pale plume, bubbles
-// rising from it.
-void SeaUniverse::burst(const Flyer& f) {
-    const vec3 tint = pal_.glass[std::clamp(f.type, 0, 6)];
-    const float side = f.p.x < 0.f ? -1.f : 1.f;
-    for (int i = 0; i < 12 && parts_.size() < 6000; i++) {
-        Particle q{};
-        q.p = v2(f.p.x + rng_.range(-0.42f, 0.42f), f.p.y + rng_.range(-0.42f, 0.42f));
-        q.v = v2((q.p.x - f.p.x) * rng_.range(5.f, 10.f) + f.v.x * 0.45f, (q.p.y - f.p.y) * rng_.range(4.f, 8.f) + rng_.range(1.5f, 5.f) + f.v.y * 0.3f);
-        q.life = rng_.range(2.2f, 3.2f);
-        q.size = rng_.range(0.07f, 0.15f);
-        q.rot = rng_.range(0.f, TAU); q.spin = rng_.range(-14.f, 14.f);
-        q.grav = 20.f; q.drag = 0.4f;
-        q.kind = P_SHARD; q.real = true; q.front = true; q.seed = rng_.uniform();
-        q.col = pal_.lightPanel > 0.5f ? lerp(tint, vec3(1.f), 0.3f) : lerp(tint, vec3(1.f), 0.55f);
-        parts_.push_back(q);
+// Where a thrown cube comes down: a free place on the sand at its side of the well (columns from the well out to the
+// edge of the screen, on the left short of the corner's text); a place stays taken while a cube lies there.
+float SeaUniverse::landingX(int side) {
+    const int k = side > 0;
+    const float x0 = WELL_X + 0.85f;
+    const float x1 = k ? viewH_.x - 0.8f : std::min(16.2f, viewH_.x - 0.8f);
+    const int n = std::clamp((int)((x1 - x0) / 1.15f), 1, 32);
+    if ((int)colFree_[k].size() != n) colFree_[k].assign(n, 0.f);
+    int best = 0;
+    float bv = 1e9f;
+    for (int c = 0; c < n; c++) {
+        // free ones first (at random), else the one freed soonest
+        const float v = std::max(colFree_[k][c] - time_, 0.f) * 10.f + rng_.range(0.f, 1.f);
+        if (v < bv) { bv = v; best = c; }
     }
-    const float water = f.water * (1.f - f.spilt);
-    if (f.p.y < layerTop(2, f.p.x) - 0.2f) {
-        // under the sea: a churning plume, bubbles
-        for (int i = 0; i < 16 && parts_.size() < 6000; i++) {
-            Particle q{};
-            q.p = v2(f.p.x + rng_.range(-0.35f, 0.35f), f.p.y + rng_.range(-0.35f, 0.35f));
-            const float a = rng_.range(0.f, TAU), sp = rng_.range(0.8f, 3.2f);
-            q.v = v2(f.v.x * 0.25f + std::cos(a) * sp, f.v.y * 0.15f + std::sin(a) * sp);
-            q.life = rng_.range(1.4f, 2.4f);
-            q.size = rng_.range(0.2f, 0.36f);
-            q.grav = -0.5f; q.drag = 2.4f;
-            q.kind = P_CLOUD; q.real = true; q.front = true; q.seed = rng_.uniform();
-            q.col = lerp(WATER, vec3(1.f), 0.5f);
-            parts_.push_back(q);
-        }
-        for (int i = 0; i < 16 && parts_.size() < 6000; i++) {
-            Particle q{};
-            q.p = v2(f.p.x + rng_.range(-0.35f, 0.35f), f.p.y + rng_.range(-0.35f, 0.35f));
-            q.v = v2(f.v.x * 0.15f + rng_.range(-0.8f, 0.8f), rng_.range(0.5f, 2.f));
-            q.life = rng_.range(2.5f, 4.f);
-            q.size = rng_.range(0.035f, 0.09f);
-            q.grav = -3.5f; q.drag = 1.6f;
-            q.kind = P_BUBBLE; q.real = true; q.front = true; q.seed = rng_.uniform();
-            q.col = vec3(0.85f, 0.93f, 1.f);
-            parts_.push_back(q);
-        }
-        waterLines_ += water;
-        return;
-    }
-    // in the air: one mass of water that opens up as it falls, more of it than the cube could hold, spray around it
-    const int N = 90;
-    for (int i = 0; i < N && parts_.size() < 6000; i++) {
-        Particle q{};
-        const bool spray = i >= 62;
-        const vec2 o = v2(rng_.range(-0.4f, 0.4f), rng_.range(-0.4f, 0.4f));
-        q.p = v2(f.p.x + o.x, f.p.y + o.y);
-        const float a = rng_.range(0.f, TAU);
-        const float sp = spray ? rng_.range(2.5f, 6.f) : rng_.range(0.2f, 1.6f);
-        q.v = v2(f.v.x * (spray ? 0.4f : 0.6f) + std::cos(a) * sp + o.x * 3.f, f.v.y * 0.3f + std::sin(a) * sp * 0.8f + o.y * 3.f + 1.5f);
-        q.life = 3.f;
-        q.size = spray ? rng_.range(0.04f, 0.07f) : rng_.range(0.15f, 0.24f);
-        q.grav = 16.f; q.drag = spray ? 0.6f : 0.25f;
-        q.kind = P_STREAM; q.real = true; q.front = true; q.seed = rng_.uniform();
-        q.col = spray ? lerp(WATER, vec3(1.f), 0.5f) : lerp(WATER, pal_.sea1, 0.12f + 0.1f * rng_.uniform());
-        q.water = water / N;
-        q.dir = side;
-        parts_.push_back(q);
-    }
+    colFree_[k][best] = time_ + 6.f;
+    return (float)side * (x0 + (best + 0.5f) * (x1 - x0) / n + rng_.range(-0.12f, 0.12f));
 }
 
-// The cubes thrown out of a cleared row (at the real speed): they fly up and out, cracks spread over their glass and
-// water spurts through them, and they burst in the air (or on the sand, if they reach it first).
+// The cubes thrown out of a cleared row (at the real speed): they fly out and land on the sand at their side, settle;
+// a crack opens in the glass and the water jets out of it under pressure, the level inside dropping; empty, the cube
+// fades into the sand.
 void SeaUniverse::simulateFlyers(float dt) {
     for (Flyer& f : flyers_) {
-        f.t += dt;
-        // through the water it is slowed down, and sinks gently
-        const bool wet = f.p.y < layerTop(2, f.p.x);
-        f.v.y -= (wet ? 6.f : 22.f) * dt;
-        if (wet) { f.v.x *= std::exp(-0.4f * dt); f.v.y *= std::exp(-1.5f * dt); }
-        f.p.x += f.v.x * dt; f.p.y += f.v.y * dt;
-        f.rot += f.spin * dt;
-        const bool out = std::fabs(f.p.x) > WELL_X + 0.4f;
-        // never bursting over the well: a cracked cube still in it holds on until it is out
-        if (!out && f.t >= f.breakAt - 0.05f && f.t < 1.2f) f.breakAt = f.t + 0.05f;
-        // reaching the sand (outside the well): it breaks there
-        if (f.v.y < 0.f && ((out && f.p.y < sandTop(f.p.x) + 0.45f) || f.p.y < -12.f)) f.breakAt = std::min(f.breakAt, f.t);
-        // water spurting through the cracks, more as they spread
-        const float crack = smoothstepf(f.crackAt, f.breakAt, f.t);
-        if (crack > 0.f && f.t < f.breakAt && f.p.y > layerTop(2, f.p.x)) {
-            f.spurtAcc += dt * 70.f * crack;
-            while (f.spurtAcc >= 1.f && parts_.size() < 6000) {
-                f.spurtAcc -= 1.f;
-                // from a point on a crack (its impact point, toward the cube's edge), squirting outward
-                const float a = (float)rng_.irange(0, 6) * (TAU / 7.f) + f.rot;
-                const vec2 d = v2(std::cos(a), std::sin(a));
-                const float r = rng_.range(0.15f, 0.42f) * (0.4f + 0.6f * crack);
+        const float side = (float)f.side;
+        switch (f.state) {
+        case F_FLY: {
+            f.t += dt;
+            f.v.y -= 22.f * dt;
+            f.p.x += f.v.x * dt; f.p.y += f.v.y * dt;
+            f.rot += f.spin * dt;
+            if (std::fabs(f.p.x) > WELL_X + 0.3f && f.v.y < 0.f && f.p.y < layerTop(2, f.p.x) - 0.15f) {
+                // into the sea: a splash, then it sinks to its place
+                splash(f.p.x, layerTop(2, f.p.x), 1.2f, WATER);
+                splash(f.p.x, layerTop(2, f.p.x), 1.f, WATER);
+                f.state = F_SINK;
+                f.under = true;
+                f.landT = 0.f;
+            } else if (f.t >= f.T) {
+                f.state = F_SETTLE;
+                f.land = f.p;
+                f.rot = f.landRot;
+                f.landT = 0.f;
+                // a puff of sand where it lands
+                for (int i = 0; i < 7 && parts_.size() < 6000; i++) {
+                    Particle q{};
+                    q.p = v2(f.p.x + rng_.range(-0.35f, 0.35f), f.p.y - 0.38f);
+                    q.v = v2(rng_.range(-1.5f, 1.5f) + side * 0.6f, rng_.range(1.f, 2.8f));
+                    q.life = rng_.range(0.35f, 0.6f);
+                    q.size = rng_.range(0.03f, 0.055f);
+                    q.grav = 12.f; q.drag = 1.f;
+                    q.kind = P_SAND; q.real = true; q.front = true; q.seed = rng_.uniform();
+                    q.col = lerp(vec3(0.62f, 0.47f, 0.29f), pal_.haze, 0.15f) * (1.f - 0.55f * pal_.night);
+                    parts_.push_back(q);
+                }
+            }
+            break;
+        }
+        case F_SETTLE: {
+            // a small bounce, a slide into its place, the last of its turn rocking out
+            f.landT += dt;
+            const float u = std::min(1.f, f.landT / 0.45f);
+            const float e = 1.f - (1.f - u) * (1.f - u);
+            f.p = v2(lerpf(f.land.x, f.rest.x, e), lerpf(f.land.y, f.rest.y, e) + 0.18f * std::sin(PI * std::min(u * 1.7f, 1.f)) * (1.f - u));
+            f.rot = f.restRot + (f.landRot - f.restRot) * std::cos(u * PI * 2.f) * (1.f - u) * (1.f - u);
+            if (u >= 1.f) f.state = F_REST;
+            break;
+        }
+        case F_SINK: {
+            f.landT += dt;
+            const float k = 1.f - std::exp(-2.4f * dt);
+            f.p.x += (f.rest.x - f.p.x) * k;
+            f.p.y += (f.rest.y - f.p.y) * k;
+            f.rot += (f.restRot - f.rot) * k;
+            if (std::fabs(f.rest.y - f.p.y) < 0.04f) f.state = F_REST;
+            break;
+        }
+        default: {
+            f.landT += dt;
+            // the jet's kick: pushed back from the crack, rocking, settling as the pressure drops; empty, it sinks
+            const float since = std::max(0.f, f.landT - f.leakAt);
+            const float kick = f.landT > f.leakAt ? 0.16f * smoothstepf(0.f, 0.06f, since) * std::exp(-since * 2.2f) : 0.f;
+            f.p = v2(f.rest.x - f.jet.x * kick, f.rest.y - std::max(0.f, f.jet.y) * kick * 0.4f - 0.35f * smoothstepf(0.f, 1.f, f.fade));
+            f.rot = f.restRot + side * 0.07f * std::sin(since * 20.f) * std::exp(-since * 3.f) * (f.landT > f.leakAt ? 1.f : 0.f);
+            break;
+        }
+        }
+        if (f.state == F_FLY) continue;
+        // the crack opens, then the water jets out of it: a blast, then a thick jet tapering off over a second or two
+        f.crack = smoothstepf(f.crackAt, f.crackAt + 0.18f, f.landT);
+        if (f.landT < f.leakAt || f.fill <= 0.f) {
+            if (f.fill <= 0.f) f.fade = std::min(1.f, f.fade + dt / 1.4f);
+            continue;
+        }
+        const float before = f.fill;
+        f.fill = std::max(0.f, f.fill - dt * (0.1f + 0.5f * f.fill));
+        if (f.fill < 0.02f) f.fill = 0.f;
+        const float out = f.water * (before - f.fill) / C_FULL;
+        const float c = std::cos(f.rot), s = std::sin(f.rot);
+        const vec2 m = v2(f.p.x + c * f.crackP.x - s * f.crackP.y, f.p.y + s * f.crackP.x + c * f.crackP.y);
+        const float pr = std::pow(before / C_FULL, 1.3f);
+        const float blast = std::exp(-(f.landT - f.leakAt) * 9.f);
+        const vec2 jd = f.jet;
+        const vec3 glass = pal_.glass[f.type];
+        const vec3 jetCol = glassLook() == 1 ? WATER : lerp(glass * (1.f / std::max({glass.x, glass.y, glass.z, 1e-3f})), WATER, 0.25f);
+        if (f.under || m.y < layerTop(2, m.x)) {
+            // under the sea: the jet churns out as a pale plume, bubbles rising from it
+            waterLines_ += out;
+            f.acc += dt * (18.f + 40.f * pr + 60.f * blast);
+            while (f.acc >= 1.f && parts_.size() < 6000) {
+                f.acc -= 1.f;
                 Particle q{};
-                q.p = v2(f.p.x + d.x * r, f.p.y + d.y * r);
-                const float sp = rng_.range(1.5f, 4.f) * (0.6f + 0.6f * crack);
-                q.v = v2(f.v.x * 0.9f + d.x * sp, f.v.y * 0.9f + d.y * sp);
-                q.life = 3.f;
-                q.size = rng_.range(0.04f, 0.075f);
-                q.grav = 16.f; q.drag = 0.4f;
-                q.kind = P_STREAM; q.real = true; q.front = true; q.seed = rng_.uniform();
-                q.col = lerp(WATER, vec3(1.f), 0.3f);
-                const float w = f.water * 0.004f;
-                q.water = w;
-                f.spilt += 0.004f;
-                q.dir = f.p.x < 0.f ? -1.f : 1.f;
+                const bool plume = rng_.chance(0.55f);
+                const float sp = plume ? (1.5f + 5.f * pr + 3.f * blast) * rng_.range(0.7f, 1.1f) : rng_.range(0.5f, 1.5f);
+                q.p = v2(m.x + rng_.range(-0.04f, 0.04f), m.y + rng_.range(-0.04f, 0.04f));
+                q.v = v2(jd.x * sp + rng_.range(-0.4f, 0.4f), jd.y * sp + rng_.range(0.2f, 1.f));
+                if (plume) {
+                    q.life = rng_.range(0.9f, 1.6f);
+                    q.size = rng_.range(0.12f, 0.22f) * (0.7f + 0.6f * pr);
+                    q.grav = -0.6f; q.drag = 2.4f;
+                    q.kind = P_CLOUD;
+                    q.col = lerp(WATER, vec3(1.f), 0.55f);
+                } else {
+                    q.life = rng_.range(2.f, 3.5f);
+                    q.size = rng_.range(0.03f, 0.075f);
+                    q.grav = -3.5f; q.drag = 1.6f;
+                    q.kind = P_BUBBLE;
+                    q.col = vec3(0.85f, 0.93f, 1.f);
+                }
+                q.real = true; q.front = true; q.seed = rng_.uniform();
                 parts_.push_back(q);
             }
+        } else {
+            f.pend += out;
+            f.acc += dt * (70.f + 230.f * pr + 300.f * blast);
+            const int k = (int)f.acc;
+            f.acc -= (float)k;
+            for (int i = 0; i < k && parts_.size() < 6000; i++) {
+                Particle q{};
+                // most of it the jet's core; some spray around it, wider and finer
+                const bool spray = rng_.chance(0.18f + 0.3f * blast);
+                const float spread = spray ? rng_.range(-0.45f, 0.45f) * (1.f + blast) : rng_.range(-0.022f, 0.022f);
+                const float cs = std::cos(spread), sn = std::sin(spread);
+                const vec2 d = v2(jd.x * cs - jd.y * sn, jd.x * sn + jd.y * cs);
+                const float sp = (2.2f + 8.5f * pr + 4.f * blast) * (spray ? rng_.range(0.55f, 1.05f) : rng_.range(0.98f, 1.02f));
+                q.p = v2(m.x + d.x * 0.02f, m.y + d.y * 0.02f);
+                q.v = v2(d.x * sp, d.y * sp);
+                q.age = -(float)i / (float)k * dt;
+                q.life = 3.f;
+                q.size = spray ? rng_.range(0.035f, 0.06f) : rng_.range(0.085f, 0.12f) * (0.65f + 0.55f * pr + 0.3f * blast);
+                q.grav = 15.f; q.drag = spray ? 0.6f : 0.15f;
+                q.kind = P_STREAM; q.real = true; q.front = true; q.seed = rng_.uniform();
+                // the cube's own water (colored but for the clear water of look B)
+                q.col = spray ? lerp(WATER, vec3(1.f), 0.5f) : lerp(lerp(WATER, pal_.sea1, 0.12f + 0.1f * rng_.uniform()), jetCol, 0.5f);
+                q.water = f.pend / (float)k;
+                q.dir = side;
+                parts_.push_back(q);
+            }
+            if (k > 0) f.pend = 0.f;
         }
-        if (f.t >= f.breakAt) burst(f);
+        if (f.fill <= 0.f) { waterLines_ += f.pend; f.pend = 0.f; }
     }
-    flyers_.erase(std::remove_if(flyers_.begin(), flyers_.end(), [](const Flyer& f) { return f.t >= f.breakAt; }), flyers_.end());
+    flyers_.erase(std::remove_if(flyers_.begin(), flyers_.end(), [](const Flyer& f) { return f.fade >= 1.f; }), flyers_.end());
 }
 
 // A whole stack appearing at once (a board filled for a review, a game joined in progress): its sea has risen
@@ -1064,7 +1145,7 @@ void SeaUniverse::simulate(const Game& game, const MusicState& music, float dt, 
     }
     dying_.erase(std::remove_if(dying_.begin(), dying_.end(), [](const Dying& d) { return d.broken; }), dying_.end());
 
-    // The particles (a clear's shards and water at the real speed).
+    // The particles (a clear's water at the real speed, a game over's shards).
     struct Hit { float x, y; vec3 col; float power; };
     std::vector<Hit> hits;
     for (Particle& p : parts_) {
@@ -1153,10 +1234,10 @@ void SeaUniverse::simulate(const Game& game, const MusicState& music, float dt, 
 // =====================================================================================================
 
 void SeaUniverse::cube(float x, float y, float size, const vec3& col, float alpha, float rot, float fill, bool ghost, bool world, float seed,
-                       float crack) {
+                       float crack, vec2 crackP) {
     if (alpha <= 0.003f) return;
     cells_.push_back({{x, y, size, rot}, {col.x, col.y, col.z, alpha}, {ghost ? 1.f : 0.f, crack, 0.f, fill},
-                      {seed, world ? 1.f : 0.f, 0.f, 0.f}});
+                      {seed, world ? 1.f : 0.f, crackP.x, crackP.y}});
 }
 
 void SeaUniverse::sprite(float x, float y, float hx, float hy, float rot, int kind, const vec3& col, float alpha, float p0, float p1,
@@ -1183,6 +1264,7 @@ void SeaUniverse::flushCells() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, bgT_.tex);
     set1i(progCell_, "uBg", 0);
+    set1i(progCell_, "uLook", glassLook());
     glBindVertexArray(cellVao_);
     glBindBuffer(GL_ARRAY_BUFFER, cellVbo_);
     glBufferData(GL_ARRAY_BUFFER, cells_.size() * sizeof(CellInst), cells_.data(), GL_STREAM_DRAW);
@@ -1665,9 +1747,10 @@ void SeaUniverse::render(const Frame& f, GLuint fbo) {
         const vec3 c = layout::nextCenter(i);
         preview(game.next(i), v2(c.x, c.y), layout::previewScale(i), 1.f);
     }
-    // ---- The cubes flying out of a cleared row, cracking before they burst.
+    // ---- The cubes thrown out of a cleared row: flying, then on the sand, cracked and pouring out, then fading.
     for (const Flyer& fl : flyers_)
-        cube(fl.p.x, fl.p.y, 1.f, pal_.glass[fl.type], 1.f, fl.rot, C_FULL, false, true, fl.seed, smoothstepf(fl.crackAt, fl.breakAt, fl.t));
+        cube(fl.p.x, fl.p.y, 1.f, pal_.glass[fl.type], 1.f - smoothstepf(0.f, 1.f, fl.fade), fl.rot, fl.fill, false, true, fl.seed, fl.crack,
+             fl.crackP);
     flushCells();
     // ---- The bonus gauge: a round glass filling with water.
     {
