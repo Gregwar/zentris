@@ -41,7 +41,7 @@ song, and songs change universe with a transition on the beat.
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/becac93004878065dbdb2eec1a5f3ea6a91e9ded/docs/universes/garden.jpg"><br><b>GARDEN</b>: clods of earth that grow grass and flowers</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/8d4d510ae0b93552a83ed57d0608ba5dadbda54b/docs/universes/sea.jpg"><br><b>SEA</b>: glass cubes of water over a rising sea</td>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/f5b149393574b12b9a47ec4ab30cb19c21c6283f/docs/universes/sea.jpg"><br><b>SEA</b>: glass cubes of water over a rising 3D sea</td>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/8d4d510ae0b93552a83ed57d0608ba5dadbda54b/docs/universes/fluo.jpg"><br><b>FLUO</b>: fluorescent paint splashed on a dark wall, glowing under a blacklight on drops</td>
 </tr>
 <tr>
