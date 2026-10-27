@@ -45,7 +45,7 @@ song, and songs change universe with a transition on the beat.
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/b0cf907f459e5dc4f72b2b7072debf1bcaaa08a4/docs/universes/fluo.jpg"><br><b>FLUO</b>: fluorescent paint splashed on a dark wall, glowing under a blacklight on drops</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/SHA/docs/universes/prism.jpg"><br><b>PRISM</b>: glass cubes in the dark, slow beams of light, a rainbow on the drop</td>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/de7f2dce34ea2837ecf21625565fdc9911e1a247/docs/universes/prism.jpg"><br><b>PRISM</b>: glass cubes in the dark, slow beams of light, a rainbow on the drop</td>
 <td></td>
 </tr>
 </table>
