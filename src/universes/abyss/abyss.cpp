@@ -539,10 +539,12 @@ void AbyssUniverse::onEvent(const GameEvent& ev, const Game&) {
             const int n = tetris ? 10 : 8;
             for (int i = 0; i < n; i++) {
                 Bubble m;
-                m.x = p.x + rng_.range(-0.42f, 0.42f); m.y = p.y + rng_.range(-0.42f, 0.42f);
-                m.vx = rng_.range(-0.2f, 0.2f); m.vy = 0.f; m.t = 0.f; m.delay = delay + rng_.range(0.f, 0.3f);
+                // deep down, the air bursts out of the jelly: flung outward fast, braked by the water, then rising
+                const float a = rng_.range(0.f, TAU), sp = rng_.range(2.f, 5.5f);
+                m.x = p.x + rng_.range(-0.25f, 0.25f); m.y = p.y + rng_.range(-0.25f, 0.25f);
+                m.vx = std::cos(a) * sp; m.vy = std::sin(a) * sp; m.t = 0.f; m.delay = delay + rng_.range(0.f, 0.06f);
                 m.r = 0.05f + 0.17f * std::pow(rng_.uniform(), 2.f); m.seed = rng_.range(0.f, 10.f); m.type = type;
-                m.buoy = (1.6f + 9.f * m.r) * rng_.range(0.85f, 1.15f); // its rising speed: the bigger, the faster
+                m.buoy = (1.f + 6.f * m.r) * rng_.range(0.85f, 1.15f); // its rising speed: the bigger, the faster
                 bubbles_.push_back(m);
             }
         }
@@ -766,9 +768,10 @@ void AbyssUniverse::simulate(const Game& game, const MusicState& music, float dt
         for (Bubble& b : bubbles_) {
             b.t += dt;
             if (b.t < b.delay) continue;
-            b.vy += (b.buoy - b.vy) * (1.f - std::exp(-2.5f * dt));
-            b.vx += 1.2f * std::sin(b.t * (3.f + 4.f * (0.25f - b.r)) + b.seed) * dt;
-            b.vx *= std::exp(-1.5f * dt);
+            // the water brakes the burst quickly; then the bubble settles into its slow rise, wobbling
+            const float k = 1.f - std::exp(-4.f * dt);
+            b.vy += (b.buoy - b.vy) * k;
+            b.vx += -b.vx * k + 1.2f * std::sin(b.t * (3.f + 4.f * (0.25f - b.r)) + b.seed) * dt;
             b.x += b.vx * dt;
             b.y += b.vy * dt;
         }
@@ -980,7 +983,7 @@ void AbyssUniverse::buildBoard(const Game& g) {
     for (const Bubble& b : bubbles_) {
         const float t = b.t - b.delay;
         if (t < 0.f) continue;
-        const float form = smoothstepf(0.f, 0.2f, t);
+        const float form = smoothstepf(0.f, 0.08f, t);
         const float r = b.r * lerpf(0.4f, 1.f, form);
         tile(b.x, b.y, r + 0.06f, r + 0.06f, pal_.piece[std::clamp(b.type, 0, 6)], 0.55f * form, 5, b.t, b.type, 0, r, b.seed);
     }
