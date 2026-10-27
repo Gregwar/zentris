@@ -55,7 +55,7 @@ private:
     // water jets out of it under pressure (raising the sea); empty, they fade into the sand.
     enum { F_FLY = 0, F_SETTLE = 1, F_SINK = 2, F_REST = 3 };
     struct Flyer {
-        vec2 p, v, rest, land, crackP, jet;
+        vec2 p, v, rest, land, crackP, jet, nLoc;
         float rot, spin, t, T, restRot, landRot, landT, crackAt, leakAt, crack, fill, water, pend, acc, fade, seed;
         int state, type, side;
         bool under;
@@ -64,6 +64,7 @@ private:
     std::vector<float> colFree_[2]; // the places on the sand at each side of the well: when each is free again
     float landingX(int side);
     void simulateFlyers(float dt);
+    void firstContact(Flyer& f, float slope);
     int boardCount_ = 0; // the board's cubes last frame (a whole stack appearing at once: a review, a game joined)
     void watchBoard(const Game& game);
 

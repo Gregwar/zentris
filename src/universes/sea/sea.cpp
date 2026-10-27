@@ -8,10 +8,11 @@
 // the glass is nearly colorless, green-blue at its thick edges, the faces reflect the sky, the sun glints on them.
 //
 // The song starts with no sea at all, only the sand. A cleared row's cubes are thrown out of the well to their side and
-// land on the sand intact; one crack opens in each cube's glass and its water jets out of it under pressure (fine and
+// land on the sand intact; one crack opens where each first hits and its water jets out of it under pressure (fine and
 // hard at first; the level inside drops once the pressure is gone), running over the sand into the sea or, under the
-// sea already, churning out as a pale plume with bubbles. Empty, the cracked cube fades into the sand a moment later. The sea rises as that water lands, smoothly, for
-// the whole song, up to about three quarters of the well's height. The deeper it gets, the darker its depths (down to
+// sea already, churning out as a pale plume with bubbles. Empty, the cracked cube fades into the sand a moment later.
+// The sea rises as that water lands, linearly (the same for every line, about sixty to fill it), up to about three
+// quarters of the well's height. The deeper it gets, the darker its depths (down to
 // a near-black blue, a few points of light living there) and the more life it holds, in layers: small schools of fish
 // near the surface, jellyfish drifting and pulsing in the middle water, an anglerfish and siphonophores in the dark.
 // Boats sail on it once it is deep enough, bigger as it deepens: dinghies and sailboats, then fishing boats, then
@@ -806,20 +807,15 @@ void SeaUniverse::onEvent(const GameEvent& ev, const Game&) {
             fl.T = 0.7f + 0.035f * std::fabs(x - p.x) + rng_.range(0.f, 0.12f);
             const vec2 aim = v2(fl.rest.x - side * 0.2f, fl.rest.y + 0.06f);
             fl.v = v2((aim.x - p.x) / fl.T, (aim.y - p.y) / fl.T + 0.5f * 22.f * fl.T);
-            // it turns as it flies (a quarter turn more now and then)
-            fl.landRot = fl.restRot - side * rng_.range(0.25f, 0.5f);
+            // it turns as it flies (a quarter turn more now and then) and comes down at its own angle: on a corner
+            // either way, now and then nearly flat on a face
+            fl.landRot = fl.restRot + (rng_.chance(0.2f) ? rng_.range(-0.05f, 0.05f) : rng_.range(-0.6f, 0.6f));
             const float turns = (float)rng_.irange(0, 1);
             fl.spin = (fl.landRot - side * PI * 0.5f * turns) / fl.T;
-            // the crack opens as it lands, on the face turned out to sea and up; the water jets that way
-            fl.crackAt = rng_.range(0.04f, 0.14f);
-            fl.leakAt = fl.crackAt + 0.12f;
+            // the crack opens where it first hits (firstContact), at once; the water jets out of it a moment later
+            fl.crackAt = 0.f;
+            fl.leakAt = 0.06f;
             fl.jet = v2(side * 0.82f, 0.57f);
-            {
-                const float c = std::cos(-fl.restRot), s = std::sin(-fl.restRot);
-                vec2 lp = v2(c * fl.jet.x - s * fl.jet.y, s * fl.jet.x + c * fl.jet.y);
-                const float m = std::max(std::fabs(lp.x), std::fabs(lp.y));
-                fl.crackP = v2(lp.x / m * 0.33f, lp.y / m * 0.33f);
-            }
             fl.state = F_FLY;
             flyers_.push_back(fl);
         }
@@ -885,6 +881,34 @@ float SeaUniverse::landingX(int side) {
     return (float)side * (x0 + (best + 0.5f) * (x1 - x0) / n + rng_.range(-0.12f, 0.12f));
 }
 
+// Where a thrown cube first touches the ground (the sand at that slope, or the sea's surface): its lowest corner, or the
+// middle of its lowest face (a little toward the lower corner) when it comes down nearly flat. The crack opens there,
+// in the cube's frame (it turns with it), and the water jets out along the outward normal there.
+void SeaUniverse::firstContact(Flyer& f, float slope) {
+    const float a = f.rot - slope, c = std::cos(a), s = std::sin(a);
+    const vec2 K[4] = {v2(-1.f, -1.f), v2(1.f, -1.f), v2(1.f, 1.f), v2(-1.f, 1.f)};
+    int lo = 0, lo2 = 1;
+    float y0 = 1e9f, y1 = 1e9f;
+    for (int i = 0; i < 4; i++) {
+        const float y = s * K[i].x + c * K[i].y;   // height across the ground, cube's frame turned by its angle
+        if (y < y0) { y1 = y0; lo2 = lo; y0 = y; lo = i; }
+        else if (y < y1) { y1 = y; lo2 = i; }
+    }
+    vec2 pt, n;
+    if (y1 - y0 < 0.12f) {
+        // flat on a face: its middle, a little toward the corner that touched first
+        const vec2 fc = v2((K[lo].x + K[lo2].x) * 0.5f, (K[lo].y + K[lo2].y) * 0.5f);
+        pt = v2((fc.x * 0.8f + K[lo].x * 0.2f) * 0.42f, (fc.y * 0.8f + K[lo].y * 0.2f) * 0.42f);
+        n = v2(fc.x + 0.6f * (K[lo].x - fc.x), fc.y + 0.6f * (K[lo].y - fc.y));
+    } else {
+        pt = v2(K[lo].x * 0.38f, K[lo].y * 0.38f);
+        n = K[lo];
+    }
+    const float l = std::sqrt(n.x * n.x + n.y * n.y);
+    f.crackP = pt;
+    f.nLoc = v2(n.x / l, n.y / l);
+}
+
 // The cubes thrown out of a cleared row (at the real speed): they fly out and land on the sand at their side, settle;
 // a crack opens in the glass and the water jets out of it under pressure, the level inside dropping; empty, the cube
 // fades into the sand.
@@ -904,11 +928,13 @@ void SeaUniverse::simulateFlyers(float dt) {
                 f.state = F_SINK;
                 f.under = true;
                 f.landT = 0.f;
+                firstContact(f, 0.f);
             } else if (f.t >= f.T) {
                 f.state = F_SETTLE;
                 f.land = f.p;
                 f.rot = f.landRot;
                 f.landT = 0.f;
+                firstContact(f, std::atan((sandTop(f.p.x + 0.4f) - sandTop(f.p.x - 0.4f)) / 0.8f));
                 // a puff of sand where it lands
                 for (int i = 0; i < 7 && parts_.size() < 6000; i++) {
                     Particle q{};
@@ -968,6 +994,15 @@ void SeaUniverse::simulateFlyers(float dt) {
         const vec2 m = v2(f.p.x + c * f.crackP.x - s * f.crackP.y, f.p.y + s * f.crackP.x + c * f.crackP.y);
         const float pr = std::pow(before / C_FULL, 1.3f);
         const float blast = std::exp(-(f.landT - f.leakAt) * 9.f);
+        // the jet: out along the crack's outward normal, turned by the ground (from a bottom corner it sprays
+        // sideways along the sand)
+        {
+            const vec2 n = v2(c * f.nLoc.x - s * f.nLoc.y, s * f.nLoc.x + c * f.nLoc.y);
+            vec2 d = n;
+            if (!f.under && d.y < 0.2f) d = v2(d.x, 0.2f + 0.15f * std::max(0.f, -n.y));
+            const float l = std::sqrt(d.x * d.x + d.y * d.y);
+            f.jet = v2(d.x / l, d.y / l);
+        }
         const vec2 jd = f.jet;
         const vec3 glass = pal_.glass[f.type];
         const vec3 jetCol = lerp(glass * (1.f / std::max({glass.x, glass.y, glass.z, 1e-3f})), WATER, 0.25f);
