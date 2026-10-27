@@ -265,7 +265,7 @@ void main() {
         // a frosted tile tinted by its marble
         vec3 base = mix(uTileCol, c0, uTileTint);
         base *= 1.0 + 0.12 * (p.y / h);
-        float ta = uTileAlpha * 0.3;
+        float ta = uTileAlpha * 0.15;
         // what the marble sees behind it: the tile over the pane over the world
         vec3 behind = mix(bgAt(v0.xy), uPanel.rgb, uPanel.a);
         tileEnv = mix(behind, base, clamp(ta * 2.0, 0.0, 1.0)) * 0.95 + 0.015;
@@ -273,16 +273,16 @@ void main() {
         vec2 sp = (p - mo - ld * 0.11) / R;
         float sh = exp(-dot(sp, sp) * 1.6);
         base *= 1.0 - 0.5 * sh * (1.0 - uLightGround * 0.3);
-        ta = mix(ta, max(ta, 0.3), sh * 0.5);
+        ta = mix(ta, max(ta, 0.15), sh * 0.5);
         vec2 cq = (p - mo - ld * 0.35) / R;
         float caus = exp(-dot(cq, cq) * 6.0);
         base += (c0 * 0.8 + 0.1) * caus * (0.35 + 0.9 * dot(Lc, vec3(0.3, 0.5, 0.2)));
-        ta = max(ta, caus * 0.3);
+        ta = max(ta, caus * 0.15);
         // a hairline lit along the top left of the tile's edge
-        float rim = smoothstep(px * 1.8, px * 0.2, abs(d + px * 1.1));
+        float rim = smoothstep(px * 1.3, px * 0.15, abs(d + px * 1.0));
         float lit = clamp(dot(normalize(p + 1e-4), vec2(-0.7071, 0.7071)) * 0.5 + 0.5, 0.0, 1.0);
         base = mix(base, mix(mix(c0, vec3(1.0), 0.6), c0 * 0.75, uLightGround), rim * (0.25 + 0.5 * mix(lit, 1.0 - lit * 0.5, uLightGround)));
-        ta = max(ta, rim * (0.25 + 0.3 * lit));
+        ta = max(ta, rim * (0.09 + 0.11 * lit));
         // the bridge: plain squares of ink
         base = mix(base, uBridgeInk, bb);
         ta = mix(ta, 0.95, bb);

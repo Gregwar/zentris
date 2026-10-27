@@ -105,16 +105,6 @@ const VariantDef VARIANTS[] = {
      0xdfe6ff, 0xffd27a, 0xffe6b0, 0x040818, 0xe8ecff,
      {0x62c8e8, 0xf0b54a, 0x7a86f0, 0x3fa8c0, 0x2f55c8, 0xcfdcf5, 0x8fb0f0},
      0.35f, 0.16f, 0.84f, -15.5f, 7.6f, 0.95f, 1.f, 1.f, 0.f, 1.f},
-    // Dusk: a plum sky warming to apricot over aubergine hills, a low sun; the drop's light is rose gold.
-    {"DUSK", 0x241a40, 0xd08468, 0x8a5e70, 0x5e4262, 0x26182c, 0x120a16, 0xffb08a, 0x1a1224, 0x5a4060, 0xf0c0b0,
-     0xfff0e6, 0xffc88a, 0xffd8b8, 0x120e30, 0xffe2b0,
-     {0xe8a07a, 0xf6c66a, 0xc77a9a, 0xf0c8a0, 0xb8506a, 0x8a5a9a, 0x4fb8b0},
-     0.30f, 0.15f, 0.80f, 15.5f, -1.2f, 1.7f, 1.f, 0.f, 0.f, 1.f},
-    // Porcelain: a cool white studio sky over pale grey hills, saturated marbles; the drop's light is white.
-    {"PORCELAIN", 0xdfe3e8, 0xf4f5f6, 0xe4e7eb, 0xd2d8df, 0xb4bcc8, 0x949eac, 0xffffff, 0xf7f8fa, 0xc4cad2, 0xffffff,
-     0x262c34, 0x1f4fd0, 0xffffff, 0x1a2236, 0xffffff,
-     {0x5aa0e0, 0x1f3f9a, 0x6a5ab8, 0x3a8a9a, 0xc8323a, 0x2a62c8, 0x8aa0b8},
-     0.42f, 0.42f, 0.86f, 0.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.55f},
     // Sea glass: a misty teal night, a pale moon in the fog, pastel sea-glass marbles; the drop's light is cyan white.
     {"SEA GLASS", 0x0a1e24, 0x2a5056, 0x355a60, 0x1a363c, 0x0a1a1e, 0x040c0e, 0x7ac0c0, 0x08161a, 0x3a5a5e, 0xbfe8e8,
      0xe0f4f2, 0xa8fff0, 0xd8fff8, 0x061418, 0xd8f0f0,
@@ -125,11 +115,6 @@ const VariantDef VARIANTS[] = {
      0xe8e8ee, 0xffffff, 0xffffff, 0x04060e, 0xffffff,
      {0xd8e4f0, 0xff8a2a, 0x9a9aa8, 0x6a7a88, 0xff3a2a, 0x8a9ab0, 0xffc84a},
      0.25f, 0.08f, 0.88f, 0.f, 0.f, 0.f, 0.f, 0.25f, 0.f, 1.f},
-    // Noon: a blue sky over slate hills, a white sun; the drop's light is white.
-    {"NOON", 0x86aed6, 0xe2ebf2, 0xc4d4e2, 0xa4b8cc, 0x687c92, 0x48586a, 0xf4f8fc, 0xf0f4f8, 0xb0bccb, 0xffffff,
-     0x22303e, 0xe85a2a, 0xffffff, 0x182238, 0xfffaf0,
-     {0x2ab0b8, 0xe0a83a, 0xa0603a, 0xc8904a, 0xb8502a, 0x8a6a4a, 0xe8d0a0},
-     0.42f, 0.42f, 0.84f, -16.f, 7.4f, 1.0f, 1.f, 0.f, 1.f, 0.6f},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 
@@ -395,16 +380,18 @@ bool MarblesUniverse::inKeepOut(vec2 p, float r) const {
 // Song, level
 // =====================================================================================================
 
-// The place from the song: bright major songs by day (PORCELAIN, NOON), warm or mild ones at dusk or in the sea
-// glass mist, minor songs at night (MIDNIGHT, OBSIDIAN, SEA GLASS); the key's hue picks between them.
+// The night from the song (only dark skies: the light is what the marbles live by): dark minor songs in OBSIDIAN or
+// MIDNIGHT, brighter ones in the SEA GLASS mist or MIDNIGHT, and the same for major songs the other way round; the
+// key's hue picks between them.
 int MarblesUniverse::pickVariant(const SongLook& t) const {
     float h = std::fmod(t.hue / TAU, 1.f);
     if (h < 0) h += 1.f;
     int v;
+    // 0 MIDNIGHT, 1 SEA GLASS, 2 OBSIDIAN
     if (!t.hasSong) v = (int)(h * VARIANT_COUNT) % VARIANT_COUNT;
-    else if (t.minor) v = t.brightness < 0.42f ? (h < 0.5f ? 4 : 0) : (h < 0.5f ? 3 : 0);
-    else v = t.brightness > 0.6f ? (h < 0.5f ? 2 : 5) : (h < 0.5f ? 1 : 3);
-    if (v == t.avoidVariant) v = (v + 1 + (int)(t.seed % 3)) % VARIANT_COUNT;
+    else if (t.minor) v = t.brightness < 0.42f ? (h < 0.5f ? 2 : 0) : (h < 0.5f ? 1 : 0);
+    else v = t.brightness > 0.6f ? (h < 0.5f ? 1 : 0) : (h < 0.5f ? 0 : 2);
+    if (v == t.avoidVariant) v = (v + 1 + (int)(t.seed % 2)) % VARIANT_COUNT;
     return v;
 }
 
