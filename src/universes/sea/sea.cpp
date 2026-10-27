@@ -1,15 +1,16 @@
 // SEA: glass cubes of water over a sea that rises with the cleared lines.
 //
 // One world, seen from the side: a plain sky over a sea in three layers like cut paper (far, middle, near), each with
-// its own slow swell and a few glints of light, over a sandy bed. Every cell of a piece is its own small glass cube
-// holding colored water (an air gap under the lid), with a gap to its neighbours: four cubes per piece. Thin walls,
-// mostly transparent: the scene behind shows through (a copy of the scene drawn so far, bent through the water), crisp
-// thin rims, a small glint; the water's surface stays level in the world. Three looks (ZEN_SEA_LOOK=A|B|C).
+// its own slow swell and a few glints of light, over a sandy bed. Every cell of a piece is its own small solid glass
+// cube full to the brim with colored water, under pressure, seen in a slight three-quarter view (its top and the side
+// toward the well's middle showing), with a gap to its neighbours: four cubes per piece. Each pixel follows its ray
+// through the glass and the water, refracted at every face, to the scene behind (a copy of the scene drawn so far);
+// the glass is nearly colorless, green-blue at its thick edges, the faces reflect the sky, the sun glints on them.
 //
 // The song starts with no sea at all, only the sand. A cleared row's cubes are thrown out of the well to their side and
-// land on the sand intact; one crack opens in each cube's glass and its water jets out of it under pressure (the level
-// inside dropping), running over the sand into the sea or, under the sea already, churning out as a pale plume with
-// bubbles. Empty, the cracked cube fades into the sand a moment later. The sea rises as that water lands, smoothly, for
+// land on the sand intact; one crack opens in each cube's glass and its water jets out of it under pressure (fine and
+// hard at first; the level inside drops once the pressure is gone), running over the sand into the sea or, under the
+// sea already, churning out as a pale plume with bubbles. Empty, the cracked cube fades into the sand a moment later. The sea rises as that water lands, smoothly, for
 // the whole song, up to about three quarters of the well's height. The deeper it gets, the darker its depths (down to
 // a near-black blue, a few points of light living there) and the more life it holds, in layers: small schools of fish
 // near the surface, jellyfish drifting and pulsing in the middle water, an anglerfish and siphonophores in the dark.
@@ -80,28 +81,18 @@ float hashf(float a, float b) {
 }
 
 constexpr float WELL_X = 5.1f;
-// the sea's level: the near layer's base. The sea starts empty, under the sand (its far layer below the lowest dune),
-// and rises as water falls in, up to about three quarters of the well's height
-constexpr float SEA_LOW = -12.6f, SEA_HIGH = 5.0f;
-// deep enough for boats: the near layer above the highest dune
+// the sea's level: the near layer's base. The sea starts empty, under the sand (its far layer just below the lowest
+// dune, so the first water shows), and rises as water falls in, up to about three quarters of the well's height
+constexpr float SEA_LOW = -11.6f, SEA_HIGH = 5.0f;
+// deep enough for every boat: the near layer above the highest dune (the first small ones sail out on the far layer
+// before that, as soon as it is above the dunes)
 constexpr float BOAT_LEVEL = -8.3f;
-// how many poured lines raise the sea about two thirds of the way (most of a song's lines to fill it)
-constexpr float SEA_LINES = 14.f;
+// how many poured lines fill the sea: it rises linearly, every line by the same amount (a Tetris pours 1.5 per line)
+constexpr float SEA_FULL_LINES = 60.f;
 // the sandy bed's mean height (sandTop)
 constexpr float SAND_Y = -9.35f;
-// how full the cubes are (an air gap under the lid, so the water's surface shows)
-constexpr float C_FULL = 0.7f;
-// The glass's look, chosen with ZEN_SEA_LOOK: A (0) clear glass holding colored water, B (1) tinted glass holding clear
-// water, C (2, the default) clear glass with a colored rim holding colored water lit from within.
-int glassLook() {
-    static const int look = [] {
-        const char* e = std::getenv("ZEN_SEA_LOOK");
-        if (!e || !*e) return 2;
-        const char c = (char)(*e | 0x20);
-        return c == 'a' ? 0 : c == 'b' ? 1 : 2;
-    }();
-    return look;
-}
+// how full the cubes are: to the brim, under pressure
+constexpr float C_FULL = 1.f;
 // clear water, almost colorless (linear)
 const vec3 WATER{0.74f, 0.86f, 0.95f};
 // the layers (WAVE_GLSL's L_OFF, L_AMP, L_FRQ, L_SPD)
@@ -122,7 +113,7 @@ struct VariantDef {
     unsigned hull, super_, sail, baccent, window, cont0, cont1, cont2;
     unsigned ink, accent, dusk;
     unsigned piece[7];
-    unsigned glass[7];
+    unsigned glass[7];  // (unused: the cubes hold the sea's own water, seaWater)
     float sunX, sunY, sunR, moon, stars, panelA, clouds, lightPanel, night;
 };
 const VariantDef VARIANTS[] = {
@@ -165,6 +156,37 @@ using Palette = SeaUniverse::Palette;
 static_assert(sizeof(Palette) % sizeof(float) == 0, "a palette is floats only");
 constexpr int PAL_FLOATS = (int)(sizeof(Palette) / sizeof(float));
 
+// The cubes' water: the sea's own color (its near layer's hue, a little more saturated, light), each piece type a
+// small shift around it (hue, brightness, saturation) so the pieces stay apart in the stack and what pours out of
+// them is the sea's water.
+vec3 seaWater(unsigned seaHex, int type) {
+    const vec3 c = hex(seaHex);
+    const float mx = std::max({c.x, c.y, c.z}), mn = std::min({c.x, c.y, c.z}), dl = mx - mn;
+    float h = 0.f;
+    if (dl > 1e-5f) {
+        if (mx == c.x) h = std::fmod((c.y - c.z) / dl + 6.f, 6.f);
+        else if (mx == c.y) h = (c.z - c.x) / dl + 2.f;
+        else h = (c.x - c.y) / dl + 4.f;
+    }
+    h *= 60.f;
+    const float sat = mx > 1e-5f ? dl / mx : 0.f;
+    //                              hue shift (degrees), brightness, saturation
+    static const float SH[7][3] = {{0.f, 1.f, 1.f},     {-18.f, 0.84f, 1.12f}, {18.f, 1.1f, 0.88f}, {-9.f, 1.16f, 0.72f},
+                                   {9.f, 0.78f, 1.2f},  {-20.f, 1.14f, 0.85f}, {20.f, 0.86f, 1.16f}};
+    const float hh = std::fmod(h + SH[type][0] + 360.f, 360.f) / 60.f;
+    const float S = std::clamp(std::clamp(sat, 0.45f, 0.75f) * SH[type][2], 0.f, 1.f);
+    const float V = std::clamp(0.82f * SH[type][1], 0.f, 1.f);
+    const float C = V * S, X = C * (1.f - std::fabs(std::fmod(hh, 2.f) - 1.f)), m = V - C;
+    vec3 r;
+    if (hh < 1.f) r = vec3(C, X, 0.f);
+    else if (hh < 2.f) r = vec3(X, C, 0.f);
+    else if (hh < 3.f) r = vec3(0.f, C, X);
+    else if (hh < 4.f) r = vec3(0.f, X, C);
+    else if (hh < 5.f) r = vec3(X, 0.f, C);
+    else r = vec3(C, 0.f, X);
+    return ugl::toLinear(vec3(r.x + m, r.y + m, r.z + m));
+}
+
 Palette paletteOf(int v) {
     const VariantDef& d = VARIANTS[((v % VARIANT_COUNT) + VARIANT_COUNT) % VARIANT_COUNT];
     auto L = [](unsigned c) { return ugl::toLinear(hex(c)); };
@@ -176,7 +198,7 @@ Palette paletteOf(int v) {
     p.cont0 = L(d.cont0); p.cont1 = L(d.cont1); p.cont2 = L(d.cont2);
     p.ink = L(d.ink); p.accent = L(d.accent); p.dusk = L(d.dusk);
     for (int i = 0; i < 7; i++) p.piece[i] = L(d.piece[i]);
-    for (int i = 0; i < 7; i++) p.glass[i] = L(d.glass[i]);
+    for (int i = 0; i < 7; i++) p.glass[i] = seaWater(d.sea2, i);
     p.sunX = d.sunX; p.sunY = d.sunY; p.sunR = d.sunR; p.moon = d.moon; p.stars = d.stars; p.panelA = d.panelA;
     p.clouds = d.clouds; p.lightPanel = d.lightPanel; p.night = d.night;
     return p;
@@ -422,7 +444,7 @@ static float sandTop(float x) {
     return -9.35f + 0.55f * std::sin(x * 0.21f + 1.3f) + 0.3f * std::sin(x * 0.53f + 0.4f) + 0.1f * std::sin(x * 1.37f + 2.f);
 }
 
-float SeaUniverse::riseTarget() const { return 1.f - std::exp(-waterLines_ / SEA_LINES); }
+float SeaUniverse::riseTarget() const { return std::min(1.f, waterLines_ / SEA_FULL_LINES); }
 float SeaUniverse::seaLevel() const { return lerpf(SEA_LOW, SEA_HIGH, rise_); }
 float SeaUniverse::seaSpread() const { return 1.f + 0.3f * rise_; }
 
@@ -458,6 +480,7 @@ bool SeaUniverse::spawnBoat(bool onScreen) {
     if (type >= 3) layer = rng_.chance(0.6f) ? 0 : 1;      // big ships stay out at sea
     else if (type == 2) layer = rng_.irange(0, 2);
     else layer = rng_.chance(0.3f) ? 0 : rng_.irange(1, 2);
+    if (seaLevel() < BOAT_LEVEL) layer = 0;                 // still shallow: only out at sea, over the dunes
     Boat b;
     b.type = type;
     b.layer = layer;
@@ -946,7 +969,7 @@ void SeaUniverse::simulateFlyers(float dt) {
         const float blast = std::exp(-(f.landT - f.leakAt) * 9.f);
         const vec2 jd = f.jet;
         const vec3 glass = pal_.glass[f.type];
-        const vec3 jetCol = glassLook() == 1 ? WATER : lerp(glass * (1.f / std::max({glass.x, glass.y, glass.z, 1e-3f})), WATER, 0.25f);
+        const vec3 jetCol = lerp(glass * (1.f / std::max({glass.x, glass.y, glass.z, 1e-3f})), WATER, 0.25f);
         if (f.under || m.y < layerTop(2, m.x)) {
             // under the sea: the jet churns out as a pale plume, bubbles rising from it
             waterLines_ += out;
@@ -982,7 +1005,7 @@ void SeaUniverse::simulateFlyers(float dt) {
             for (int i = 0; i < k && parts_.size() < 6000; i++) {
                 Particle q{};
                 // most of it the jet's core; some spray around it, wider and finer
-                const bool spray = rng_.chance(0.18f + 0.3f * blast);
+                const bool spray = rng_.chance(0.16f + 0.2f * pr + 0.3f * blast);
                 const float spread = spray ? rng_.range(-0.45f, 0.45f) * (1.f + blast) : rng_.range(-0.022f, 0.022f);
                 const float cs = std::cos(spread), sn = std::sin(spread);
                 const vec2 d = v2(jd.x * cs - jd.y * sn, jd.x * sn + jd.y * cs);
@@ -991,7 +1014,7 @@ void SeaUniverse::simulateFlyers(float dt) {
                 q.v = v2(d.x * sp, d.y * sp);
                 q.age = -(float)i / (float)k * dt;
                 q.life = 3.f;
-                q.size = spray ? rng_.range(0.035f, 0.06f) : rng_.range(0.085f, 0.12f) * (0.65f + 0.55f * pr + 0.3f * blast);
+                q.size = spray ? rng_.range(0.035f, 0.06f) : rng_.range(0.065f, 0.09f) * (0.8f + 0.5f * (1.f - pr));
                 q.grav = 15.f; q.drag = spray ? 0.6f : 0.15f;
                 q.kind = P_STREAM; q.real = true; q.front = true; q.seed = rng_.uniform();
                 // the cube's own water (colored but for the clear water of look B)
@@ -1013,8 +1036,8 @@ void SeaUniverse::watchBoard(const Game& g) {
     int n = 0;
     for (int y = 0; y < Game::H; y++)
         for (int x = 0; x < Game::W; x++) n += g.cell(x, y).type >= 0;
-    if (n - boardCount_ >= 12 && waterLines_ < 24.f) {
-        waterLines_ = 24.f;
+    if (n - boardCount_ >= 12 && waterLines_ < 48.f) {
+        waterLines_ = 48.f;
         rise_ = riseTarget();
         boats_.clear();
         for (int i = 0; i < 4; i++) spawnBoat(true);
@@ -1111,7 +1134,7 @@ void SeaUniverse::simulate(const Game& game, const MusicState& music, float dt, 
 
     // Boats: a few out at sea, more in a chorus, sailing slowly; they keep coming as long as the world is there.
     {
-        const bool afloat = seaLevel() >= BOAT_LEVEL;
+        const bool afloat = seaLevel() + L_OFF[0] * seaSpread() >= BOAT_LEVEL;
         const int want = !afloat ? 0 : (int)(3.f + 1.f * wp + 2.f * rise_);
         boatT_ -= wdt;
         if ((int)boats_.size() < want && boatT_ <= 0.f && world > 0.5f) {
@@ -1264,7 +1287,18 @@ void SeaUniverse::flushCells() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, bgT_.tex);
     set1i(progCell_, "uBg", 0);
-    set1i(progCell_, "uLook", glassLook());
+    set2f(progCell_, "uSunP", pal_.sunX, pal_.sunY);
+    set3f(progCell_, "uSunCol", pal_.sun);
+    set3f(progCell_, "uSkyTop", pal_.skyTop);
+    set3f(progCell_, "uSkyLow", pal_.skyLow);
+    set1f(progCell_, "uNight", pal_.night);
+    // the cubes are seen a little from above and from the well's middle: each one's top and inner side lie behind
+    // its neighbours above and toward the middle, so those are drawn after it (bottom row first, outer ones first)
+    std::stable_sort(cells_.begin(), cells_.end(), [](const CellInst& a, const CellInst& b) {
+        const float ra = std::round(a.a0[1] * 4.f), rb = std::round(b.a0[1] * 4.f);
+        if (ra != rb) return ra < rb;
+        return std::fabs(a.a0[0]) > std::fabs(b.a0[0]);
+    });
     glBindVertexArray(cellVao_);
     glBindBuffer(GL_ARRAY_BUFFER, cellVbo_);
     glBufferData(GL_ARRAY_BUFFER, cells_.size() * sizeof(CellInst), cells_.data(), GL_STREAM_DRAW);

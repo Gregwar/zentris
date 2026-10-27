@@ -416,28 +416,36 @@ void main() {
 )";
 
 // ---------------------------------------------------------------- the glass cubes of water
-// One instance per cell: every cell is a small glass vessel holding water, with a gap to its neighbours. Thin walls,
-// mostly transparent: what is behind shows through (a copy of the scene drawn so far, bent a little through the
-// water), crisp thin rims, a small glint; the water a visible body with its surface level in the world whatever the
-// cube's angle (a bright meniscus). Three looks (uLook): 0 clear glass holding colored water, 1 tinted glass holding
-// clear water, 2 clear glass with a colored rim holding lightly tinted water, lit from within. A cracked cube shows one
-// crack (a few jagged lines from a point) where its water leaks out.
+// One instance per cell: every cell is a small solid glass cube full of water, seen in a slight three-quarter view (its
+// front face on the cell, its top and the side turned to the well's middle showing: one camera above the well's
+// middle, orthographic, so the stack stays a clean grid; sea.cpp draws them bottom row first, the outer ones first).
+// Each pixel follows its ray through the cube: into the glass (a rounded box with thick walls, bulging a hair under
+// the water's pressure), into the water, out of the water, out of the glass, each time refracted; what it then meets
+// is the scene behind (a copy of the scene drawn so far), shifted by the whole path. The glass is nearly colorless,
+// green-blue where the path through it is long (its edges); the water carries the color, deeper the longer the path
+// through it. The faces reflect the sky by Fresnel (the top face most), with a sharp highlight of the sun (or the
+// moon); a ray caught by total internal reflection at the edges goes dark or mirrors the sky. Light focused through the
+// water plays on the cube's bottom. A cube full is full to the brim; once cracked and past its pressure, its level
+// drops. A cracked cube shows one crack (a few jagged lines from a point) where its water leaks out.
 inline const char* CELL_VS = R"(#version 330 core
 layout(location = 0) in vec2 aQ;
 layout(location = 1) in vec4 a0;   // x, y, size, rotation
-layout(location = 2) in vec4 a1;   // linear rgb (the piece's color), alpha
+layout(location = 2) in vec4 a1;   // linear rgb (the water's color), alpha
 layout(location = 3) in vec4 a2;   // ghost, crack, -, fill
-layout(location = 4) in vec4 a3;   // seed, in the world (sand, sea), the crack's point (the cube's frame)
+layout(location = 4) in vec4 a3;   // seed, in the world (sand, sea), the crack's point (the front face's frame)
 uniform mat4 uVP;
 out vec2 vP;
 out vec2 vW;
 flat out vec4 v0, v1, v2, v3;
+flat out vec3 vD;
 void main() {
-    vP = aQ * 0.5;
+    vP = aQ * 0.75;                       // the quad covers the front face and the top and side behind it
     v0 = a0; v1 = a1; v2 = a2; v3 = a3;
     float c = cos(a0.w), s = sin(a0.w);
     vec2 d = vP * a0.z;
     vW = a0.xy + vec2(c * d.x - s * d.y, s * d.x + c * d.y);
+    // the view: from above the well's middle, a little from above, more from the side the farther out
+    vD = normalize(vec3(clamp(a0.x * 0.045, -0.3, 0.3), -0.27, -1.0));
     gl_Position = uVP * vec4(vW, 0.0, 1.0);
 }
 )";
@@ -445,22 +453,80 @@ inline const char* CELL_FS = R"(#version 330 core
 in vec2 vP;
 in vec2 vW;
 flat in vec4 v0, v1, v2, v3;
+flat in vec3 vD;
 out vec4 frag;
 uniform sampler2D uBg;          // the scene behind (encoded)
-uniform vec2 uRes;
-uniform float uPx, uTime, uBridge, uLightPanel, uSlow;
-uniform int uLook;
-uniform vec3 uBridgeInk, uSea2, uDeep, uDusk;
+uniform vec2 uRes, uSunP;
+uniform float uPx, uTime, uBridge, uLightPanel, uSlow, uNight;
+uniform vec3 uBridgeInk, uSea2, uDeep, uDusk, uSkyTop, uSkyLow, uSunCol;
 const float H = 0.44;    // the cube's half size (a gap of 0.12 between neighbours)
-const float R = 0.05;    // its rounded corners
-const float WT = 0.03;   // the glass's thickness
-float rbox(vec2 p, vec2 h, float r) {
-    vec2 q = abs(p) - h + r;
-    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+const float RO = 0.06;   // its rounded edges
+const float WT = 0.06;   // the glass's thickness
+const float RI = 0.02;   // the water's rounded corners
+float bul;               // the bulge under pressure
+float sdBox(vec3 p, vec3 b, float r) {
+    vec3 q = abs(p) - b + r;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+}
+float bulge(vec3 p, float h) {
+    vec3 a = clamp(abs(p) / h, 0.0, 1.0);
+    vec3 c = 1.0 - a * a;
+    return c.x * c.y + c.y * c.z + c.x * c.z;
+}
+float sdOut(vec3 p) { return sdBox(p, vec3(H), RO) - bul * bulge(p, H); }
+float sdIn(vec3 p) { return sdBox(p, vec3(H - WT), RI) - bul * bulge(p, H - WT); }
+vec3 nOut(vec3 p) {
+    const vec2 k = vec2(1.0, -1.0) * 0.0015;
+    return normalize(k.xyy * sdOut(p + k.xyy) + k.yyx * sdOut(p + k.yyx) + k.yxy * sdOut(p + k.yxy) + k.xxx * sdOut(p + k.xxx));
+}
+vec3 nIn(vec3 p) {
+    const vec2 k = vec2(1.0, -1.0) * 0.0015;
+    return normalize(k.xyy * sdIn(p + k.xyy) + k.yyx * sdIn(p + k.yyx) + k.yxy * sdIn(p + k.yxy) + k.xxx * sdIn(p + k.xxx));
+}
+// from inside a box, how far along d to its surface
+float exitOut(vec3 p, vec3 d) {
+    float t = 0.002;
+    for (int i = 0; i < 40; i++) {
+        float s = -sdOut(p + d * t);
+        if (s < 0.0005) break;
+        t += max(s, 0.001);
+    }
+    return t;
+}
+float exitIn(vec3 p, vec3 d) {
+    float t = 0.002;
+    for (int i = 0; i < 40; i++) {
+        float s = -sdIn(p + d * t);
+        if (s < 0.0005) break;
+        t += max(s, 0.001);
+    }
+    return t;
+}
+// from outside the water (in the glass), how far along d to the water (or a miss: beyond tMax)
+float enterIn(vec3 p, vec3 d, float tMax) {
+    float t = 0.002;
+    for (int i = 0; i < 40; i++) {
+        float s = sdIn(p + d * t);
+        if (s < 0.0005) return t;
+        t += s;
+        if (t > tMax) break;
+    }
+    return 1e9;
 }
 vec3 bgAt(vec2 offBoard) {
     vec2 uv = (gl_FragCoord.xy + offBoard / uPx) / uRes;
     return pow(texture(uBg, clamp(uv, vec2(0.001), vec2(0.999))).rgb, vec3(2.2));
+}
+float rotS, rotC;
+vec2 toWorld(vec2 v) { return vec2(rotC * v.x - rotS * v.y, rotS * v.x + rotC * v.y); }
+vec3 sunDir;   // local
+// the sky (and the sea below the horizon) seen in a direction (local)
+vec3 env(vec3 r) {
+    vec3 w = vec3(toWorld(r.xy), r.z);
+    vec3 sky = mix(uSkyLow, uSkyTop, smoothstep(0.0, 0.7, w.y));
+    vec3 sea = mix(uSkyLow * 0.7, uSea2 * 0.5, smoothstep(0.0, -0.4, w.y));
+    vec3 c = w.y > 0.0 ? sky : sea;
+    return c + uSunCol * pow(max(dot(r, sunDir), 0.0), 900.0) * 6.0;
 }
 // one crack: a few jagged lines from its point, growing with `crk` (0..1), a small star of crushed glass at the point
 float crackAt(vec2 p, vec2 o, float crk, float seed, float px) {
@@ -479,95 +545,133 @@ float crackAt(vec2 p, vec2 o, float crk, float seed, float px) {
     float star = smoothstep(0.035 * crk + px, 0.0, r) * 0.8;
     return clamp(max(line, star), 0.0, 1.0);
 }
+vec3 sort3(vec3 a) {
+    float lo = min(a.x, min(a.y, a.z)), hi = max(a.x, max(a.y, a.z));
+    return vec3(lo, a.x + a.y + a.z - lo - hi, hi);
+}
 void main() {
     float size = v0.z;
     float px = uPx / size;
-    vec2 p = vP;
-    float dg = rbox(p, vec2(H), R);
-    float cover = smoothstep(px, -px, dg);
-    if (cover <= 0.0) discard;
     bool lightP = uLightPanel > 0.5;
     bool world = v3.y > 0.5;
     vec3 tint = v1.rgb;
     float seed = v3.x;
+    float crk = v2.y;
+    float fill = v2.w;
+    rotC = cos(v0.w); rotS = sin(v0.w);
+    // the view and the sun in the cube's frame
+    vec3 D = normalize(vec3(rotC * vD.x + rotS * vD.y, -rotS * vD.x + rotC * vD.y, vD.z));
+    vec2 sl = uSunP - v0.xy;
+    vec3 Lw = normalize(vec3(sl, 9.0));
+    sunDir = normalize(vec3(rotC * Lw.x + rotS * Lw.y, -rotS * Lw.x + rotC * Lw.y, Lw.z));
+    // under pressure the walls bulge a hair; it goes once the crack has let enough out
+    float pressure = crk > 0.001 ? clamp((fill - 0.5) / 0.5, 0.0, 1.0) : 1.0;
+    bul = 0.012 * pressure;
+    // ---- the ray: the pixel is where it crosses the front face's plane
+    vec3 o = vec3(vP, H) - D * 0.8;
+    float t = 0.0, md = 1e9;
+    bool hit = false;
+    for (int i = 0; i < 40; i++) {
+        float s = sdOut(o + D * t);
+        md = min(md, s);
+        if (s < 0.0004) { hit = true; break; }
+        t += s;
+        if (t > 2.6) break;
+    }
+    float cover = hit ? 1.0 : smoothstep(px, 0.0, md);
+    if (cover <= 0.0) discard;
+    vec3 p1 = o + D * t;
+    vec3 n1 = nOut(p1);
     if (v2.x > 0.5) {
-        // the ghost: the cube's outline only, faint
-        float o = smoothstep(px * 1.6, 0.0, abs(dg));
-        vec3 ec = lightP ? tint * 0.4 : mix(tint, vec3(1.0), 0.6);
-        frag = vec4(enc(mix(ec, uBridgeInk, uBridge)), (o * 0.6 + 0.04) * cover * v1.a);
+        // the ghost: the cube's edges only, faint
+        vec3 a = sort3(abs(p1));
+        float edge = smoothstep(px * 2.5 + RO * 0.5, RO * 0.3, H - a.y);
+        vec3 ec = lightP ? tint * 0.45 : mix(tint, vec3(1.0), 0.6);
+        frag = vec4(enc(mix(ec, uBridgeInk, uBridge)), (edge * 0.6 + 0.05) * cover * v1.a);
         return;
     }
-    float rot = v0.w;
-    float cr = cos(rot), sr = sin(rot);
-    float e = -dg;                                  // depth inside the glass
-    float di = dg + WT;                             // the inside
-    float cav = smoothstep(px, -px, di);
-    // ---- the water: its surface level in the world, whatever the cube's angle
-    vec2 wp = vec2(cr * p.x - sr * p.y, sr * p.x + cr * p.y);
-    float hi = H - WT;
-    float ey = (abs(cr) + abs(sr)) * hi;
-    float fill = v2.w;
-    float level = -ey + 2.0 * ey * fill;
-    float lvl = level + 0.02 * exp(max(di, -0.2) / 0.015);   // the meniscus climbing the walls a little
-    float wet = fill > 0.002 ? smoothstep(px, -px, wp.y - lvl) * cav : 0.0;
-    float depthN = clamp((lvl - wp.y) / max(2.0 * ey, 0.01), 0.0, 1.0); // 0 at the surface .. 1 at the bottom
-    // ---- what is seen through it: straight through the air, bent through the water (a lens: magnified, flipped)
-    vec2 wpB = wp * size;
-    vec3 bgA = bgAt(vec2(0.0));
-    vec3 bgW = bgAt(-vec2(wpB.x * 0.45, wpB.y * 0.15));
-    vec3 col;
-    vec3 rimC;
-    // the color as a filter (its brightest channel at 1): what is seen through keeps its light, takes the color
-    vec3 tN = tint / max(max(tint.r, tint.g), max(tint.b, 1e-3));
-    vec3 glow = mix(tint, vec3(1.0), 0.25);          // on a dark panel the water gives a little light of its own
-    vec3 air = bgA * 0.985 + (lightP ? vec3(0.0) : vec3(0.012) + tint * 0.035);
-    if (uLook == 0) {
-        // clear glass, colored water
-        vec3 water = bgW * mix(vec3(1.0), tN, 0.78) * (1.0 - 0.22 * depthN) + glow * (lightP ? 0.0 : 0.4);
-        col = mix(air, water, wet);
-        rimC = lightP ? mix(tint, vec3(0.08), 0.3) : mix(tint, vec3(1.0), 0.7);
-    } else if (uLook == 1) {
-        // tinted glass, clear water: the whole cube filtered by the glass, the water a little deeper and bluer
-        vec3 gT = mix(vec3(1.0), tN, 0.5);
-        vec3 water = bgW * gT * vec3(0.84, 0.92, 1.0) * (1.0 - 0.15 * depthN) + glow * (lightP ? 0.0 : 0.2);
-        col = mix(air * gT + glow * (lightP ? 0.0 : 0.1), water, wet);
-        rimC = lightP ? tint * 0.6 : mix(tint, vec3(1.0), 0.45);
-    } else {
-        // clear glass with a colored rim, colored water lit from within: paler under its surface where the light comes
-        // in, deeper below, a soft moving caustic on the bottom
-        vec3 water = bgW * mix(vec3(1.0), tN, mix(0.5, 0.9, depthN)) + glow * (lightP ? 0.0 : 0.3 + 0.15 * depthN);
-        water += mix(tint, vec3(1.0), 0.75) * (lightP ? 0.08 : 0.1) * smoothstep(0.12, 0.0, depthN);
-        float caus = vnoise(wp * 7.0 + vec2(uTime * 0.25, seed)) * vnoise(wp * 5.0 - vec2(uTime * 0.2, seed * 0.5) + 3.0);
-        water += mix(tint, vec3(1.0), 0.6) * smoothstep(0.25, 0.55, caus) * 0.14 * smoothstep(0.5, 1.0, depthN);
-        col = mix(air, water, wet);
-        rimC = lightP ? mix(tint, vec3(0.05), 0.2) : mix(tint, vec3(1.0), 0.5);
+    // ---- in through the glass
+    float cosI = clamp(dot(-D, n1), 0.0, 1.0);
+    float F = 0.04 + 0.96 * pow(1.0 - cosI, 5.0);
+    vec3 refl = reflect(D, n1);
+    vec3 d = refract(D, n1, 1.0 / 1.5);
+    float glassLen = 0.0, waterLen = 0.0;
+    bool tir = false;
+    vec3 p = p1;
+    float tOut = exitOut(p, d);
+    float tW = enterIn(p, d, tOut);
+    vec3 nBottom = vec3(0.0);
+    vec3 pW = vec3(0.0);
+    if (tW < tOut) {
+        glassLen += tW;
+        p += d * tW;
+        vec3 n2 = nIn(p);
+        vec3 d2 = refract(d, n2, 1.5 / 1.33);
+        if (dot(d2, d2) < 0.5) d2 = reflect(d, n2);
+        // through the water (to its level, if it has one)
+        float tE = exitIn(p, d2);
+        vec3 p3 = p + d2 * tE;
+        float wl = min(1.0, fill / 0.5);
+        if (wl >= 0.999) waterLen = tE;
+        else {
+            vec3 up = vec3(rotS, rotC, 0.0);
+            float hi = H - WT;
+            float ey = (abs(up.x) + abs(up.y)) * hi;
+            float lvl = -ey + 2.0 * ey * wl;
+            float s2 = dot(p, up) - lvl, s3 = dot(p3, up) - lvl;
+            float k = (s2 < 0.0 && s3 < 0.0) ? 1.0 : (s2 >= 0.0 && s3 >= 0.0) ? 0.0
+                    : clamp((s2 < 0.0 ? -s2 : -s3) / max(abs(s2 - s3), 1e-4), 0.0, 1.0);
+            waterLen = tE * (wl > 0.001 ? k : 0.0);
+        }
+        vec3 n3 = nIn(p3);
+        nBottom = n3; pW = p3;
+        d = refract(d2, -n3, 1.33 / 1.5);
+        if (dot(d, d) < 0.5) d = reflect(d2, -n3);
+        p = p3;
+        tOut = exitOut(p, d);
     }
-    // the meniscus: a crisp bright line
-    if (fill > 0.002 && fill < 0.999) {
-        float dl = wp.y - lvl;
-        float line = smoothstep(px * 1.5, 0.0, abs(dl)) * cav;
-        col = mix(col, vec3(1.0), line * (lightP ? 0.7 : 0.8));
+    glassLen += tOut;
+    p += d * tOut;
+    vec3 n4 = nOut(p);
+    vec3 d4 = refract(d, -n4, 1.5);
+    if (dot(d4, d4) < 0.5) { tir = true; d4 = reflect(d, -n4); }
+    // ---- what it meets behind: the scene, shifted by the whole path
+    const float ZB = 2.2;
+    vec3 dd = d4;
+    if (tir) dd.z = -abs(dd.z);
+    dd.z = min(dd.z, -0.25);
+    dd = normalize(dd);
+    vec3 q = p + dd * ((-ZB - p.z) / dd.z);
+    vec3 q0 = o + D * ((-ZB - o.z) / D.z);
+    vec2 off = q.xy - q0.xy;
+    off *= min(1.0, 1.1 / max(length(off), 1e-4));
+    vec3 behind = bgAt(toWorld(off) * size);
+    // caught inside at an edge: it mirrors the cube's own lit water and the sky (bright edges, not dark)
+    if (tir) behind = behind * 0.3 + env(d4) * 0.3 + tint * (lightP ? 0.12 : 0.3);
+    // ---- the colors along the way: green-blue glass where it is thick, the water's own color the deeper through it
+    vec3 tN = clamp(tint / 0.75, vec3(0.02), vec3(1.0));   // a darker water absorbs more
+    vec3 Tg = exp(-glassLen * vec3(0.75, 0.16, 0.3));
+    vec3 Tw = pow(tN, vec3(waterLen * 0.85));
+    vec3 col = behind * Tg * Tw;
+    // the water glows a little (light scattered in it; more on a dark scene, where it carries the color)
+    col += tint * waterLen * (lightP ? 0.02 : 0.1 + 0.04 * uNight);
+    // light focused through the water onto the cube's bottom: a soft moving caustic
+    if (nBottom.y < -0.7 && waterLen > 0.0) {
+        vec2 cq = pW.xz * 3.2;
+        float caus = vnoise(cq + vec2(uTime * 0.3, seed)) * vnoise(cq * 1.3 - vec2(uTime * 0.25, seed * 0.7) + 5.0);
+        col += mix(tint, vec3(1.0), 0.6) * smoothstep(0.15, 0.45, caus) * (lightP ? 0.3 : 0.3) * Tw * Tg;
     }
-    // ---- the thin walls: a crisp outer rim, a fainter inner line, both brighter toward the light (upper left)
-    vec2 nS = normalize(vec2(dFdx(dg), dFdy(dg)) + 1e-6);
-    vec2 nL = vec2(cr * nS.x + sr * nS.y, -sr * nS.x + cr * nS.y);
-    float facing = 0.55 + 0.45 * smoothstep(-0.5, 0.8, dot(nL, normalize(vec2(-0.6, 0.8))));
-    float wall = 1.0 - cav;
-    col = mix(col, rimC, wall * 0.85 * (lightP ? 1.0 : facing));
-    float outer = smoothstep(px * 1.3, 0.0, abs(e - px * 0.5));
-    col = mix(col, lightP ? rimC * 0.85 : mix(rimC, vec3(1.0), 0.5), outer * 0.9);
-    float innerL = smoothstep(px * 1.2, 0.0, abs(di));
-    col = mix(col, mix(rimC, vec3(1.0), lightP ? 0.6 : 0.4), innerL * 0.45 * facing);
-    // ---- a glint: a small sharp reflection at the upper left corner, a soft faint sheen across the face
-    vec2 g = p - vec2(-H + 0.1, H - 0.1);
-    float glint = smoothstep(px * 1.3, 0.0, abs(g.x + g.y) * 0.7071 - 0.004) * smoothstep(0.07, 0.03, length(g)) ;
-    float sheen = smoothstep(0.16, 0.0, abs((p.x + p.y) * 0.7071 + 0.12)) * (lightP ? 0.07 : 0.04);
-    col = mix(col, vec3(1.0), clamp(glint * 0.9 + sheen, 0.0, 1.0) * cav);
-    // ---- the crack, where the water leaks out
-    float crk = v2.y;
-    if (crk > 0.001) {
-        float c = crackAt(p, v3.zw, crk, seed, px);
-        float cd = crackAt(p + vec2(px * 1.4, -px * 1.4), v3.zw, crk, seed, px);
+    // ---- the surface: the sky reflected (Fresnel), the sun's sharp highlight
+    vec3 rc = env(refl);
+    // on a dark scene the glass still catches some light at its edges (the harbor's lights, the moon's sky)
+    if (!lightP) rc += mix(uSkyLow, vec3(1.0), 0.5) * 0.35;
+    col = mix(col, rc, F);
+    float spec = pow(max(dot(refl, sunDir), 0.0), 220.0);
+    col += uSunCol * spec * (lightP ? 1.6 : 1.1);
+    // ---- the crack, where the water leaks out (on the front face)
+    if (crk > 0.001 && n1.z > 0.5) {
+        float c = crackAt(p1.xy, v3.zw, crk, seed, px);
+        float cd = crackAt(p1.xy + vec2(px * 1.4, -px * 1.4), v3.zw, crk, seed, px);
         col = mix(col, col * 0.4, cd * 0.55 * (1.0 - c));
         col = mix(col, vec3(1.0), c * 0.95);
     }
@@ -577,7 +681,7 @@ void main() {
         float depth = layerTop(2, vW.x) - vW.y;
         if (depth > 0.0) {
             col = mix(col, uSea2 * 0.7, 0.3 * smoothstep(0.0, 0.4, depth));
-            col = mix(col, uDeep * 0.2, darkAt(depth) * 0.85);
+            col = mix(col, uDeep * 0.2, darkAt(depth) * 0.7);
         }
         col = mix(col, uDusk * 0.6, uSlow * 0.3);
         cut = smoothstep(-uPx, uPx, vW.y - sandTop(vW.x) + 0.05);
