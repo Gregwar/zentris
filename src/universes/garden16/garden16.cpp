@@ -53,7 +53,7 @@ enum : uint8_t {
     GR_OUT = 22, GR_SH, GR_BASE, GR_HI,
     FL0 = 26, // 4 flowers: petal, shade
     FL_C = 34, WORM, WORM_SH, INK, PALE, ACCENT, HALO, HALO2,
-    RAIN = 42, GHOST, FIREFLY, FIREFLY_DIM, STAR, SEED, BIRD, DUST,
+    RAIN = 42, GHOST, FIREFLY, FIREFLY_DIM, STAR, SEED, BIRD, DUST, ROOT, EARTH_INK,
     PIECE0 = 56, // 7 soils x 5 shades (outline, shadow, base, light, highlight)
     PAL_N = 96,
 };
@@ -86,7 +86,7 @@ const VariantDef VARIANTS[] = {
      {0xfbf8f0, 0xf6cf3a, 0xf28aaa, 0xa98ae8},
      0xf2b52c, 0xe9a09a, 0x2a2433, 0xfbf6e8, 0xe0607e, 0xf6eedc, 0xf6aecb, 0xdceaf6, 0x8fa6ba, 0xfff0a0, 0x3d4a6a,
      0x3a2440, 0x3c3a6a,
-     {0xd8794a, 0xe6b85a, 0xa97a5c, 0x8fae58, 0xcc6a6a, 0x7d94b8, 0xdcc9a0},
+     {0xb55a3c, 0xc99a48, 0x9a6a46, 0x7d8650, 0x5f4536, 0x7a8796, 0xd0ae78},
      -15.5f, 6.5f, 9, 0, 0.f, 3, 0, 0, 1},
     // April rain: a soft overcast sky, fresh greens, forget-me-nots; the drop darkens the sky and rains lightly.
     {"APRIL RAIN",
@@ -97,7 +97,7 @@ const VariantDef VARIANTS[] = {
      {0xf6f6fa, 0x86bff0, 0xf0a2c4, 0xf6d862},
      0xf0c040, 0xe8a49c, 0x283038, 0xf6f8f2, 0x4f8fd0, 0xf2f2ea, 0x75889c, 0xe6f0f8, 0x8098a8, 0xfff0a0, 0x45505e,
      0x2c2c48, 0x34406a,
-     {0xcb7d5e, 0xdcc06c, 0x9c7c70, 0x7cb088, 0xd8848c, 0x6e98ba, 0xe0d4b4},
+     {0xa85a44, 0xbf9a58, 0x8c6a52, 0x6e8a5c, 0x584438, 0x6f8496, 0xc8b088},
      12.5f, 7.5f, 8, 0, 0.f, 5, 1, 0, 1},
     // A golden dusk: a purple sky over an orange horizon, a low sun, cream and coral flowers; the drop glows magenta.
     {"GOLDEN DUSK",
@@ -108,7 +108,7 @@ const VariantDef VARIANTS[] = {
      {0xfff0dc, 0xff8a5c, 0xffc84a, 0xd890e0},
      0xffc23a, 0xe8988c, 0x2c1e30, 0xfff2e2, 0xff7a6a, 0xfbe8d6, 0xd8589c, 0xf0e0e8, 0xb08c96, 0xfff0a0, 0x3a2840,
      0x3a1c3a, 0x2a2056,
-     {0xe0804c, 0xf2c45e, 0xb8785a, 0x9eaa5e, 0xd86a7a, 0x8c86c0, 0xead2b0},
+     {0xc0603e, 0xd6a24c, 0xa06a44, 0x8a8a4e, 0x6a4234, 0x8a7f98, 0xdcb47c},
      -14.f, -6.5f, 13, 0, 0.f, 3, 0, 0, 1},
     // A firefly night: a deep blue night with a moon and stars, pastel earths, glowing flowers; the drop glows violet.
     {"FIREFLY NIGHT",
@@ -119,7 +119,7 @@ const VariantDef VARIANTS[] = {
      {0xf0f4ff, 0xa8e0ff, 0xffb8e0, 0xd8f0a0},
      0xfff0a0, 0xc48a90, 0x1a1c2e, 0xeef0ff, 0xffd870, 0x2a3058, 0x5a46a8, 0x9aa8d0, 0x7a88c0, 0xfff2a0, 0x0a0e20,
      0x101028, 0x0c1030,
-     {0xf2a888, 0xf4dc98, 0xcaa8dc, 0xa8d8a6, 0xf4a8b8, 0x98c0f0, 0xe8e2d2},
+     {0xc88466, 0xdab276, 0xa88468, 0x9aa074, 0x8a6e60, 0x98a6b8, 0xe2caa0},
      14.5f, 6.f, 8, 1, 1.f, 2, 0, 1, 0},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
@@ -1051,7 +1051,7 @@ void Garden16Universe::buildPalette() {
         ramp5(H(V.ground), shade, g);
         p[G_OUT] = g[0]; p[G_DEEP] = mix(g[0], g[1], 0.55f); p[G_SH] = g[1]; p[G_BASE] = g[2]; p[G_HI] = g[3];
         const C3 stone = mix(C3{0.78f, 0.76f, 0.72f}, H(V.ground), 0.25f);
-        const float k = V.stars > 0.5f ? 0.55f : 1.f;
+        const float k = V.stars > 0.5f ? 0.85f : 1.f;
         p[PEB_HI] = mul(mix(stone, C3{1, 1, 1}, 0.4f), k);
         p[PEB] = mul(stone, k);
         p[PEB_SH] = mul(mix(stone, shade, 0.4f), k * 0.8f);
@@ -1078,6 +1078,8 @@ void Garden16Universe::buildPalette() {
     p[SEED] = mix(C3{0.97f, 0.96f, 0.92f}, p[SKY0 + 4], 0.15f);
     p[BIRD] = H(V.bird);
     p[DUST] = mix(p[G_HI], C3{1, 1, 1}, 0.3f);
+    p[ROOT] = mix(H(V.dry), C3{1.f, 0.95f, 0.85f}, 0.25f);
+    p[EARTH_INK] = C3{0.96f, 0.91f, 0.78f}; // straw letters set in the earth, in every light
     for (int t = 0; t < 7; t++) ramp5(H(V.soil[t]), shade, &p[PIECE0 + t * 5]);
     // slow motion: dusk falls over the garden (the stack keeps more of its color, the HUD all of it)
     if (slow_ > 0.001f) {
@@ -1225,6 +1227,8 @@ void Garden16Universe::drawGround() {
                     else if (v == 4) col = PEB;
                     else if (v == 5) col = PEB_SH;
                     else col = L[layer][v == 0 ? 0 : v == 1 ? 1 : 2];
+                    for (const KeepOut& k : keepOut_) // calm earth under the HUD's letters
+                        if (X >= k.x0 && X <= k.x1 && Y >= k.y0 && Y <= k.y1) { col = L[layer][0]; break; }
                     if (d == drip && layer == 0 && v == 0) col = G_SH;     // the grass's shadow on the dirt
                     if (eL && i == 1) col = layer == 0 ? G_HI : G_BASE;     // a lit edge on a step facing left
                     if (eR && i == CELL - 2) col = G_SH;                     // a shaded edge facing right
@@ -1469,36 +1473,69 @@ void Garden16Universe::drawAir(bool far) {
 // Drawing: tiles
 // =====================================================================================================
 
-// One pixel of a 12 x 12 soil tile: the piece's outline (corners cut), a lit top-left, a shaded bottom-right, a soft
-// seam toward the other tiles of the same piece, the dirt pattern inside. 255: transparent.
+// One pixel of a 12 x 12 tile of earth: a clump of soil in the piece's own earth, crumbly clusters of three shades
+// (lit from the upper left), little dark pores, a pebble, now and then a pale root; a dark outline that is ragged
+// on the open sides (a pixel bitten off here and there), no seam inside the piece. 255: transparent.
 uint8_t Garden16Universe::tilePx(int t, int m, uint32_t seed, int i, int j) const {
     const bool oL = !(m & M_L), oR = !(m & M_R), oD = !(m & M_D), oU = !(m & M_U);
     const int E = CELL - 1;
-    if ((i == 0 && j == 0 && oL && oU) || (i == E && j == 0 && oR && oU) || (i == 0 && j == E && oL && oD) || (i == E && j == E && oR && oD))
-        return 255;
-    if ((i == 0 && oL) || (i == E && oR) || (j == 0 && oU) || (j == E && oD)) return PC(t, 0);
-    // concave corners (two sides joined, the diagonal not): the outline turns the corner
+    // ragged edges: per position along an open side, the edge is bitten in by a pixel (two at the corners)
+    auto bite = [&](int along, int side) {
+        const float h = hash01(along, 40 + side, seed);
+        return (along <= 0 || along >= E) ? 1 : (h < 0.3f ? 1 : 0);
+    };
+    bool clear = false, outline = false;
+    auto edge = [&](bool open, int d, int along, int side) {
+        if (!open) return;
+        const int r = bite(along, side);
+        if (d < r) clear = true;
+        else if (d == r) outline = true;
+    };
+    edge(oL, i, j, 0);
+    edge(oR, E - i, j, 1);
+    edge(oU, j, i, 2);
+    edge(oD, E - j, i, 3);
+    // the cut corners: two pixels when both sides are open
+    if ((oL && oU && i + j < 2) || (oR && oU && (E - i) + j < 2) || (oL && oD && i + (E - j) < 2) || (oR && oD && (E - i) + (E - j) < 2))
+        clear = true;
+    if (clear) return 255;
+    if (outline) return PC(t, 0);
+    // concave corners (two sides joined, the diagonal not): a pixel of outline turns the corner
     if ((i == 0 && j == 0 && !(m & M_LU)) || (i == E && j == 0 && !(m & M_RU)) || (i == 0 && j == E && !(m & M_LD)) ||
         (i == E && j == E && !(m & M_RD)))
         return PC(t, 0);
-    if (i == 1 && j == 1 && oL && oU) return PC(t, 4);
-    if ((j == 1 && oU) || (i == 1 && oL)) return PC(t, 3);
-    if ((j == E - 1 && oD) || (i == E - 1 && oR)) return PC(t, 1);
-    // the seam between two tiles of one piece: a soft line, broken here and there
-    if ((i == 0 && !oL) || (j == 0 && !oU)) {
-        if (hash01(i * 13 + j, 5, seed) < 0.82f) return PC(t, 1);
+    // a pebble on one tile in two: a pale stone, lit top-left, its shadow under it
+    if (seed & 16) {
+        const int px = 3 + (int)((seed >> 8) % 5), py = 3 + (int)((seed >> 12) % 5);
+        const int dx = i - px, dy = j - py;
+        if (dx >= 0 && dx < 2 && dy >= 0 && dy < 2) return dx + dy == 0 ? PEB_HI : (dx + dy == 2 ? PEB_SH : PEB);
+        if (dy == 2 && dx >= 0 && dx < 2) return PC(t, 1);
     }
-    const auto& pt = pat_[seed & 7];
-    const bool mir = (seed >> 3) & 1;
-    const int v = pt[j][mir ? E - i : i];
-    switch (v) {
-    case 1: return PC(t, 1);
-    case 2: return PC(t, 3);
-    case 3: return PC(t, 4);   // a pebble of the same earth, pale, lit from the upper left
-    case 4: return PC(t, 3);
-    case 5: return PC(t, 1);
-    default: return PC(t, 2);
+    // a pale root, one tile in four: a little meandering line
+    if ((seed & 96) == 96) {
+        const int ry = 4 + (int)((seed >> 16) % 5);
+        const int x0 = 2 + (int)((seed >> 20) % 3), len = 4 + (int)((seed >> 22) % 3);
+        if (i >= x0 && i < x0 + len) {
+            const int y = ry + (((i + (int)(seed >> 24)) / 2) % 2);
+            if (j == y) return ROOT;
+        }
     }
+    // crumbly clusters: value noise on a 3-pixel lattice plus a grain, the light from the upper left
+    auto lat = [&](int x, int y) { return hash01(x, y, seed * 31u + 7u); };
+    const float fx = (i + 0.5f) / 3.f, fy = (j + 0.5f) / 3.f;
+    const int ix = (int)fx, iy = (int)fy;
+    const float ux = fx - ix, uy = fy - iy;
+    const float a = lat(ix, iy), b = lat(ix + 1, iy), c = lat(ix, iy + 1), d = lat(ix + 1, iy + 1);
+    float n = (a + (b - a) * ux) + ((c + (d - c) * ux) - (a + (b - a) * ux)) * uy;
+    n = n * 0.75f + hash01(i, j, seed) * 0.25f;
+    n += (0.5f - (i + j) / (2.f * E)) * 0.35f;
+    if (oU && j <= 2) n += 0.12f;   // the lit top of a clod
+    if (oD && j >= E - 2) n -= 0.12f;
+    if (n < 0.22f && hash01(i, j, seed + 3u) < 0.45f) return PC(t, 0); // a pore
+    if (n < 0.36f) return PC(t, 1);
+    if (n > 0.74f) return PC(t, 4);
+    if (n > 0.6f) return PC(t, 3);
+    return PC(t, 2);
 }
 
 void Garden16Universe::drawTile(int X0, int Y0, int type, int mask, uint32_t seed, uint8_t cls) {
@@ -1635,6 +1672,9 @@ void Garden16Universe::drawWorms() {
                 const int x = vertical ? X + k : X, y = vertical ? Y : Y + k;
                 const uint8_t kd = cv_.kind(x, y);
                 if (kd != K_DIRT && kd != K_TILE) continue;
+                bool hidden = false; // worms pass beneath the HUD's letters
+                for (const KeepOut& ko : keepOut_) hidden |= x >= ko.x0 && x <= ko.x1 && y >= ko.y0 && y <= ko.y1;
+                if (hidden) continue;
                 cv_.set(x, y, k == 0 ? (i == 0 ? WORM_SH : WORM) : WORM_SH, kd);
             }
         }
@@ -1696,8 +1736,10 @@ void Garden16Universe::drawMini(Canvas& cv, int X0, int Y0, int size, int t, int
             if ((i == 0 && oL) || (i == E && oR) || (j == 0 && oU) || (j == E && oD)) v = PC(t, 0);
             else if ((j == 1 && oU) || (i == 1 && oL)) v = PC(t, 3);
             else if ((j == E - 1 && oD) || (i == E - 1 && oR)) v = PC(t, 1);
-            else if ((i == 0 && !oL) || (j == 0 && !oU)) v = PC(t, 1);
-            else v = PC(t, 2);
+            else {
+                const float h = hash01(X0 + i, Y0 + j, 911);
+                v = h < 0.18f ? PC(t, 1) : (h > 0.88f ? PC(t, 3) : PC(t, 2));
+            }
             cv.set(X0 + i, Y0 + j, v, cls);
         }
 }
@@ -1869,8 +1911,23 @@ void Garden16Universe::drawText(const std::vector<HudText>& hud, const std::vect
         const float* sc = pal_[SKY0 + band];
         const bool darkInk = 0.2126f * sc[0] + 0.7152f * sc[1] + 0.0722f * sc[2] > 0.3f;
         TextStyle st = it.st;
-        if (st.color == 1) st.color = darkInk ? INK : PALE;
-        st.kind = darkInk ? K_HUD : (uint8_t)(K_HUD + 1); // the halo: pale under dark letters, dark under pale ones
+        // over the earth: pale straw letters with a dark shadow, set in the earth (no halo plate)
+        int earth = 0, total = 0;
+        for (int y = it.y; y < it.y + it.h; y++)
+            for (int x = it.x; x < it.x + it.w; x += 2) {
+                total++;
+                const uint8_t k = cv_.kind(x, y);
+                earth += k == K_DIRT || k == K_GRASS || k == K_PLANT;
+            }
+        const bool overEarth = total > 0 && earth * 2 > total;
+        if (overEarth) {
+            if (st.color == 1) st.color = EARTH_INK;
+            st.shadow = G_OUT;
+            st.kind = (uint8_t)(K_HUD + 2);
+        } else {
+            if (st.color == 1) st.color = darkInk ? INK : PALE;
+            st.kind = darkInk ? K_HUD : (uint8_t)(K_HUD + 1); // the halo: pale under dark letters, dark under pale ones
+        }
         g16::drawText(hud_, it.font, it.text, it.x, it.y, st);
         if (it.role == HUD_UNIVERSE) {
             // the level as three small sprouts
@@ -1903,7 +1960,7 @@ void Garden16Universe::mergeLayer() {
                     const int d = std::max(std::abs(dx), std::abs(dy));
                     if (d < best) { best = d; kind = hud_.cls[j]; }
                 }
-            if (best > 1) continue;
+            if (best > 1 || kind == K_HUD + 2) continue;
             const bool pale = kind != K_HUD + 1;
             cv_.px[i] = pale ? HALO : G_OUT;
             cv_.cls[i] = K_HUD;
