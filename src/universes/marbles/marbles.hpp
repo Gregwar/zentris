@@ -76,6 +76,7 @@ private:
         float sleepT = 0.f;
         bool asleep = false;
         bool under = true;     // under the well's pane: gliding out, no collisions
+        bool sloped = false;   // under the HUD: rolling on out
         float fade = 1.f;      // fading out (retired)
         bool retiring = false;
         float light = 0.f, prevLight = 0.f, twinkle = 0.f;
@@ -95,10 +96,11 @@ private:
     float gridX0_ = -24.f, gridY0_ = -14.f;
     static constexpr float GRID = 0.9f;
 
-    // The HUD (board space): marbles roll under it, dimmed there.
+    // The HUD (board space): marbles roll across it (dimmed there) but never rest under it.
     struct KeepOut { float x0, x1, y0, y1; };
     std::vector<KeepOut> keepOut_;
     float hudShade(vec2 p) const;
+    vec2 hudSlope(vec2 p, float r) const;
 
     // ---- The dye on the felt: soft stains of a marble's color where it is hit (and faint traces where it rolls),
     // painted into a persistent target; a new song washes it out.

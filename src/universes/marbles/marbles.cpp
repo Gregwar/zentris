@@ -307,6 +307,24 @@ MarblesUniverse::~MarblesUniverse() {
     }
 }
 
+// Inside the HUD (its columns, a line of its text, with a margin of r): the way out, to the nearest side away from the
+// well (zero outside it).
+vec2 MarblesUniverse::hudSlope(vec2 p, float r) const {
+    for (const KeepOut& o : keepOut_) {
+        const float x0 = o.x0 - r, x1 = o.x1 + r, y0 = o.y0 - r, y1 = o.y1 + r;
+        if (p.x <= x0 || p.x >= x1 || p.y <= y0 || p.y >= y1) continue;
+        const float cx = 0.5f * (o.x0 + o.x1);
+        float best = 1e9f;
+        vec2 d = v2(0.f, 0.f);
+        auto side = [&](float dist, vec2 n) { if (dist < best) { best = dist; d = n; } };
+        if (cx < 0.f) side(p.x - x0, v2(-1.f, 0.f)); else side(x1 - p.x, v2(1.f, 0.f));
+        side(y1 - p.y, v2(0.f, 1.f));
+        side(p.y - y0, v2(0.f, -1.f));
+        return d;
+    }
+    return v2(0.f, 0.f);
+}
+
 // Under the HUD's columns or a line of its text (the marbles roll under them, dimmed there: the HUD stays readable).
 float MarblesUniverse::hudShade(vec2 p) const {
     float k = 0.f;
@@ -535,7 +553,7 @@ float MarblesUniverse::bounceOf(const Slot& s) const { return jolt(s.bounce, s.b
 // =====================================================================================================
 
 // A marble leaves its tile: dropped onto the table under it and shot out in a random direction, mostly out to its
-// side, at a real speed (it rolls out from under the well).
+// side, at a real speed (it rolls out from under the well and on past the HUD's columns).
 void MarblesUniverse::launch(vec2 from, int type, float seed, float rot, float delay, float vigor) {
     Marble m;
     m.p = from;
@@ -546,7 +564,7 @@ void MarblesUniverse::launch(vec2 from, int type, float seed, float rot, float d
     m.r = rng_.range(R_MIN, R_MAX);
     const float side = std::fabs(from.x) < 0.6f ? (rng_.chance(0.5f) ? -1.f : 1.f) : (from.x < 0.f ? -1.f : 1.f);
     const float ang = rng_.chance(0.85f) ? (side > 0.f ? 0.f : PI) + rng_.range(-1.15f, 1.15f) : rng_.range(0.f, TAU);
-    const float sp = rng_.range(6.5f, 10.5f) * vigor;
+    const float sp = rng_.range(8.5f, 12.5f) * vigor;
     m.v = v2(std::cos(ang), std::sin(ang)) * sp;
     m.spin = rng_.range(-1.f, 1.f);
     marbles_.push_back(m);
@@ -570,6 +588,9 @@ void MarblesUniverse::buildGrid() {
 // color (pale glass would leave a gray haze).
 void MarblesUniverse::stain(vec2 p, float radius, const vec3& col, float alpha, vec2 stretch) {
     if (stains_.size() > 6000 || alpha <= 0.002f) return;
+    // no dye settles under the HUD
+    for (const KeepOut& o : keepOut_)
+        if (p.x > o.x0 - 0.2f && p.x < o.x1 + 0.2f && p.y > o.y0 - 0.2f && p.y < o.y1 + 0.2f) return;
     const float l = lum3(col);
     const vec3 c = vec3(std::max(0.f, l + (col.x - l) * 1.7f), std::max(0.f, l + (col.y - l) * 1.7f), std::max(0.f, l + (col.z - l) * 1.7f));
     stains_.push_back({{p.x, p.y, radius, rng_.uniform()}, {c.x, c.y, c.z, alpha}, {stretch.x, stretch.y, 0.f, 0.f}});
@@ -586,7 +607,15 @@ void MarblesUniverse::stepPhysics(float h, bool stains) {
     for (Marble& m : marbles_) {
         if (m.delay > 0.f) { m.delay -= h; continue; }
         m.age += h;
-        if (m.asleep || m.fade <= 0.f) continue;
+        if (m.fade <= 0.f) continue;
+        // the HUD is a gentle slope: nothing rests under it, a marble there rolls on out (away from the well)
+        const vec2 out = hudSlope(m.p, m.r);
+        m.sloped = out.x != 0.f || out.y != 0.f;
+        if (m.sloped) {
+            if (m.asleep) { m.asleep = false; m.sleepT = 0.f; }
+            if (dot2(m.v, out) < 2.5f) m.v = m.v + out * (9.f * h);
+        }
+        if (m.asleep) continue;
         const float sp = len2(m.v);
         m.under = std::fabs(m.p.x) < WELL_HALF && std::fabs(m.p.y) < WELL_TOP;
         // under the pane it glides on out, touching nothing (nothing ever comes to rest there, hidden)
@@ -634,7 +663,7 @@ void MarblesUniverse::stepPhysics(float h, bool stains) {
                         const float ov = rr - d;
                         const float vn = dot2(a.v - b.v, nn);
                         if (b.asleep) {
-                            if (vn > -0.15f) {
+                            if (vn > -0.15f && !a.sloped) {
                                 // a gentle touch: the resting one stays put
                                 a.p = a.p + nn * ov;
                                 if (vn < 0.f) a.v = a.v - nn * vn;
@@ -665,7 +694,7 @@ void MarblesUniverse::stepPhysics(float h, bool stains) {
     for (int i = 0; i < n; i++) {
         Marble& a = marbles_[i];
         if (a.delay > 0.f || a.asleep || a.under) continue;
-        if (len2(a.v) < 0.08f) {
+        if (len2(a.v) < 0.08f && !a.sloped) {
             a.sleepT += h;
             if (a.sleepT > 0.2f) { a.asleep = true; a.v = v2(0.f, 0.f); }
         } else a.sleepT = 0.f;
