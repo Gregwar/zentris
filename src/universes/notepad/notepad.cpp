@@ -6,8 +6,8 @@
 //
 // Nothing moves smoothly: the page is redrawn a few times a second, like hand-drawn stop motion. Each drawing
 // is a list of things (cells, outlines, doodles, words) compared with the previous one: what stayed is drawn
-// again with a slightly different wobble (the "boil" of hand-drawn animation, kept subtle), what is new is drawn
-// in two or three passes (the outline, then the colour), what moved or disappeared is rubbed out with an eraser:
+// again with a slightly different wobble (the "boil" of hand-drawn animation, kept subtle), what is new appears
+// whole, outlined and coloured in at once (only doodles are drawn line by line), what moved or disappeared is rubbed out with an eraser:
 // it leaves a faint ghost in a residue layer that the eraser keeps going over, fainter on every drawing. A
 // falling piece leaves a fading trail of the squares it was in; cleared rows are rubbed out, crumbs and all.
 //
