@@ -50,7 +50,7 @@ song, and songs change universe with a transition on the beat.
 </tr>
 <tr>
 <td><img src="https://raw.githubusercontent.com/Gregwar/zentris/bcae1a6c7d368487a776091040d12337957c7555/docs/universes/lightsource.jpg"><br><b>LIGHTSOURCE</b>: a dim room lit by the falling piece, the stack casting its shadows</td>
-<td><img src="docs/universes/notepad.jpg"><br><b>NOTEPAD</b>: a squared notebook drawn by hand in stop motion, erased and redrawn</td>
+<td><img src="https://raw.githubusercontent.com/Gregwar/zentris/2ef845a37aa20c9d0b386c058e02808bf7fa75a4/docs/universes/notepad.jpg"><br><b>NOTEPAD</b>: a squared notebook drawn by hand in stop motion, erased and redrawn</td>
 </tr>
 </table>
 
