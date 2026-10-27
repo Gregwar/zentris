@@ -312,7 +312,7 @@ void main() {
 }
 )";
 // A shard of a cleared row, a slab tumbling in 3D: its face is the glazed ceramic (lit by its own tilt), its walls the
-// broken edge (gold where it broke along a seam, the glaze's darker side along the piece's own edge).
+// broken edge: gold lacquer all through (brighter where it broke along a seam, a little deeper along the piece's own edge).
 inline const char* SHARD_FS = R"(#version 330 core
 in vec4 vA;
 in vec4 vB;
@@ -329,13 +329,12 @@ void main() {
         float e = vC.z;
         float edge = 1.0 - smoothstep(0.0, fwidth(e) * 1.5 + 0.008, e);
         col = mix(cer.rgb, uMetal * 1.4 * uGain, edge) * lit;
-    } else if (kind < 1.5) {
-        // the gold lacquer the shard broke along: metal, brighter where it turns to the light
+    } else {
+        // the walls are gold lacquer through and through (along a seam it broke along, and along the piece's own
+        // edge, a little deeper): metal, brighter where it turns to the light
         float g = 0.6 + 0.4 * sin(vA.z * 7.0 + vA.w * 5.0);
         col = uMetal * uGain * (0.25 + 1.1 * lit) * g + uMetal * 0.6 * pow(clamp(lit - 0.6, 0.0, 1.0), 2.0);
-    } else {
-        // the glaze running down the piece's own edge, a little deeper
-        col = vB.rgb * uLightCol * (0.4 + 0.45 * lit) * mix(1.0, 0.75, vD.z);
+        if (kind > 1.5) col *= mix(0.85, 0.65, vD.z);
     }
     col = mix(col, uBridgeInk, smoothstep(0.3, 0.95, uBridge));
     // the silhouette, smoothed over a pixel (vC.w: 0 on it)
