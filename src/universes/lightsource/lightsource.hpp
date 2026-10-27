@@ -53,6 +53,10 @@ private:
     // ---- Effects: the burning cells of a cleared row (and of a game over), the contact glows of the locks.
     struct Burn { vec2 p; int type; int row; float t = 0.f, life = 0.45f, delay = 0.f, power = 1.f, seed = 0.f; bool over = false; };
     std::vector<Burn> burns_;
+    // a clear's afterlight: the light of the piece that vanished with the rows, lingering where they were
+    float afterT_ = 99.f;
+    vec2 afterPts_[4];
+    vec3 afterCol_{0.f};
     struct Contact { vec2 a, b; vec3 c; float t = 0.f, life = 0.3f, power = 1.f; };
     std::vector<Contact> contacts_;
     bool hardPending_ = false;
@@ -77,7 +81,7 @@ private:
 
     // ---- A drop relights the whole stack: every piece a light again (a ripple from the bottom on the downbeat,
     // then each piece shimmering at its own pace and flaring in turn on the beat), back to embers when it ends.
-    struct PieceInfo { int id, type, n; int cells[4][2]; vec2 c; float level; };
+    struct PieceInfo { int id, type, n; int cells[4][2]; vec2 c; float level, mono; };
     std::vector<PieceInfo> pieces_;
     struct DFlare { int id; float t; };
     std::vector<DFlare> dflares_;
@@ -89,15 +93,29 @@ private:
     int rowMin_ = Game::H;
     void buildRows(const Game& g);
     void setRowUniforms(GLuint prog);
-    vec3 lightOf(int type) const;
-    vec3 emitOf(int type) const;
-    vec3 pieceCol(int type) const { return piece_[type < 0 ? 0 : type > 6 ? 6 : type]; }
+    // m: how far the piece has turned to the drop's single color (0: its own)
+    vec3 lightOf(int type, float m = 0.f) const;
+    vec3 emitOf(int type, float m = 0.f) const;
+    vec3 pieceCol(int type, float m = 0.f) const;
+    vec3 monoTint(int type) const; // the piece's shade of the drop's color (max channel 1)
+
+    // ---- A drop's color: one hue per drop (from the song's seed and the drop's index, never the last one's).
+    vec3 dropHue_{1.f};
+    int dropIndex_ = 0, lastHue_ = -1;
+    uint64_t songSeed_ = 0;
+    float monoOf(int id) const;
+    bool huePicked_ = false;
+    void pickHue();
+    float pieceOn_ = 1.f; // the falling piece's light coming on after it spawns
+    std::vector<std::pair<int, float>> shadowW_; // per stack piece in a drop: its share as a shadowed light (eased)
+    float monoG_ = 0.f; // the drop's color over the whole scene (the falling piece, the burning rows, the spots)
 
     // ---- Play.
     std::vector<Inst> blocks_, fx_;
     void block(vec2 pos, float scale, const vec3& alb, float kind, const vec3& em, int conn, float alpha,
                float seed = 0.f, float burnT = 0.f, float hot = 0.f);
     void buildBlocks(const Game& g, float ember);
+    static int connMask(int cc[4][2], int i);
 
     // ---- Text.
     struct Glyph { float x0, y0, x1, y1, ox, oy, w, h, adv; };

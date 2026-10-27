@@ -256,18 +256,28 @@ void main() {
     float kind = vA1.w, scale = vA0.z;
     int conn = int(vA2.w + 0.5);
     vec2 q = vQ;
-    float g = 0.035;
+    float g = kind > 0.5 && kind < 1.5 ? 0.065 : 0.035;
     vec2 lo = vec2((conn & 1) != 0 ? -0.62 : -0.5 + g, (conn & 8) != 0 ? -0.62 : -0.5 + g);
     vec2 hi = vec2((conn & 2) != 0 ? 0.62 : 0.5 - g, (conn & 4) != 0 ? 0.62 : 0.5 - g);
     vec2 c = (lo + hi) * 0.5, he = (hi - lo) * 0.5;
     float rad = 0.1;
     vec2 qc = q - c;
     float sd = sdBox(qc, he, rad);
+    // a concave corner of the piece (both sides in the piece, the diagonal not): carve the gap's corner square,
+    // so that the contour turns cleanly there (no notch, no step)
+    {
+        float cg = kind > 0.5 && kind < 1.5 ? 0.065 : g;
+        if ((conn & 5) == 5 && (conn & 16) == 0) sd = max(sd, -sdBox(q - vec2(-0.5, 0.5), vec2(cg), 0.0));
+        if ((conn & 6) == 6 && (conn & 32) == 0) sd = max(sd, -sdBox(q - vec2(0.5, 0.5), vec2(cg), 0.0));
+        if ((conn & 9) == 9 && (conn & 64) == 0) sd = max(sd, -sdBox(q - vec2(-0.5, -0.5), vec2(cg), 0.0));
+        if ((conn & 10) == 10 && (conn & 128) == 0) sd = max(sd, -sdBox(q - vec2(0.5, -0.5), vec2(cg), 0.0));
+    }
     float aa = uPx / max(scale, 1e-3);
     vec3 alb = vA1.rgb, em = vA2.rgb;
     if (kind > 0.5 && kind < 1.5) {
         // the ghost: a thin outline just inside the piece's contour
-        float line = 1.0 - smoothstep(0.0, aa * 1.2, abs(sd + 0.05) - 0.012);
+        // (the ghost's shape is inset by 0.065: the line runs along its edge)
+        float line = 1.0 - smoothstep(0.0, aa * 1.2, abs(sd + 0.012) - 0.012);
         float a = line * vA0.w;
         vec3 col = mix(uGhost, uBridgeInk, uBridge);
         frag = vec4(col * a, a);

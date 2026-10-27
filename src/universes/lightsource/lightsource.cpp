@@ -87,7 +87,15 @@ constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 
 constexpr float FLOOR_Y = -10.06f;
 constexpr float EMIT = 0.85f;
-constexpr float FADE = 1.8f; // a lamp dimming to its ember // a lamp's face at full light (HDR, before the shoulder)
+constexpr float FADE = 1.8f; // a lamp dimming to its ember
+// A drop's single color: one of these saturated hues (linear), a new one each drop.
+// fluo hues: electric magenta, acid green, cyan, hot orange, UV violet, laser yellow, hot pink, electric blue
+const vec3 DROP_HUES[] = {{1.f, 0.f, 0.62f}, {0.42f, 1.f, 0.f}, {0.f, 0.92f, 1.f}, {1.f, 0.28f, 0.f},
+                          {0.5f, 0.f, 1.f}, {1.f, 0.9f, 0.f}, {1.f, 0.f, 0.22f}, {0.f, 0.38f, 1.f}};
+constexpr int DROP_HUE_COUNT = (int)(sizeof(DROP_HUES) / sizeof(DROP_HUES[0]));
+// each piece type's shade of it (I O T S Z J L): its brightness and how much it whitens
+const float MONO_SHADE[7] = {1.f, 0.56f, 0.8f, 0.42f, 0.92f, 0.66f, 0.32f};
+const float MONO_WHITE[7] = {0.12f, 0.f, 0.f, 0.f, 0.05f, 0.f, 0.f}; // a lamp's face at full light (HDR, before the shoulder)
 
 float hashf(float x) {
     const float s = std::sin(x * 127.1f + 311.7f) * 43758.5453f;
@@ -258,6 +266,8 @@ void LightsourceUniverse::setSong(const SongLook& t, float seconds) {
         variant_ = v;
     }
     rng_ = Rng(t.seed ^ 0x11647ull);
+    songSeed_ = t.seed;
+    dropIndex_ = 0;
     if (seconds <= 0.f) palSet_ = false;
 }
 
@@ -286,18 +296,26 @@ void LightsourceUniverse::drop(float strength) {
     dropWait_ = 0.f;
     dropT_ = 0.f;
     dropAmp_ = 0.6f + 0.4f * saturate(strength);
-    // the whole stack lights up again, in a ripple from the bottom of the well
-    if (level_ >= 2) waveT_ = 0.f;
+    // the whole stack lights up again, in a ripple from the bottom of the well, turning to the drop's color
+    if (level_ >= 2) {
+        waveT_ = 0.f;
+        if (!huePicked_) pickHue();
+    }
 }
 
 void LightsourceUniverse::refresh(float strength) {
-    // a new section inside the same level: one buried piece glows up
-    if (strength < 0.2f) return;
-    std::vector<int> ids;
-    for (int y = 0; y < Game::H; y++)
-        for (int x = 0; x < Game::W; x++)
-            if (ids_[y][x] > 0) ids.push_back(ids_[y][x]);
-    if (!ids.empty()) relight(ids[rng_.irange(0, (int)ids.size() - 1)], 0.5f * strength);
+    // (nothing lights up on its own: a block brightening out of the blue reads as a glitch)
+    (void)strength;
+}
+
+void LightsourceUniverse::pickHue() {
+    Rng r(songSeed_ ^ (0x9E3779B97F4A7C15ull * (uint64_t)(dropIndex_ + 1)));
+    int h = r.irange(0, DROP_HUE_COUNT - 1);
+    if (h == lastHue_) h = (h + 1 + r.irange(0, DROP_HUE_COUNT - 3)) % DROP_HUE_COUNT;
+    lastHue_ = h;
+    dropHue_ = DROP_HUES[h];
+    dropIndex_++;
+    huePicked_ = true;
 }
 
 vec2 LightsourceUniverse::project(const vec3& p) const { return layout::project(vp_, p, width_, height_); }
@@ -379,6 +397,7 @@ void LightsourceUniverse::buildPieces(const Game& g, float dropK) {
         }
         q.c = c;
         q.level = 0.f;
+        q.mono = 0.f;
         if (dropK < 0.002f) continue;
         const float seed = hashf((float)(q.id % 100003) * 0.371f + 1.3f);
         // its own slow shimmer (a period of its own: the pieces dim and brighten in turn, the room never pulses)
@@ -387,10 +406,12 @@ void LightsourceUniverse::buildPieces(const Game& g, float dropK) {
         const float dist = std::sqrt(c.x * c.x + (c.y + 10.5f) * (c.y + 10.5f));
         const float wt = waveT_ - 0.045f * dist;
         const float wave = wt > 0.f ? smoothstepf(0.f, 0.12f, wt) * std::exp(-std::max(0.f, wt - 0.12f) / 0.9f) : 0.f;
+        // the drop's color comes with the ripple, and leaves with the drop
+        q.mono = smoothstepf(0.f, 0.45f, wt) * smoothstepf(0.f, 0.6f, dropK);
         float flare = 0.f;
         for (const DFlare& d : dflares_)
-            if (d.id == q.id) flare += smoothstepf(0.f, 0.25f, d.t) * std::exp(-std::max(0.f, d.t - 0.25f) / 0.7f);
-        q.level = dropK * std::min(0.9f, base + 0.7f * wave + 0.55f * flare);
+            if (d.id == q.id) flare += smoothstepf(0.f, 0.5f, d.t) * std::exp(-std::max(0.f, d.t - 0.5f) / 1.1f); // a slow swell, no flash
+        q.level = dropK * std::min(0.9f, base + 0.7f * wave + 0.4f * flare);
     }
 }
 
@@ -423,11 +444,12 @@ float LightsourceUniverse::lampLevel(const Lamp& l) const {
         if (a < 0.3f) return l.power * smoothstepf(0.f, 0.3f, a);
         return l.power * std::exp(-(a - 0.3f) / 0.6f) * (1.f - smoothstepf(1.4f, 2.0f, a));
     }
-    if (a < 0.16f) return l.power * (1.f + 0.3f * (1.f - a / 0.16f));
-    if (a < l.hold) return l.power * (1.f - 0.14f * (a - 0.16f) / std::max(0.1f, l.hold - 0.16f));
+    // it takes over the falling piece's light exactly (no flash on the lock), slowly tiring
+    if (a < l.hold) return l.power * (1.f - 0.14f * a / std::max(0.1f, l.hold));
     // then it dims smoothly (an eased fade, its color cooling) down to its ember
     const float u = (a - l.hold) / FADE;
     return l.power * 0.86f * (1.f - smoothstepf(0.f, 1.f, u));
+    // (0.86: where the steady light ends)
 }
 
 bool LightsourceUniverse::lampAlive(const Lamp& l) const {
@@ -462,6 +484,9 @@ void LightsourceUniverse::onEvent(const GameEvent& ev, const Game& g) {
     case GameEvent::HardDrop:
         hardPending_ = true;
         break;
+    case GameEvent::Spawn:
+        pieceOn_ = 0.f;
+        break;
     case GameEvent::Lock: {
         syncBoard(g); // (the cleared rows are already gone from the board: only fills unknown cells)
         const int id = nextId_++;
@@ -495,7 +520,7 @@ void LightsourceUniverse::onEvent(const GameEvent& ev, const Game& g) {
             Contact c;
             c.a = v2(x0 - 0.45f, lowY - 0.5f);
             c.b = v2(x1 + 0.45f, lowY - 0.5f);
-            c.c = lightOf(type);
+            c.c = lightOf(type, monoG_);
             c.power = hardPending_ ? 1.0f : 0.5f;
             c.life = hardPending_ ? 0.4f : 0.28f;
             contacts_.push_back(c);
@@ -519,6 +544,23 @@ void LightsourceUniverse::onEvent(const GameEvent& ev, const Game& g) {
             b.power = tetris ? 1.3f : 1.f;
             b.seed = rng_.uniform();
             burns_.push_back(b);
+        }
+        {
+            // the afterlight: as strong as the falling piece's light it replaces, fading over a second
+            float ys = 0.f;
+            int ny = 0;
+            vec3 col(0.f);
+            for (int y = 0; y < Game::H; y++)
+                if (cleared[y]) { ys += layout::cellPos(0.f, (float)y).y; ny++; }
+            for (auto& c : ev.cells) col += lightOf(c.type, monoG_) * (1.f / std::max<size_t>(1, ev.cells.size()));
+            if (ny > 0) {
+                for (int k = 0; k < 4; k++) {
+                    const vec3 w = layout::cellPos(1.f + k * 2.33f, 0.f);
+                    afterPts_[k] = v2(w.x, ys / ny);
+                }
+                afterCol_ = col;
+                afterT_ = 0.f;
+            }
         }
         collapseRows(cleared);
         if (tetris) tetrisT_ = 0.f;
@@ -555,21 +597,43 @@ void LightsourceUniverse::onEvent(const GameEvent& ev, const Game& g) {
 // =====================================================================================================
 
 // The light a piece's lamp throws: the variant's light, tinted by the piece; the drop's light, slow motion's cold.
-vec3 LightsourceUniverse::lightOf(int type) const {
+vec3 LightsourceUniverse::lightOf(int type, float m) const {
     vec3 p = pieceCol(type);
     p = p * (1.f / std::max(0.05f, std::max(p.x, std::max(p.y, p.z))));
     vec3 c = lerp(light_, p, tintK_);
     c = lerp(c, lerp(dropLight_, p, tintK_ * 0.5f), 0.55f * drop_);
+    // a drop's single color: the light takes the hue (lightly whitened like the piece's shade)
+    if (m > 0.f) c = lerp(c, monoTint(type) * (1.f / std::max(0.05f, std::max(monoTint(type).x, std::max(monoTint(type).y, monoTint(type).z)))), m);
     c = lerp(c, vec3(0.62f, 0.76f, 1.f), 0.55f * slow_);
     return c * (0.6f / std::max(0.05f, lum(c)));
 }
 
 // A lamp's face: the piece's own color (the pieces stay apart), a little of the light's.
-vec3 LightsourceUniverse::emitOf(int type) const {
-    vec3 p = pieceCol(type);
+vec3 LightsourceUniverse::emitOf(int type, float m) const {
+    vec3 p = pieceCol(type, m);
     p = p * (1.f / std::max(0.05f, std::max(p.x, std::max(p.y, p.z))));
-    vec3 c = lerp(p, lightOf(type) * (1.f / 0.6f) * 0.75f, 0.3f);
-    return c * (0.5f / std::max(0.05f, lum(c)));
+    vec3 c = lerp(p, lightOf(type, m) * (1.f / 0.6f) * 0.75f, 0.3f * (1.f - m));
+    // in the drop's color, the pieces read apart by their brightness
+    const float t = type < 0 ? 0 : type > 6 ? 6 : type;
+    return c * (0.5f / std::max(0.05f, lum(c)) * lerpf(1.f, MONO_SHADE[(int)t], m));
+}
+
+// The pieces in a drop's color: one hue, seven shades (brightness, a little whitening), so they stay apart.
+vec3 LightsourceUniverse::monoTint(int type) const {
+    const int t = type < 0 ? 0 : type > 6 ? 6 : type;
+    return lerp(dropHue_, vec3(1.f), MONO_WHITE[t]) * MONO_SHADE[t];
+}
+
+vec3 LightsourceUniverse::pieceCol(int type, float m) const {
+    const vec3 own = piece_[type < 0 ? 0 : type > 6 ? 6 : type];
+    if (m <= 0.f) return own;
+    return lerp(own, monoTint(type) * 0.62f, m);
+}
+
+float LightsourceUniverse::monoOf(int id) const {
+    for (const PieceInfo& q : pieces_)
+        if (q.id == id) return q.mono;
+    return 0.f;
 }
 
 void LightsourceUniverse::buildRows(const Game& g) {
@@ -601,6 +665,25 @@ void LightsourceUniverse::block(vec2 pos, float scale, const vec3& alb, float ki
     blocks_.push_back({{pos.x, pos.y, scale, alpha}, {alb.x, alb.y, alb.z, kind}, {em.x, em.y, em.z, (float)conn}, {seed, burnT, hot, 0.f}});
 }
 
+// A cell's neighbors inside its piece: left 1, right 2, up 4, down 8, and the diagonals up-left 16, up-right 32,
+// down-left 64, down-right 128 (game rows: up is y - 1).
+int LightsourceUniverse::connMask(int cc[4][2], int i) {
+    int conn = 0;
+    for (int j = 0; j < 4; j++) {
+        if (j == i) continue;
+        const int dx = cc[j][0] - cc[i][0], dy = cc[j][1] - cc[i][1];
+        if (dy == 0 && dx == -1) conn |= 1;
+        if (dy == 0 && dx == 1) conn |= 2;
+        if (dx == 0 && dy == -1) conn |= 4;
+        if (dx == 0 && dy == 1) conn |= 8;
+        if (dx == -1 && dy == -1) conn |= 16;
+        if (dx == 1 && dy == -1) conn |= 32;
+        if (dx == -1 && dy == 1) conn |= 64;
+        if (dx == 1 && dy == 1) conn |= 128;
+    }
+    return conn;
+}
+
 void LightsourceUniverse::buildBlocks(const Game& g, float ember) {
     // the lamps' levels by lock id
     auto lampOf = [&](int id) -> const Lamp* {
@@ -623,25 +706,37 @@ void LightsourceUniverse::buildBlocks(const Game& g, float ember) {
                 if (x < Game::W - 1 && ids_[y][x + 1] == id) conn |= 2;
                 if (y > 0 && ids_[y - 1][x] == id && std::fabs(g.rowOffset(y - 1) - g.rowOffset(y)) < 0.02f) conn |= 4;
                 if (y < Game::H - 1 && ids_[y + 1][x] == id && std::fabs(g.rowOffset(y + 1) - g.rowOffset(y)) < 0.02f) conn |= 8;
+                // the diagonals (a concave corner of the piece is carved where both sides are the piece and the
+                // diagonal is not)
+                auto same = [&](int xx, int yy) {
+                    return xx >= 0 && xx < Game::W && yy >= 0 && yy < Game::H && ids_[yy][xx] == id;
+                };
+                if (same(x - 1, y - 1)) conn |= 16;
+                if (same(x + 1, y - 1)) conn |= 32;
+                if (same(x - 1, y + 1)) conn |= 64;
+                if (same(x + 1, y + 1)) conn |= 128;
             }
             vec3 em(0.f);
             float hot = 0.f;
-            const vec3 lc = emitOf(c.type);
+            const float mo = monoOf(id);
+            const vec3 lc = emitOf(c.type, mo);
             const Lamp* l = lampOf(id);
             float on = 0.f;
             if (l) {
                 on = l->level;
                 // a dying lamp's filament cools toward a deeper, warmer color
                 const float cool = l->relight ? 0.f : smoothstepf(l->hold, l->hold + 1.8f, l->age);
-                em = mulv(lerp(lc, mulv(lc, vec3(1.f, 0.6f, 0.38f)), cool), vec3(EMIT * on));
-                hot = 0.25f * saturate(on);
+                // fresh from its fall it is still the falling piece's bright face, easing into a lamp's
+                const float fr = l->relight ? 0.f : 1.f - smoothstepf(0.f, l->hold, l->age);
+                em = mulv(lerp(lc, mulv(lc, vec3(1.f, 0.6f, 0.38f)), cool), vec3(EMIT * on * lerpf(1.f, 1.7f, fr)));
+                hot = lerpf(0.25f, 0.6f, fr) * saturate(on) * (1.f - mo);
             }
             // relit by a drop
             {
                 const float dl = pieceLevel(id);
                 if (dl > 0.002f) {
                     const vec3 dc = lc * (EMIT * 0.55f * dl);
-                    if (lum(dc) > lum(em)) { em = dc; hot = 0.2f * dl; }
+                    if (lum(dc) > lum(em)) { em = dc; hot = 0.2f * dl * (1.f - mo); }
                 }
             }
             // the ember: a faint glow kept for a while after the lamp went out
@@ -651,24 +746,13 @@ void LightsourceUniverse::buildBlocks(const Game& g, float ember) {
                 const vec3 ec = mulv(lc, vec3(1.f, 0.7f, 0.5f)) * e;
                 if (lum(ec) > lum(em)) em = ec;
             }
-            block(v2(p.x, p.y), 1.f, pieceCol(c.type) * albK, 0.f, em, conn, 1.f, hashf(y * 13.f + x), 0.f, hot);
+            block(v2(p.x, p.y), 1.f, pieceCol(c.type, mo) * albK, 0.f, em, conn, 1.f, hashf(y * 13.f + x), 0.f, hot);
         }
     if (g.hasPiece() && !g.over()) {
         const Piece& p = g.piece();
         int cells[4][2];
         g.pieceCells(p, cells);
-        auto connOf = [&](int cc[4][2], int i) {
-            int conn = 0;
-            for (int j = 0; j < 4; j++) {
-                if (j == i) continue;
-                const int dx = cc[j][0] - cc[i][0], dy = cc[j][1] - cc[i][1];
-                if (dy == 0 && dx == -1) conn |= 1;
-                if (dy == 0 && dx == 1) conn |= 2;
-                if (dx == 0 && dy == -1) conn |= 4;
-                if (dx == 0 && dy == 1) conn |= 8;
-            }
-            return conn;
-        };
+        auto connOf = [&](int cc[4][2], int i) { return connMask(cc, i); };
         Piece gp = p;
         gp.y = g.ghostY();
         if (gp.y > p.y) {
@@ -681,25 +765,27 @@ void LightsourceUniverse::buildBlocks(const Game& g, float ember) {
             }
         }
         const float dx = g.pieceVisualX() - p.x, dy = g.pieceVisualY() - p.y;
-        const vec3 lc = emitOf(p.type);
+        // in a drop the falling piece takes the drop's color too, at its brightest
+        const float pm = monoG_;
+        const vec3 lc = emitOf(p.type, pm) * (lerpf(1.f, 1.f / std::max(0.3f, MONO_SHADE[p.type < 0 ? 0 : p.type > 6 ? 6 : p.type]), pm) * lerpf(0.35f, 1.f, smoothstepf(0.f, 1.f, pieceOn_)));
         for (int i = 0; i < 4; i++) {
             if (cells[i][1] < Game::HIDDEN - 1) continue;
             const vec3 w = layout::cellPos(cells[i][0] + dx, cells[i][1] + dy);
-            block(v2(w.x, w.y), 1.f, pieceCol(p.type) * albK, 0.f, lc * EMIT, connOf(cells, i), 1.f, 0.f, 0.f, 0.25f);
+            block(v2(w.x, w.y), 1.f, pieceCol(p.type, pm) * albK, 0.f, lc * (EMIT * 1.7f), connOf(cells, i), 1.f, 0.f, 0.f, lerpf(0.6f, 0.55f, pm));
         }
     }
     // the burning cells of a cleared row (or of the game over)
     for (const Burn& b : burns_) {
         if (b.delay > 0.f) {
-            if (b.over) block(b.p, 1.f, pieceCol(b.type) * albK, 0.f, vec3(0.f), 0, 1.f);
+            if (b.over) block(b.p, 1.f, pieceCol(b.type, monoG_) * albK, 0.f, vec3(0.f), 0, 1.f);
             continue;
         }
         const float u = saturate(b.t / b.life);
-        const vec3 lc = emitOf(b.type);
+        const vec3 lc = emitOf(b.type, monoG_);
         if (b.over) {
             // the light goes out: the block fades into the dark
             const float fl = 1.f - smoothstepf(0.f, 1.f, u);
-            block(b.p, 1.f, pieceCol(b.type) * albK * (1.f - u), 0.f, lc * (EMIT * 0.7f * fl * (1.f - u)), 0, 1.f - smoothstepf(0.6f, 1.f, u));
+            block(b.p, 1.f, pieceCol(b.type, monoG_) * albK * (1.f - u), 0.f, lc * (EMIT * 0.7f * fl * (1.f - u)), 0, 1.f - smoothstepf(0.6f, 1.f, u));
             continue;
         }
         block(b.p, 1.f, vec3(0.f), 3.f, lc * (EMIT * 1.9f * b.power), 0, 1.f, b.seed, u, 0.35f);
@@ -716,14 +802,7 @@ void LightsourceUniverse::buildBlocks(const Game& g, float ember) {
             miny = std::min(miny, (float)c[1]); maxy = std::max(maxy, (float)c[1]);
         }
         for (int i = 0; i < 4; i++) {
-            int conn = 0;
-            for (int j = 0; j < 4; j++) {
-                const int ddx = cells[j][0] - cells[i][0], ddy = cells[j][1] - cells[i][1];
-                if (ddy == 0 && ddx == -1) conn |= 1;
-                if (ddy == 0 && ddx == 1) conn |= 2;
-                if (ddx == 0 && ddy == -1) conn |= 4;
-                if (ddx == 0 && ddy == 1) conn |= 8;
-            }
+            const int conn = connMask(cells, i);
             const vec2 pos = v2(center.x + (cells[i][0] - (minx + maxx) * 0.5f) * sc, center.y - (cells[i][1] - (miny + maxy) * 0.5f) * sc);
             block(pos, sc, pieceCol(type) * albK, 2.f, lightOf(type) * warm, conn, alpha);
         }
@@ -935,13 +1014,15 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
                                            : (music.hasSong ? music.speed > 1.33f || (inDrop_ && music.speed > 1.26f) : inDrop_);
         const bool hot = level_ >= 2 && dropWait_ <= 0.f && dropish;
         drop_ = hot ? std::min(1.f, drop_ + dt / 0.35f) : std::max(0.f, drop_ - dt / 2.5f);
+        if (hot && !huePicked_) pickHue();
+        if (drop_ <= 0.f && !hot) huePicked_ = false;
         chorus_ = approach(chorus_, level_ >= 2 && !hot ? 1.f : 0.f, 1.0f, dt);
         // the lamps age with the world (slow motion lets them linger)
         for (Lamp& l : lamps_) l.age += l.relight ? dt : wdt;
         lamps_.erase(std::remove_if(lamps_.begin(), lamps_.end(), [&](const Lamp& l) { return !lampAlive(l); }), lamps_.end());
         for (auto& row : glint_)
             for (float& gl : row) gl = std::max(0.f, gl - dt * 1.6f);
-        // on the beat grid, every two beats: a chorus twinkles an ember, a drop relights a buried piece
+        // on the beat grid, every two beats: a drop slowly brightens a few buried pieces
         if (music.hasSong && lv_ > 0.6f) {
             const double slot = std::floor(music.beat / 2.0);
             if (slot != lastBeatSlot_) {
@@ -957,9 +1038,6 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
                         // a few pieces flare, in turn
                         const int k = std::min((int)ids.size(), 2 + (int)(ids.size() / 10));
                         for (int i = 0; i < k; i++) dflares_.push_back({ids[rng_.irange(0, (int)ids.size() - 1)], 0.f});
-                    } else if (!cells.empty() && (lv_ > 1.5f || ((int)slot & 1) == 0)) {
-                        const int c = cells[rng_.irange(0, (int)cells.size() - 1)];
-                        glint_[c / Game::W][c % Game::W] = lv_ > 1.5f ? 0.16f : 0.09f;
                     }
                 }
                 lastBeatSlot_ = slot;
@@ -972,8 +1050,10 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
         }
         burns_.erase(std::remove_if(burns_.begin(), burns_.end(), [](const Burn& b) { return b.delay <= 0.f && b.t >= b.life; }), burns_.end());
         waveT_ += dt;
+        afterT_ += dt;
+        pieceOn_ = std::min(1.f, pieceOn_ + dt / 0.35f);
         for (DFlare& d : dflares_) d.t += dt;
-        dflares_.erase(std::remove_if(dflares_.begin(), dflares_.end(), [](const DFlare& d) { return d.t > 3.f; }), dflares_.end());
+        dflares_.erase(std::remove_if(dflares_.begin(), dflares_.end(), [](const DFlare& d) { return d.t > 5.f; }), dflares_.end());
         for (Contact& c : contacts_) c.t += dt;
         contacts_.erase(std::remove_if(contacts_.begin(), contacts_.end(), [](const Contact& c) { return c.t >= c.life; }), contacts_.end());
         gaugeShown_ = approach(gaugeShown_, game.bonusGauge(), 2.5f, dt);
@@ -983,7 +1063,7 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
     }
     for (Lamp& l : lamps_) l.level = lampLevel(l);
     const float swell = inDrop_ && dropT_ < 12.f ? smoothstepf(0.f, 0.25f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.25f) / 2.2f) * dropAmp_ : 0.f;
-    const float tet = tetrisT_ < 6.f ? std::exp(-tetrisT_ / 0.9f) : 0.f;
+    const float tet = tetrisT_ < 6.f ? smoothstepf(0.f, 0.3f, tetrisT_) * std::exp(-std::max(0.f, tetrisT_ - 0.3f) / 0.9f) : 0.f;
 
     // ---- The staging: the light's power, its softness and reach, the room's fill.
     const float lvm = smoothstepf(0.f, 1.f, lv_), lvp = smoothstepf(1.f, 2.f, lv_);
@@ -996,6 +1076,7 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
 
     // ---- The lights.
     buildRows(game);
+    monoG_ = smoothstepf(0.f, 0.6f, drop_) * (waveT_ < 0.45f ? smoothstepf(0.f, 0.45f, waveT_) : 1.f);
     buildPieces(game, drop_ * worldOn);
     lights_.clear();
     glows_.clear();
@@ -1022,10 +1103,12 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
             const vec3 w = layout::cellPos(cells[i][0] + dx, cells[i][1] + dy);
             L.pts.push_back(v2(w.x, w.y));
         }
-        L.color = lightOf(p.type) * power;
-        L.reach = reach;
-        L.spread = spread;
-        L.nearW = 0.8f + 0.1f * drop_;
+        // the room's one real light: stronger and farther-reaching than any lamp, a smaller source (crisper shadows),
+        // its energy more in the far term than in the close pool (the cells beside it do not burn out)
+        L.color = lightOf(p.type, monoG_) * (1.45f * power * smoothstepf(0.f, 1.f, pieceOn_));
+        L.reach = reach * 1.35f;
+        L.spread = spread * 0.7f;
+        L.nearW = 0.6f + 0.1f * drop_;
         L.sub = 4;
         L.rank = 100.f;
         lights_.push_back(L);
@@ -1038,49 +1121,18 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
         for (int y = 0; y < Game::H; y++)
             for (int x = 0; x < Game::W; x++)
                 if (ids_[y][x] == l.id) type = game.cell(x, y).type >= 0 ? game.cell(x, y).type : type;
-        const vec3 lc = lightOf(type);
+        const vec3 lc = lightOf(type, monoOf(l.id));
         const float cool = l.relight ? 0.f : smoothstepf(l.hold, l.hold + 1.8f, l.age);
-        L.color = lerp(lc, mulv(lc, vec3(1.f, 0.6f, 0.38f)), cool) * (l.level * power * (l.relight ? 0.8f : 0.9f));
-        L.reach = reach * (l.relight ? 0.8f : 1.f);
-        L.spread = spread;
-        L.nearW = 0.8f + 0.1f * drop_;
-        L.sub = l.level > 0.3f ? 4 : 1;
+        // a fresh lamp is exactly the falling piece's light it takes over (the same power, reach and softness: the
+        // room does not dim on the lock), then eases into a lamp's
+        const float fr = l.relight ? 0.f : 1.f - smoothstepf(0.f, l.hold, l.age);
+        L.color = lerp(lc, mulv(lc, vec3(1.f, 0.6f, 0.38f)), cool) * (l.level * power * (l.relight ? 0.8f : lerpf(1.f, 1.45f, fr)));
+        L.reach = reach * (l.relight ? 0.8f : lerpf(1.f, 1.35f, fr));
+        L.spread = spread * lerpf(1.f, 0.7f, fr);
+        L.nearW = lerpf(0.8f, 0.6f, fr) + 0.1f * drop_;
+        L.sub = 4; // (switching the sample count would pop the shadows)
         L.rank = l.level * (l.relight ? 0.8f : 1.f);
         lights_.push_back(L);
-    }
-    {
-        // a drop: the stack's brightest pieces are lights with shadows, the others glow without (cheap)
-        std::vector<const PieceInfo*> lit;
-        for (const PieceInfo& q : pieces_)
-            if (q.level > 0.03f) lit.push_back(&q);
-        std::sort(lit.begin(), lit.end(), [](const PieceInfo* a, const PieceInfo* b) { return a->level > b->level; });
-        int shadowed = 0;
-        for (const PieceInfo* q : lit) {
-            bool isLamp = false;
-            for (const Lamp& l : lamps_)
-                if (l.id == q->id && l.level > q->level) isLamp = true;
-            if (isLamp) continue;
-            const vec3 lc = lightOf(q->type) * (q->level * power * 0.3f);
-            if (shadowed < 5) {
-                LightDef L;
-                for (int i = 0; i < q->n; i++) {
-                    const vec3 w = layout::cellPos((float)q->cells[i][0], q->cells[i][1] - game.rowOffset(q->cells[i][1]));
-                    L.pts.push_back(v2(w.x, w.y));
-                    L.own[i][0] = q->cells[i][0];
-                    L.own[i][1] = q->cells[i][1];
-                }
-                L.color = lc;
-                L.reach = 3.5f;
-                L.nearW = 0.85f;
-                L.spread = 0.f;
-                L.sub = 1;
-                L.rank = 0.5f * q->level;
-                lights_.push_back(L);
-                shadowed++;
-            } else if ((int)glows_.size() < MAXG) {
-                glows_.push_back({q->c, lc * (float)q->n * 0.3f, 1.4f});
-            }
-        }
     }
     {
         // the cleared rows burning: each row a line of light
@@ -1089,11 +1141,12 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
             vec3 c(0.f);
             float I = 0.f;
             for (const Burn& b : burns_) {
-                if (b.row != r || b.delay > 0.f || L.pts.size() >= 10) continue;
-                const float u = b.t / b.life;
-                const float k = b.over ? 0.35f * (1.f - u) : b.power * smoothstepf(0.f, 0.08f, u) * (1.f - smoothstepf(0.15f, 1.f, u));
+                if (b.row != r || (b.over && b.delay > 0.f) || L.pts.size() >= 10) continue;
+                // (a cleared row's light is there at once, from the very frame its blocks vanish: no dark frame)
+                const float u = b.delay > 0.f ? 0.f : b.t / b.life;
+                const float k = b.over ? 0.35f * (1.f - u) : b.power * (1.f - smoothstepf(0.15f, 1.f, u));
                 L.pts.push_back(b.p);
-                c += lightOf(b.type) * k;
+                c += lightOf(b.type, monoG_) * k;
                 I = std::max(I, k);
             }
             if (L.pts.empty() || I < 0.02f) continue;
@@ -1105,6 +1158,19 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
             L.rank = 50.f * I;
             lights_.push_back(L);
         }
+    }
+    if (afterT_ < 1.4f && !game.over()) {
+        // (it takes over as the burning rows die out: the burns carry the first instants)
+        LightDef L;
+        for (int k = 0; k < 4; k++) L.pts.push_back(afterPts_[k]);
+        L.color = afterCol_ * (1.45f * power * smoothstepf(0.05f, 0.35f, afterT_) * (1.f - smoothstepf(0.35f, 1.4f, afterT_)));
+        L.reach = reach * 1.35f;
+        L.spread = spread * 0.7f;
+        L.nearW = 0.6f + 0.1f * drop_;
+        L.height = 1.2f;
+        L.sub = 4;
+        L.rank = 90.f;
+        lights_.push_back(L);
     }
     for (int i = 0; i < 2; i++) {
         if (side_[i] < 0.01f) continue;
@@ -1118,7 +1184,7 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
         L.aim = v2(-sgn * std::cos(ang), std::sin(ang));
         L.coneOut = std::cos(0.1f);
         L.coneIn = std::cos(0.035f);
-        vec3 c = lerp(light_, dropLight_, drop_);
+        vec3 c = lerp(lerp(light_, dropLight_, drop_), dropHue_, 0.9f * monoG_);
         c = c * (0.6f / std::max(0.05f, lum(c)));
         L.color = c * (side_[i] * (0.35f + 0.25f * drop_) * worldOn);
         L.reach = 30.f;
@@ -1128,6 +1194,48 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
         L.sub = 4;
         L.rank = 1.f * side_[i];
         lights_.push_back(L);
+    }
+    {
+        // a drop: the stack's brightest pieces are lights with shadows, the others glow without (cheap). Which ones
+        // cast shadows is eased (each piece's share crossfades between its shadowed light and its glow), so that
+        // nothing pops when the order changes; at most as many as the free light slots.
+        std::vector<const PieceInfo*> lit;
+        for (const PieceInfo& q : pieces_)
+            if (q.level > 0.01f) lit.push_back(&q);
+        std::sort(lit.begin(), lit.end(), [](const PieceInfo* a, const PieceInfo* b) { return a->level > b->level; });
+        const int K = std::max(0, std::min(5, MAXL - 1 - (int)lights_.size()));
+        std::vector<std::pair<int, float>> nw;
+        for (size_t i = 0; i < lit.size(); i++) {
+            float w = 0.f;
+            for (auto& e : shadowW_)
+                if (e.first == lit[i]->id) w = e.second;
+            w = approach(w, (int)i < K ? 1.f : 0.f, 4.f, f.paused ? 0.f : dt);
+            nw.push_back({lit[i]->id, w});
+        }
+        shadowW_ = nw;
+        for (size_t i = 0; i < lit.size(); i++) {
+            const PieceInfo* q = lit[i];
+            const float w = nw[i].second;
+            const vec3 lc = lightOf(q->type, q->mono) * (q->level * power * 0.3f);
+            if (w > 0.01f) {
+                LightDef L;
+                for (int k = 0; k < q->n; k++) {
+                    const vec3 wp = layout::cellPos((float)q->cells[k][0], q->cells[k][1] - game.rowOffset(q->cells[k][1]));
+                    L.pts.push_back(v2(wp.x, wp.y));
+                    L.own[k][0] = q->cells[k][0];
+                    L.own[k][1] = q->cells[k][1];
+                }
+                L.color = lc * w;
+                L.reach = 3.5f;
+                L.nearW = 0.85f;
+                L.height = 1.1f;
+                L.spread = 0.f;
+                L.sub = 1;
+                L.rank = 0.01f; // last: if the slots run out, these become glows
+                lights_.push_back(L);
+            }
+            if (w < 0.99f && (int)glows_.size() < MAXG) glows_.push_back({q->c, lc * ((float)q->n * 0.85f * (1.f - w)), 1.1f});
+        }
     }
     std::stable_sort(lights_.begin(), lights_.end(), [](const LightDef& a, const LightDef& b) { return a.rank > b.rank; });
 
@@ -1145,9 +1253,16 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
         for (float& o : own) o = -1.f;
         int nl = 0, np = 0;
         for (const LightDef& L : lights_) {
-            if (nl >= MAXL) break;
-            if (np + (int)L.pts.size() > MAXP) continue;
             if (lum(L.color) < 0.002f) continue;
+            if (nl >= MAXL || np + (int)L.pts.size() > MAXP) {
+                // no slot left: it still shines, without shadows (never dropped: that would pop)
+                if (L.coneOut <= 0.f && (int)glows_.size() < MAXG && !L.pts.empty()) {
+                    vec2 c = v2(0.f, 0.f);
+                    for (const vec2& p : L.pts) { c.x += p.x / L.pts.size(); c.y += p.y / L.pts.size(); }
+                    glows_.push_back({c, L.color * ((float)L.pts.size() * L.nearW), L.height});
+                }
+                continue;
+            }
             col[nl * 4 + 0] = L.color.x; col[nl * 4 + 1] = L.color.y; col[nl * 4 + 2] = L.color.z; col[nl * 4 + 3] = L.reach;
             par[nl * 4 + 0] = (float)np; par[nl * 4 + 1] = (float)L.pts.size(); par[nl * 4 + 2] = (float)L.sub; par[nl * 4 + 3] = L.spread;
             par2[nl * 4 + 0] = L.height; par2[nl * 4 + 1] = L.nearW;
@@ -1177,7 +1292,9 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
 
     // ---- The scene (HDR): the room, the blocks, the glows.
     const float ltx = 1.f / lightW_, lty = 1.f / lightH_;
-    const vec3 amb = ambient_ * (0.035f * ambK / std::max(0.02f, lum(ambient_)));
+    // (in a drop the room's fill takes the drop's color too)
+    const vec3 ambC = lerp(ambient_ * (1.f / std::max(0.02f, lum(ambient_))), dropHue_ * (1.f / std::max(0.05f, lum(dropHue_))), 0.55f * monoG_);
+    const vec3 amb = ambC * (0.035f * ambK);
     sceneT_.bind();
     glUseProgram(progScene_);
     glActiveTexture(GL_TEXTURE0);
@@ -1227,11 +1344,17 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
         int cells[4][2];
         game.pieceCells(p, cells);
         const float dx = game.pieceVisualX() - p.x, dy = game.pieceVisualY() - p.y;
-        const vec3 c = lightOf(p.type) * (0.05f * power);
+        // its bloom: a tight bright halo on each cell and a wide faint one around the piece
+        const vec3 c = lightOf(p.type, monoG_) * (0.09f * power * pieceOn_);
+        vec2 ctr = v2(0.f, 0.f);
         for (int i = 0; i < 4; i++) {
             const vec3 w = layout::cellPos(cells[i][0] + dx, cells[i][1] + dy);
-            fx_.push_back({{w.x, w.y, 0.f, 0.f}, {1.3f, 1.f, 0.f, 0.f}, {c.x, c.y, c.z, 0.f}, {0.f, 0.f, 0.f, 0.f}});
+            ctr.x += 0.25f * w.x;
+            ctr.y += 0.25f * w.y;
+            fx_.push_back({{w.x, w.y, 0.f, 0.f}, {1.25f, 1.f, 0.f, 0.f}, {c.x, c.y, c.z, 0.f}, {0.f, 0.f, 0.f, 0.f}});
         }
+        const vec3 c2 = c * 0.45f;
+        fx_.push_back({{ctr.x, ctr.y, 0.f, 0.f}, {3.6f, 1.f, 0.f, 0.f}, {c2.x, c2.y, c2.z, 0.f}, {0.f, 0.f, 0.f, 0.f}});
     }
     for (const Contact& ct : contacts_) {
         const float u = ct.t / ct.life;
