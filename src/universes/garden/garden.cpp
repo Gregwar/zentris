@@ -277,7 +277,7 @@ void GardenUniverse::buildFont(Font& f, const unsigned char* ttf) {
     f.scaleTT = stbtt_ScaleForPixelHeight(info, f.px);
     int x0, y0, x1, y1;
     if (stbtt_GetCodepointBox(info, 'H', &x0, &y0, &x1, &y1)) f.capH = y1 * f.scaleTT;
-    const int AW = 1024, AH = 1024, PAD = 8;
+    const int AW = 1024, AH = 1024, PAD = 24; // a wide margin: the halo over the earth
     std::vector<unsigned char> atlas(AW * AH, 0);
     int x = 1, y = 1, rowH = 0;
     for (int ch = 32; ch < 128; ch++) {
@@ -1552,7 +1552,7 @@ void GardenUniverse::drawText(const Font& f, const std::vector<float>& q, const 
     set3f(progText_, "uInk", lerp(ink, bridge_.ink, b));
     set1f(progText_, "uAlpha", alpha);
     set1f(progText_, "uBias", bias);
-    set3f(progText_, "uEarthInk", lerp(earthInk_, bridge_.ink, b));
+    set3f(progText_, "uHaloCol", ugl::luma(ink) < 0.3f ? vec3(1.f) : vec3(0.02f));
     set4f(progText_, "uView", viewC_.x, viewC_.y, viewH_.x, viewH_.y);
     set1f(progText_, "uSeed", seedF_);
     const vec4 gl = groundSide(seedF_, false), gr = groundSide(seedF_, true);
@@ -1597,12 +1597,11 @@ void GardenUniverse::drawHud(const std::vector<HudText>& hud, const std::vector<
         const vec3 sky = lerp(pal_.skyLow, pal_.skyTop, smoothstepf(0.f, 1.f, std::pow(hh, 0.75f)));
         return ugl::luma(lerp(sky, pal_.dusk, 0.85f * slow_));
     };
-    earthInk_ = lerp(pal_.dry, vec3(1.f), 0.45f) * (1.f - 0.3f * slow_);
     std::vector<float> q;
     for (const HudText& h : hud) {
         if (h.alpha <= 0.01f || h.text.empty()) continue;
         const float base = h.scale * 12.f;
-        // letters in the sky's ink; where the earth is behind them TEXT_FS flips them to the earth's (pale like dry grass)
+        // letters in the sky's ink; where the earth is behind them TEXT_FS gives them a soft halo
         auto inkAt = [&](float px, float py) {
             const float bx = viewC_.x + (px / width_ * 2.f - 1.f) * viewH_.x;
             const float by = viewC_.y - (py / height_ * 2.f - 1.f) * viewH_.y;
@@ -1772,6 +1771,36 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
             set4f(progSky_, "uGroundL", gl.x, gl.y, gl.z, gl.w);
             set4f(progSky_, "uGroundR", gr.x, gr.y, gr.z, gr.w);
             set2f(progSky_, "uRaise", g_raise[0], g_raise[1]);
+        }
+        {
+            // the previews' cells, for their halo over a risen bank (the same placement as the previews below)
+            float halo[64] = {};
+            int n = 0;
+            auto add = [&](int type, vec2 center, float sc, float strength) {
+                if (type < 0) return;
+                Piece p{type, 0, 0, 0};
+                int cells[4][2];
+                game.pieceCells(p, cells);
+                float minx = 9, maxx = -9, miny = 9, maxy = -9;
+                for (auto& c : cells) {
+                    minx = std::min(minx, (float)c[0]); maxx = std::max(maxx, (float)c[0]);
+                    miny = std::min(miny, (float)c[1]); maxy = std::max(maxy, (float)c[1]);
+                }
+                for (auto& c : cells) {
+                    float* h = halo + 4 * n++;
+                    h[0] = center.x + (c[0] - (minx + maxx) * 0.5f) * sc;
+                    h[1] = center.y - (c[1] - (miny + maxy) * 0.5f) * sc;
+                    h[2] = sc * 0.5f;
+                    h[3] = strength * world;
+                }
+            };
+            add(game.holdType(), v2(layout::HOLD_CENTER.x, layout::HOLD_CENTER.y), layout::previewScale(0), game.holdUsed() ? 0.5f : 1.f);
+            for (int i = 0; i < 3; i++) {
+                const vec3 c = layout::nextCenter(i);
+                add(game.next(i), v2(c.x, c.y), layout::previewScale(i), 1.f);
+            }
+            glUniform4fv(glGetUniformLocation(progSky_, "uHalo"), 16, halo);
+            set4f(progSky_, "uHaloRing", layout::GAUGE_CENTER.x, layout::GAUGE_CENTER.y, layout::GAUGE_R, 0.55f * world);
         }
         set1f(progSky_, "uPx", px_);
         set1f(progSky_, "uStars", pal_.stars);

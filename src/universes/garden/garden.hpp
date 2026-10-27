@@ -148,7 +148,6 @@ private:
     float textWidth(const Font& f, const std::string& s, float size, float track) const;
     float textQuads(const Font& f, const std::string& s, float x, float y, float size, float track, std::vector<float>& out) const;
     void drawText(const Font& f, const std::vector<float>& quads, const vec3& ink, float alpha, float bias);
-    vec3 earthInk_{1.f, 1.f, 1.f}; // the HUD ink over the earth (set by drawHud, used by drawText)
 
     // ---- GL.
     GLuint progSky_ = 0, progCell_ = 0, progSprite_ = 0, progText_ = 0, progShape_ = 0, progPost_ = 0, progWorm_ = 0;

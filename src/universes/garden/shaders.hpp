@@ -86,13 +86,20 @@ uniform vec4 uSun;           // x, y, radius, moon (0 / 1)
 uniform float uGlowAmt, uSlow, uBridge, uSeed, uPx, uStars, uVeil, uDry, uHaze, uLush;
 uniform vec4 uGroundL, uGroundR; // each bank: lip, height, start, end (not mirrored)
 uniform vec2 uRaise;             // the ground raised beside the well (left, right), following the outer columns
-float groundY(float x) {
+uniform vec4 uHalo[16];          // the previews' cells (center, half size, strength): a soft pale halo over the earth
+uniform vec4 uHaloRing;          // the bonus gauge (center, radius, strength), the same halo
+// the ground line before it rises beside the well
+float groundBase(float x) {
     float a = abs(x);
     vec4 g = x > 0.0 ? uGroundR : uGroundL;
     float side = smoothstep(6.0, 12.0, a);
-    float r = x > 0.0 ? uRaise.y : uRaise.x;
-    float base = -10.05 + g.x * smoothstep(5.5, 7.6, a) + 0.25 * smoothstep(7.6, 11.0, a) + g.y * pow(smoothstep(g.z, g.w, a), 1.3)
+    return -10.05 + g.x * smoothstep(5.5, 7.6, a) + 0.25 * smoothstep(7.6, 11.0, a) + g.y * pow(smoothstep(g.z, g.w, a), 1.3)
            + (0.22 * sin(x * 0.37 + uSeed) + 0.12 * sin(x * 0.91 + uSeed * 1.7) + 0.3 * sin(x * 0.17 + uSeed * 2.1)) * side;
+}
+float groundY(float x) {
+    float a = abs(x);
+    float r = x > 0.0 ? uRaise.y : uRaise.x;
+    float base = groundBase(x);
     if (r <= 0.01) return base;
     float shelf = -10.05 + r * smoothstep(4.55, 4.7, a) * exp(-max(0.0, a - 5.0) / (2.5 + 0.35 * r));
     float k = 0.8 * min(1.0, r);
@@ -148,7 +155,8 @@ void main() {
     float gy = groundY(w.x);
     float below = gy - w.y;
     float edge = smoothstep(-uPx * 1.2, uPx * 1.2, below + (vnoise(vec2(w.x * 9.0, 3.0)) - 0.5) * 0.05);
-    float depth = smoothstep(0.0, 3.2, below);
+    // deep earth below the ground's own line; a bank risen beside the well is the clods' earth (their gradient)
+    float depth = smoothstep(0.0, 3.2, groundBase(w.x) - w.y);
     // the same gradient as the clods (dark deep down, lighter as the banks rise), the deep earth below the surface
     vec3 soil = mix(earthAt(w.y, uGround, uGroundDeep, uSoil), uGroundDeep, depth * 0.5);
     soil = earthTexture(soil, soil, w, 0.0, uPx, 1.0 - uBridge); // the clods' own texture: one earth
@@ -156,6 +164,15 @@ void main() {
     // dry earth is paler and dustier
     soil = mix(soil, soil * 1.3 + uLip * 0.15, uDry * 0.35);
     soil *= 1.0 - 0.45 * uSlow;
+    // the previews keep a soft pale halo where the earth has risen behind them
+    float pHalo = 0.0;
+    for (int i = 0; i < 16; i++) {
+        if (uHalo[i].w <= 0.0) continue;
+        vec2 q = max(abs(w - uHalo[i].xy) - uHalo[i].z, 0.0);
+        pHalo = max(pHalo, uHalo[i].w * exp(-length(q) / (uHalo[i].z * 1.2)));
+    }
+    pHalo = max(pHalo, uHaloRing.w * exp(-max(length(w - uHaloRing.xy) - uHaloRing.z, 0.0) / (uHaloRing.z * 0.5)));
+    soil = mix(soil, vec3(1.0), 0.8 * pHalo);
     vec3 col = mix(sky, soil, edge);
     col = mix(col, uBridgeCol, uBridge);
     frag = vec4(enc(col), 1.0);
@@ -435,7 +452,7 @@ inline const char* TEXT_FS = R"(#version 330 core
 in vec2 vUv;
 out vec4 frag;
 uniform sampler2D uFont;
-uniform vec3 uInk, uEarthInk;  // the ink over the sky, and over the earth (its inverse in lightness)
+uniform vec3 uInk, uHaloCol;   // the ink, and its halo (pale behind dark ink)
 uniform float uAlpha, uBias;
 uniform vec2 uRes;
 uniform vec4 uView;
@@ -460,11 +477,12 @@ void main() {
     float d = texture(uFont, vUv).r;
     float w = max(fwidth(d), 1e-3) * 0.75;
     float a = smoothstep(0.5 - uBias - w, 0.5 - uBias + w, d);
-    // the ink flips where the earth is behind the letter (a mask along the ground line, sharp to the pixel)
+    // a soft halo around the letters where the earth is behind them (the distance field's margin)
     vec2 b = uView.xy + (gl_FragCoord.xy / uRes * 2.0 - 1.0) * uView.zw;
-    float px = 2.0 * uView.w / uRes.y;
-    float earth = smoothstep(px, -px, b.y - groundY(b.x));
-    frag = vec4(enc(mix(uInk, uEarthInk, earth)), a * uAlpha);
+    float earth = smoothstep(0.3, -0.3, b.y - groundY(b.x));
+    float h = smoothstep(0.0, 0.5 - uBias, d) * 0.9 * earth;
+    float al = a + h * (1.0 - a);
+    frag = vec4(enc(mix(uHaloCol, uInk, a / max(al, 1e-4))), al * uAlpha);
 }
 )";
 
