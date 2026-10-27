@@ -63,6 +63,8 @@ vec3 mulv(const vec3& a, const vec3& b) { return {a.x * b.x, a.y * b.y, a.z * b.
 
 // The variants: the room (wall, floor, rails), its ambient fill, the lamps' light (and how much each piece tints
 // it), the drop's light, the HUD's text and accent, and the seven pieces (I O T S Z J L).
+// Each variant's pieces are a two-color palette: side A (I T Z L) in one hue, side B (O J S) in the other, the
+// pieces of a side told apart by their value (SHADE below).
 struct VariantDef {
     const char* name;
     unsigned wall, floor, rail, ambient, light, dropLight, text, accent;
@@ -70,32 +72,35 @@ struct VariantDef {
     unsigned piece[7];
 };
 const VariantDef VARIANTS[] = {
-    // a warm tungsten lamp in a cold room (a moonlit fill), warm pieces that stay apart
-    {"TUNGSTEN", 0x6e6052, 0x4a4038, 0x8a7a68, 0x6f85b0, 0xffc890, 0xd2e2ff, 0xeee2d2, 0xffc27a, 0.45f,
-     {0x6fd0dc, 0xf2c24e, 0xc47ce0, 0x8fd068, 0xf0644c, 0x6c8cf4, 0xf59440}},
-    // neon tubes in a concrete room: every piece lights in its own color
+    // warm against cold: amber lamps and moonlit blues in a cold room
+    {"TUNGSTEN", 0x6e6052, 0x4a4038, 0x8a7a68, 0x6f85b0, 0xffc890, 0xd2e2ff, 0xeee2d2, 0xffc27a, 0.7f,
+     {0xffd08a, 0xb4d8ff, 0xf0a050, 0x4c70c4, 0xcc7632, 0x76a0ec, 0xb4682e}},
+    // neon tubes in a concrete room: hot magenta against cyan (complementary)
     {"NEON", 0x48505e, 0x30353f, 0x6a7486, 0x5c6cb4, 0xffffff, 0xff7ae0, 0xdfe6f4, 0x7ae8ff, 0.85f,
-     {0x2ee6ff, 0xffe23c, 0xc04cff, 0x3cff7c, 0xff3c66, 0x4a72ff, 0xff9a2c}},
-    // candlelight: amber flames in a brown room, a deeper fire on the drop
-    {"CANDLE", 0x6a5040, 0x45342a, 0x86684e, 0x9a6a48, 0xffa848, 0xff7038, 0xf2dcc4, 0xffb060, 0.3f,
-     {0x96d6c4, 0xf8d47a, 0xdc88ac, 0xb2cc68, 0xec5a3a, 0x8c98dc, 0xeea04c}},
-    // black and white: a white light in a grey room, the pieces in pale tints of distinct values
-    {"SILVER", 0x5c5f64, 0x3c3e42, 0x7c8088, 0x8890a4, 0xf4f6ff, 0xa8c4ff, 0xe8eaee, 0xffffff, 0.15f,
-     {0xc4e6f2, 0xf4e8b8, 0xb8a0e4, 0xaadca2, 0xf0a4a4, 0x94acf2, 0xf2c494}},
+     {0xff8ee8, 0xa0f4ff, 0xff40c8, 0x1c8ed0, 0xd01aa0, 0x30d6ff, 0xb01c8c}},
+    // candlelight: the flame's orange against a cool sea green, in a brown room
+    {"CANDLE", 0x6a5040, 0x45342a, 0x86684e, 0x9a6a48, 0xffa848, 0xff7038, 0xf2dcc4, 0xffb060, 0.6f,
+     {0xffc070, 0xa2e2cc, 0xf08a3c, 0x3a907e, 0xd05c2a, 0x56b6a2, 0xb44c28}},
+    // silver: pale blush against pale ice, in a grey room under a white light
+    {"SILVER", 0x5c5f64, 0x3c3e42, 0x7c8088, 0x8890a4, 0xf4f6ff, 0xa8c4ff, 0xe8eaee, 0xffffff, 0.4f,
+     {0xfbe2d8, 0xdeeefa, 0xecb2a4, 0x7a98be, 0xcc8c80, 0xa8c6e6, 0xb07a72}},
 };
 constexpr int VARIANT_COUNT = (int)(sizeof(VARIANTS) / sizeof(VARIANTS[0]));
 
 constexpr float FLOOR_Y = -10.06f;
 constexpr float EMIT = 0.85f;
 constexpr float FADE = 1.8f; // a lamp dimming to its ember
-// A drop's single color: one of these saturated hues (linear), a new one each drop.
-// fluo hues: electric magenta, acid green, cyan, hot orange, UV violet, laser yellow, hot pink, electric blue
-const vec3 DROP_HUES[] = {{1.f, 0.f, 0.62f}, {0.42f, 1.f, 0.f}, {0.f, 0.92f, 1.f}, {1.f, 0.28f, 0.f},
-                          {0.5f, 0.f, 1.f}, {1.f, 0.9f, 0.f}, {1.f, 0.f, 0.22f}, {0.f, 0.38f, 1.f}};
-constexpr int DROP_HUE_COUNT = (int)(sizeof(DROP_HUES) / sizeof(DROP_HUES[0]));
-// each piece type's shade of it (I O T S Z J L): its brightness and how much it whitens
-const float MONO_SHADE[7] = {1.f, 0.56f, 0.8f, 0.42f, 0.92f, 0.66f, 0.32f};
-const float MONO_WHITE[7] = {0.12f, 0.f, 0.f, 0.f, 0.05f, 0.f, 0.f}; // a lamp's face at full light (HDR, before the shoulder)
+// Which side of the palette each piece type is on (I O T S Z J L): 0 = A, 1 = B.
+const int SIDE[7] = {0, 1, 0, 1, 0, 1, 0};
+// A drop's two colors: a designed pair of saturated fluorescent hues (linear), a new pair each drop.
+// magenta, acid green, cyan, hot orange, UV violet, laser yellow, hot pink, electric blue
+const vec3 FLUO[] = {{1.f, 0.f, 0.62f}, {0.42f, 1.f, 0.f}, {0.f, 0.92f, 1.f}, {1.f, 0.28f, 0.f},
+                     {0.5f, 0.f, 1.f}, {1.f, 0.9f, 0.f}, {1.f, 0.f, 0.22f}, {0.f, 0.38f, 1.f}};
+const int DROP_PAIRS[][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 2}, {7, 3}, {1, 4}, {5, 0}, {3, 7}, {2, 0}, {6, 1}};
+constexpr int DROP_PAIR_COUNT = (int)(sizeof(DROP_PAIRS) / sizeof(DROP_PAIRS[0]));
+// each piece type's value within its side (I O T S Z J L), and how much it whitens at full light
+const float SHADE[7] = {1.f, 1.f, 0.74f, 0.42f, 0.52f, 0.68f, 0.34f};
+const float SHADE_WHITE[7] = {0.12f, 0.1f, 0.f, 0.f, 0.f, 0.f, 0.f}; // (HDR, before the shoulder)
 
 float hashf(float x) {
     const float s = std::sin(x * 127.1f + 311.7f) * 43758.5453f;
@@ -310,10 +315,13 @@ void LightsourceUniverse::refresh(float strength) {
 
 void LightsourceUniverse::pickHue() {
     Rng r(songSeed_ ^ (0x9E3779B97F4A7C15ull * (uint64_t)(dropIndex_ + 1)));
-    int h = r.irange(0, DROP_HUE_COUNT - 1);
-    if (h == lastHue_) h = (h + 1 + r.irange(0, DROP_HUE_COUNT - 3)) % DROP_HUE_COUNT;
+    int h = r.irange(0, DROP_PAIR_COUNT - 1);
+    if (h == lastHue_) h = (h + 1 + r.irange(0, DROP_PAIR_COUNT - 3)) % DROP_PAIR_COUNT;
     lastHue_ = h;
-    dropHue_ = DROP_HUES[h];
+    // (which hue goes to which side: from the song too)
+    const bool swap = r.uniform() < 0.5f;
+    dropHue_ = FLUO[DROP_PAIRS[h][swap ? 1 : 0]];
+    dropHue2_ = FLUO[DROP_PAIRS[h][swap ? 0 : 1]];
     dropIndex_++;
     huePicked_ = true;
 }
@@ -602,7 +610,7 @@ vec3 LightsourceUniverse::lightOf(int type, float m) const {
     p = p * (1.f / std::max(0.05f, std::max(p.x, std::max(p.y, p.z))));
     vec3 c = lerp(light_, p, tintK_);
     c = lerp(c, lerp(dropLight_, p, tintK_ * 0.5f), 0.55f * drop_);
-    // a drop's single color: the light takes the hue (lightly whitened like the piece's shade)
+    // a drop's colors: the light takes its side's hue (lightly whitened like the piece's shade)
     if (m > 0.f) c = lerp(c, monoTint(type) * (1.f / std::max(0.05f, std::max(monoTint(type).x, std::max(monoTint(type).y, monoTint(type).z)))), m);
     c = lerp(c, vec3(0.62f, 0.76f, 1.f), 0.55f * slow_);
     return c * (0.6f / std::max(0.05f, lum(c)));
@@ -613,15 +621,15 @@ vec3 LightsourceUniverse::emitOf(int type, float m) const {
     vec3 p = pieceCol(type, m);
     p = p * (1.f / std::max(0.05f, std::max(p.x, std::max(p.y, p.z))));
     vec3 c = lerp(p, lightOf(type, m) * (1.f / 0.6f) * 0.75f, 0.3f * (1.f - m));
-    // in the drop's color, the pieces read apart by their brightness
-    const float t = type < 0 ? 0 : type > 6 ? 6 : type;
-    return c * (0.5f / std::max(0.05f, lum(c)) * lerpf(1.f, MONO_SHADE[(int)t], m));
+    // the pieces of a side read apart by their value (partly in the calm, fully in a drop's colors)
+    const int t = type < 0 ? 0 : type > 6 ? 6 : type;
+    return c * (0.5f / std::max(0.05f, lum(c)) * lerpf(1.f, SHADE[t], lerpf(0.5f, 1.f, m)));
 }
 
-// The pieces in a drop's color: one hue, seven shades (brightness, a little whitening), so they stay apart.
+// The pieces in a drop's colors: each side its hue, each piece its value (and a little whitening).
 vec3 LightsourceUniverse::monoTint(int type) const {
     const int t = type < 0 ? 0 : type > 6 ? 6 : type;
-    return lerp(dropHue_, vec3(1.f), MONO_WHITE[t]) * MONO_SHADE[t];
+    return lerp(SIDE[t] ? dropHue2_ : dropHue_, vec3(1.f), SHADE_WHITE[t]) * SHADE[t];
 }
 
 vec3 LightsourceUniverse::pieceCol(int type, float m) const {
@@ -767,7 +775,7 @@ void LightsourceUniverse::buildBlocks(const Game& g, float ember) {
         const float dx = g.pieceVisualX() - p.x, dy = g.pieceVisualY() - p.y;
         // in a drop the falling piece takes the drop's color too, at its brightest
         const float pm = monoG_;
-        const vec3 lc = emitOf(p.type, pm) * (lerpf(1.f, 1.f / std::max(0.3f, MONO_SHADE[p.type < 0 ? 0 : p.type > 6 ? 6 : p.type]), pm) * lerpf(0.35f, 1.f, smoothstepf(0.f, 1.f, pieceOn_)));
+        const vec3 lc = emitOf(p.type, pm) * (lerpf(1.f, 1.f / std::max(0.3f, SHADE[p.type < 0 ? 0 : p.type > 6 ? 6 : p.type]), pm) * lerpf(0.35f, 1.f, smoothstepf(0.f, 1.f, pieceOn_)));
         for (int i = 0; i < 4; i++) {
             if (cells[i][1] < Game::HIDDEN - 1) continue;
             const vec3 w = layout::cellPos(cells[i][0] + dx, cells[i][1] + dy);
@@ -801,10 +809,13 @@ void LightsourceUniverse::buildBlocks(const Game& g, float ember) {
             minx = std::min(minx, (float)c[0]); maxx = std::max(maxx, (float)c[0]);
             miny = std::min(miny, (float)c[1]); maxy = std::max(maxy, (float)c[1]);
         }
+        // (the palette's deepest values lifted a little: a small piece in the dark must still read)
+        vec3 pc = pieceCol(type);
+        pc = pc * std::min(1.f / std::max(0.05f, std::max(pc.x, std::max(pc.y, pc.z))), std::max(1.f, 0.2f / std::max(0.01f, lum(pc))));
         for (int i = 0; i < 4; i++) {
             const int conn = connMask(cells, i);
             const vec2 pos = v2(center.x + (cells[i][0] - (minx + maxx) * 0.5f) * sc, center.y - (cells[i][1] - (miny + maxy) * 0.5f) * sc);
-            block(pos, sc, pieceCol(type) * albK, 2.f, lightOf(type) * warm, conn, alpha);
+            block(pos, sc, pc * albK, 2.f, lightOf(type) * warm, conn, alpha);
         }
     };
     preview(g.holdType(), v2(layout::HOLD_CENTER.x, layout::HOLD_CENTER.y), layout::previewScale(0), g.holdUsed() ? 0.4f : 1.f, 0.f);
@@ -1184,7 +1195,7 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
         L.aim = v2(-sgn * std::cos(ang), std::sin(ang));
         L.coneOut = std::cos(0.1f);
         L.coneIn = std::cos(0.035f);
-        vec3 c = lerp(lerp(light_, dropLight_, drop_), dropHue_, 0.9f * monoG_);
+        vec3 c = lerp(lerp(light_, dropLight_, drop_), i == 0 ? dropHue_ : dropHue2_, 0.9f * monoG_); // a spot per color
         c = c * (0.6f / std::max(0.05f, lum(c)));
         L.color = c * (side_[i] * (0.35f + 0.25f * drop_) * worldOn);
         L.reach = 30.f;
@@ -1293,7 +1304,7 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
     // ---- The scene (HDR): the room, the blocks, the glows.
     const float ltx = 1.f / lightW_, lty = 1.f / lightH_;
     // (in a drop the room's fill takes the drop's color too)
-    const vec3 ambC = lerp(ambient_ * (1.f / std::max(0.02f, lum(ambient_))), dropHue_ * (1.f / std::max(0.05f, lum(dropHue_))), 0.55f * monoG_);
+    const vec3 ambC = lerp(ambient_ * (1.f / std::max(0.02f, lum(ambient_))), (dropHue_ * (1.f / std::max(0.05f, lum(dropHue_))) + dropHue2_ * (1.f / std::max(0.05f, lum(dropHue2_)))) * 0.5f, 0.55f * monoG_);
     const vec3 amb = ambC * (0.035f * ambK);
     sceneT_.bind();
     glUseProgram(progScene_);
