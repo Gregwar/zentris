@@ -4,8 +4,8 @@
 // edges) under a plain sky with one sun or moon, and lots of empty air. The pieces are clods of the same earth, with
 // a soft crumbly edge, a fine grain and a few pebbles; landed, they merge into one mass of earth that grows out of
 // the ground line. Wherever the top of a clod is open to the air, life takes hold: a fringe of
-// grass sprouts within a second, moss creeps along the edge and pale roots hang into the earth, then small flowers
-// open on most tops over a few seconds. A block
+// grass sprouts slowly over two or three seconds, moss creeps along the edge and pale roots hang into the earth, then
+// small flowers open on most tops over the next ten seconds or so. A block
 // landing on top buries them: the grass and the flowers fold back into the soil in one quick, smooth motion.
 //
 // The ground line has its own vegetation and follows the song: calm parts and breaks leave it dry (pale, sparse
@@ -473,7 +473,7 @@ int GardenUniverse::maskOf(int x, int y) const {
     return m;
 }
 
-float GardenUniverse::growthAt(const Soil& s) const { return smoothstepf(0.05f, 1.1f, s.age); }
+float GardenUniverse::growthAt(const Soil& s) const { return smoothstepf(0.2f, 2.6f, s.age); }
 
 void GardenUniverse::onEvent(const GameEvent& ev, const Game&) {
     switch (ev.type) {
@@ -1313,7 +1313,7 @@ void GardenUniverse::drawStackGrowth(const Game& g, float world) {
     const float minW = px_ * 0.7f;
     auto growth = [&](float cx, float top, float age, float seed, float fold, const vec3& foldCol, bool lOpen, bool rOpen,
                       float alpha) {
-        const float gr = smoothstepf(0.05f, 1.1f, age);
+        const float gr = smoothstepf(0.2f, 2.6f, age);
         if (gr <= 0.f || alpha <= 0.f) return;
         const float lo = lOpen ? -0.33f : -0.5f, hi = rOpen ? 0.33f : 0.5f;
         const float fk = smoothstepf(0.f, 1.f, fold);
@@ -1334,10 +1334,10 @@ void GardenUniverse::drawStackGrowth(const Game& g, float world) {
             if (w < minW) { a *= w / minW; w = minW; }
             sprite(bx, top - 0.03f, w, len, rot, 0, col, a, (h1 - 0.5f) * 0.3f);
         }
-        // flowers on most open tops, opening over a few seconds
+        // flowers on most open tops, opening slowly once the grass is up
         if (hashf(seed, 99.f) < 0.7f) {
-            const float start = 1.f + 4.f * hashf(seed, 97.f);
-            const float op = smoothstepf(start, start + 2.5f, age);
+            const float start = 2.5f + 7.f * hashf(seed, 97.f);
+            const float op = smoothstepf(start, start + 3.5f, age);
             const float stemG = smoothstepf(start - 1.f, start + 1.2f, age);
             if (stemG > 0.f) {
                 const float fx = cx + lo + 0.1f + (hi - lo - 0.2f) * hashf(seed, 98.f);
