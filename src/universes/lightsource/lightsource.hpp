@@ -36,8 +36,8 @@ private:
     void syncBoard(const Game& g);
     void collapseRows(const bool cleared[Game::H]);
 
-    // ---- The lamps: a locked piece keeps shining, blinks like a dying bulb and fades (or an ember relit on a
-    // drop's beat, briefly).
+    // ---- The lamps: a locked piece keeps shining, then dims smoothly to its ember (or a piece relit for a
+    // moment by a new section).
     struct Lamp {
         int id = 0, type = 0;
         float age = 0.f, hold = 2.4f, seed = 0.f;
@@ -58,7 +58,9 @@ private:
     bool hardPending_ = false;
 
     // ---- Lights for the light pass.
-    static constexpr int MAXL = 8, MAXP = 64;
+    static constexpr int MAXL = 12, MAXP = 96, MAXG = 48;
+    static constexpr int SYNTH_ID = 10000000; // ids given to pieces of unknown origin (grouped by color, drawn apart)
+    int nextSynth_ = SYNTH_ID;
     struct LightDef {
         vec3 color{0.f};
         float reach = 6.f, height = 1.1f, nearW = 0.8f, spread = 0.3f;
@@ -70,6 +72,18 @@ private:
         float rank = 0.f;
     };
     std::vector<LightDef> lights_;
+    struct Glow { vec2 p; vec3 c; float r; };
+    std::vector<Glow> glows_; // unshadowed lights (the stack's dimmer pieces in a drop)
+
+    // ---- A drop relights the whole stack: every piece a light again (a ripple from the bottom on the downbeat,
+    // then each piece shimmering at its own pace and flaring in turn on the beat), back to embers when it ends.
+    struct PieceInfo { int id, type, n; int cells[4][2]; vec2 c; float level; };
+    std::vector<PieceInfo> pieces_;
+    struct DFlare { int id; float t; };
+    std::vector<DFlare> dflares_;
+    float waveT_ = 99.f;
+    void buildPieces(const Game& g, float dropK);
+    float pieceLevel(int id) const;
     float rowY_[Game::H];
     int rowMask_[Game::H];
     int rowMin_ = Game::H;
