@@ -1165,11 +1165,12 @@ void GardenUniverse::cell(float x, float y, float size, int mask, const vec3& co
                       {surf_.x, surf_.y, surf_.z, 0.f}});
 }
 
-float GardenUniverse::colSurface(int x, int y) const {
-    if (x < 0 || x >= Game::W || soil_[y][x].id < 0) return -1e4f;
-    int t = y;
-    while (t > 0 && soil_[t - 1][x].id >= 0) t--;
-    return layout::cellPos((float)x, t - slumpOff(t)).y + 0.5f;
+void GardenUniverse::colTops(float* tops) const {
+    for (int x = 0; x < Game::W; x++) {
+        tops[x] = -10.05f;
+        for (int y = Game::HIDDEN; y < Game::H; y++)
+            if (soil_[y][x].id >= 0) { tops[x] = layout::cellPos((float)x, y - slumpOff(y)).y + 0.5f; break; }
+    }
 }
 
 float GardenUniverse::packSoil(const vec3& c) const {
@@ -1193,6 +1194,7 @@ void GardenUniverse::flushCells() {
     set1f(progCell_, "uBridge", bb);
     set3f(progCell_, "uBridgeInk", bridge_.ink);
     set3f(progCell_, "uMoss", pal_.moss);
+    glUniform1fv(glGetUniformLocation(progCell_, "uColTop"), Game::W, tops_);
     set3f(progCell_, "uGround", pal_.ground);
     set3f(progCell_, "uGroundDeep", pal_.groundDeep);
     set3f(progCell_, "uSoil", pal_.piece[0]);
@@ -1443,8 +1445,7 @@ void GardenUniverse::drawBoard(const Game& g, float world) {
             // landed earth is textured in the world's frame where it landed, like the ground line (one continuous
             // earth), and its texture sinks with it when rows below it are cleared
             const vec2 tex = v2(p.x, layout::cellPos((float)x, (float)(y - s.sunk)).y);
-            const float own = colSurface(x, y), l = colSurface(x - 1, y), r = colSurface(x + 1, y);
-            surf_ = vec3(own, l > -1e3f ? l : own, r > -1e3f ? r : own);
+            surf_ = vec3(1e5f, 0.f, 0.f); // the stack's envelope (CELL_FS)
             cell(p.x, p.y, 1.f, m, pal_.piece[s.type], 1.f, tex, 0.f, false, 0.f, moss, blend,
                  root ? ROOT : 0.f);
         }
@@ -1784,12 +1785,8 @@ void GardenUniverse::render(const Frame& f, GLuint fbo) {
             set4f(progSky_, "uGroundR", gr.x, gr.y, gr.z, gr.w);
             set2f(progSky_, "uRaise", g_raise[0], g_raise[1]);
             // the stack's surface over each column of the well (the ground's gradient under it follows it)
-            float tops[Game::W];
-            for (int x = 0; x < Game::W; x++) {
-                const float t = colSurface(x, Game::H - 1);
-                tops[x] = t > -1e3f ? t : -10.05f;
-            }
-            glUniform1fv(glGetUniformLocation(progSky_, "uColTop"), Game::W, tops);
+            colTops(tops_);
+            glUniform1fv(glGetUniformLocation(progSky_, "uColTop"), Game::W, tops_);
             set1f(progSky_, "uRoots", saturate(grassH_) * world);
         }
         {

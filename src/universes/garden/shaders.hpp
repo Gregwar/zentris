@@ -67,12 +67,19 @@ vec3 earthTexture(vec3 col, vec3 base, vec2 p, float seed, float px, float tb) {
 }
 // The earth's color at a height (board units, the well's floor at -10): one gradient for the ground line and the
 // clods, dark deep down, its own soil at the floor, a little lighter and drier as it rises.
+// The local surface over the well: an envelope over the columns' tops (each top's light spreads down its sides), so
+// the gradient is one smooth sheet instead of a stripe per column.
+float stackSurface(float x, float tops[10]) {
+    float e = -1e4;
+    for (int j = 0; j < 10; j++) e = max(e, tops[j] - 0.55 * abs(x - (float(j) - 4.5)));
+    return e;
+}
 // The earth's color at a depth under its local surface (board units): light at the top, darker a few cells down,
 // the deep earth further.
 vec3 earthDepth(float d, vec3 ground, vec3 deep, vec3 soil) {
     vec3 floorC = mix(ground, soil, 0.2);
-    vec3 c = mix(soil * 1.12, floorC, smoothstep(0.0, 6.0, d));
-    return mix(c, deep, 0.85 * smoothstep(5.0, 11.0, d));
+    vec3 c = mix(soil * 1.1, floorC, smoothstep(-1.0, 9.0, d));
+    return mix(c, deep, 0.6 * smoothstep(7.0, 15.0, d));
 }
 vec3 earthAt(float y, vec3 ground, vec3 deep, vec3 soil) {
     vec3 floorC = mix(ground, soil, 0.2);
@@ -165,13 +172,7 @@ void main() {
     float below = gy - w.y;
     float edge = smoothstep(-uPx * 1.2, uPx * 1.2, below + (vnoise(vec2(w.x * 9.0, 3.0)) - 0.5) * 0.05);
     // the gradient follows the local surface: the ground line, or the stack over the well's columns
-    float surf = gy;
-    if (abs(w.x) < 5.0) {
-        float cx = clamp(w.x + 4.5, 0.0, 9.0);
-        int i0 = int(floor(cx));
-        int i1 = min(i0 + 1, 9);
-        surf = max(gy, mix(uColTop[i0], uColTop[i1], smoothstep(0.35, 0.65, fract(cx))));
-    }
+    float surf = max(gy, stackSurface(w.x, uColTop));
     vec3 soil = earthDepth(surf - w.y, uGround, uGroundDeep, uSoil);
     soil = earthTexture(soil, soil, w, 0.0, uPx, 1.0 - uBridge); // the clods' own texture: one earth
     // the grass's roots under the banks: pale threads hanging from the surface, a longer one here and there
@@ -192,7 +193,7 @@ void main() {
             float bon = smoothstep(at - 0.01, at, dd) * (1.0 - smoothstep(at + len * 0.15, at + len * 0.25, dd));
             rt = max(rt, 0.7 * bon * (1.0 - smoothstep(0.008, 0.008 + uPx, abs(w.x - bx))));
         }
-        soil = mix(soil, mix(soil * 1.8, vec3(0.88, 0.82, 0.66), 0.6), rt * 0.8 * (1.0 - uBridge));
+        soil = mix(soil, mix(soil * 1.5, vec3(0.88, 0.82, 0.66), 0.4), rt * 0.3 * (1.0 - uBridge));
     }
     soil = mix(soil, uLip, exp(-max(below, 0.0) / 0.09) * 0.55 * (1.0 - 0.5 * uDry));
     // dry earth is paler and dustier
@@ -224,7 +225,7 @@ layout(location = 2) in vec4 a1;   // linear rgb, alpha
 layout(location = 3) in vec4 a2;   // grain origin x, y, crumble 0..1, ghost
 layout(location = 4) in vec4 a3;   // seed, moss on the top edge, root (how far it reaches down into the ground), -
 layout(location = 5) in vec4 a4;   // the soils joined on the L R D U sides (packed, -1: none)
-layout(location = 6) in vec4 a5;   // the local surface: over its column, the left one, the right one (-1e4: its top)
+layout(location = 6) in vec4 a5;   // the local surface (world y; 1e5: the stack's envelope, -1e4: its own top)
 uniform mat4 uVP;
 out vec2 vP;
 flat out vec4 v0, v1, v2, v3, v4, v5;
@@ -248,6 +249,7 @@ vec3 unpackSoil(float f) {
 }
 uniform float uPx, uBridge;
 uniform vec3 uBridgeInk, uMoss, uGround, uGroundDeep, uSoil;
+uniform float uColTop[10];   // the stack's columns' tops (the landed earth's gradient follows their envelope)
 float boxD(vec2 p, vec2 o) {
     vec2 q = abs(p - o) - 0.5;
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
@@ -308,10 +310,7 @@ void main() {
         // the earth's gradient by height (the clods share it with the ground line)
         // the earth's gradient by depth under the local surface (the clods share it with the ground line)
         float wy = v0.y + vP.y * (v3.w > 0.0 ? v3.w : 1.0) * size;
-        float sOwn = v5.x > -1e3 ? v5.x : v0.y + 0.5 * size;
-        float sL = v5.y > -1e3 ? v5.y : sOwn, sR = v5.z > -1e3 ? v5.z : sOwn;
-        float sf = mix(sOwn, sL, 0.5 * smoothstep(0.15, 0.5, -vP.x));
-        sf = mix(sf, sR, 0.5 * smoothstep(0.15, 0.5, vP.x));
+        float sf = v5.x > 9e4 ? stackSurface(v0.x + vP.x * size, uColTop) : v5.x > -1e3 ? v5.x : v0.y + 0.5 * size;
         base *= earthDepth(sf - wy, uGround, uGroundDeep, uSoil) / max(uSoil, vec3(1e-3));
     }
     vec3 col = base;
@@ -329,7 +328,7 @@ void main() {
             vec2 wq = nc * 2.2 + vec2(fbm(nc * 1.3 + 3.0), fbm(nc * 1.3 + 9.0)) * 1.6;
             float fib = exp(-abs(vnoise(wq * vec2(1.0, 2.6)) - 0.5) / 0.018);
             fib *= smoothstep(0.5, 0.66, fbm(nc * 0.9 + 11.0)) * smoothstep(inset, inset + 0.08, dE);
-            col = mix(col, mix(base * 1.6, vec3(0.84, 0.78, 0.62), 0.55), fib * 0.3 * tb);
+            col = mix(col, mix(base * 1.6, vec3(0.84, 0.78, 0.62), 0.55), fib * 0.12 * tb);
         }
         // where grass has taken on the top: moss along it in patches, creeping down the open sides, and pale roots
         // hanging deep into the earth
@@ -362,7 +361,7 @@ void main() {
                     roots = max(roots, 0.75 * bon * (1.0 - smoothstep(0.008, 0.008 + px, abs(vP.x - bx))));
                 }
             }
-            col = mix(col, mix(base * 1.8, vec3(0.88, 0.82, 0.66), 0.6), roots * 0.85 * tb * smoothstep(inset, inset + 0.05, dE));
+            col = mix(col, mix(base * 1.5, vec3(0.88, 0.82, 0.66), 0.4), roots * 0.35 * tb * smoothstep(inset, inset + 0.05, dE));
         }
     }
     // a cleared row crumbles: the earth breaks up from its grain

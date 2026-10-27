@@ -65,7 +65,8 @@ private:
     // the local surface over the cells drawn next (own column, left, right; world y; -1e4: the cell's own top): the
     // earth's gradient is its depth under it
     vec3 surf_{-1e4f, -1e4f, -1e4f};
-    float colSurface(int x, int y) const; // the top of the stack's run of earth through (x, y), or -1e4
+    void colTops(float* tops) const;       // each column's highest earth (the floor where it is empty)
+    float tops_[Game::W] = {};
     int nextId_ = 1;
     int lastDrop_ = 0;
     void syncSoil(const Game& game, float gdt);
