@@ -44,6 +44,7 @@ private:
     int jid_ = -1;
     bool mapped_ = true; // false: raw joystick without a known mapping (generic layout)
     std::string padName_;
+    bool stickLive_[16] = {}; // per joystick: its stick was seen at rest (a stale device reports -1 forever)
     Device active_ = Keyboard;
     float changedTimer_ = 0;
     bool prevPadAny_ = false, prevKeyAny_ = false;

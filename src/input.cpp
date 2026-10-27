@@ -93,6 +93,7 @@ void Input::detectGamepad() {
 void Input::update(float dt) {
     if (g_joystickEvent) {
         g_joystickEvent = false;
+        for (bool& l : stickLive_) l = false;
         detectGamepad();
     }
     changedTimer_ = std::max(0.f, changedTimer_ - dt);
@@ -134,17 +135,21 @@ void Input::update(float dt) {
     kb[A_DEBUG_LEVEL] = letter('l');
     kb[A_DEBUG_BONUS] = letter('b');
 
+    // Every connected controller is read and their presses combined: a Bluetooth controller that reconnected
+    // can leave a stale duplicate device behind (listed first, sending nothing), which hid the live one.
     bool pad[A_COUNT] = {};
-    if (jid_ >= 0) {
+    for (int jid = GLFW_JOYSTICK_1; jid_ >= 0 && jid <= GLFW_JOYSTICK_LAST; jid++) {
+        if (!glfwJoystickPresent(jid)) continue;
+        const bool mapped = glfwJoystickIsGamepad(jid);
         GLFWgamepadstate st;
-        bool ok = mapped_ && glfwGetGamepadState(jid_, &st);
-        if (!mapped_) {
+        bool ok = mapped && glfwGetGamepadState(jid, &st);
+        if (!mapped) {
             // Generic layout for unknown controllers: axes 0/1 = left stick, hat 0 = D-pad, face buttons 0-3,
             // shoulders 4-5, select/start 8-9 (the most common HID ordering).
             int na = 0, nb = 0, nh = 0;
-            const float* ax = glfwGetJoystickAxes(jid_, &na);
-            const unsigned char* bt = glfwGetJoystickButtons(jid_, &nb);
-            const unsigned char* ht = glfwGetJoystickHats(jid_, &nh);
+            const float* ax = glfwGetJoystickAxes(jid, &na);
+            const unsigned char* bt = glfwGetJoystickButtons(jid, &nb);
+            const unsigned char* ht = glfwGetJoystickHats(jid, &nh);
             if (ax && bt) {
                 std::memset(&st, 0, sizeof(st));
                 for (int i = 0; i < 6 && i < na; i++) st.axes[i] = ax[i];
@@ -172,21 +177,25 @@ void Input::update(float dt) {
             auto b = [&](int i) { return st.buttons[i] == GLFW_PRESS; };
             float ax = st.axes[GLFW_GAMEPAD_AXIS_LEFT_X], ay = st.axes[GLFW_GAMEPAD_AXIS_LEFT_Y];
             float lt = st.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER], rt = st.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER];
+            // The stick counts once it has been seen at rest: a stale duplicate device reports it pushed to a
+            // corner forever, which held hard drop down.
+            if (std::fabs(ax) < 0.3f && std::fabs(ay) < 0.3f) stickLive_[jid] = true;
+            if (!stickLive_[jid]) ax = ay = 0.f;
             // Stick: dominant axis only, to avoid accidental diagonals.
             bool sx = std::fabs(ax) > 0.5f && std::fabs(ax) > std::fabs(ay);
             bool sy = std::fabs(ay) > 0.5f && std::fabs(ay) >= std::fabs(ax);
-            pad[A_LEFT] = b(GLFW_GAMEPAD_BUTTON_DPAD_LEFT) || (sx && ax < 0);
-            pad[A_RIGHT] = b(GLFW_GAMEPAD_BUTTON_DPAD_RIGHT) || (sx && ax > 0);
-            pad[A_SOFT] = b(GLFW_GAMEPAD_BUTTON_DPAD_DOWN) || (sy && ay > 0);
-            pad[A_HARD] = b(GLFW_GAMEPAD_BUTTON_DPAD_UP) || (sy && ay < -0.8f);
-            pad[A_CW] = b(GLFW_GAMEPAD_BUTTON_A);
-            pad[A_CCW] = b(GLFW_GAMEPAD_BUTTON_B) || b(GLFW_GAMEPAD_BUTTON_X);
-            pad[A_HOLD] = b(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER) || b(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER);
-            pad[A_BONUS] = lt > 0.5f || rt > 0.5f;
-            pad[A_NEW_SCENE] = b(GLFW_GAMEPAD_BUTTON_Y);
-            pad[A_PAUSE] = b(GLFW_GAMEPAD_BUTTON_START);
-            pad[A_NEXT_SONG] = b(GLFW_GAMEPAD_BUTTON_BACK);
-            pad[A_HUD] = b(GLFW_GAMEPAD_BUTTON_RIGHT_THUMB);
+            pad[A_LEFT] |= b(GLFW_GAMEPAD_BUTTON_DPAD_LEFT) || (sx && ax < 0);
+            pad[A_RIGHT] |= b(GLFW_GAMEPAD_BUTTON_DPAD_RIGHT) || (sx && ax > 0);
+            pad[A_SOFT] |= b(GLFW_GAMEPAD_BUTTON_DPAD_DOWN) || (sy && ay > 0);
+            pad[A_HARD] |= b(GLFW_GAMEPAD_BUTTON_DPAD_UP) || (sy && ay < -0.8f);
+            pad[A_CW] |= b(GLFW_GAMEPAD_BUTTON_A);
+            pad[A_CCW] |= b(GLFW_GAMEPAD_BUTTON_B) || b(GLFW_GAMEPAD_BUTTON_X);
+            pad[A_HOLD] |= b(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER) || b(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER);
+            pad[A_BONUS] |= lt > 0.5f || rt > 0.5f;
+            pad[A_NEW_SCENE] |= b(GLFW_GAMEPAD_BUTTON_Y);
+            pad[A_PAUSE] |= b(GLFW_GAMEPAD_BUTTON_START);
+            pad[A_NEXT_SONG] |= b(GLFW_GAMEPAD_BUTTON_BACK);
+            pad[A_HUD] |= b(GLFW_GAMEPAD_BUTTON_RIGHT_THUMB);
         }
     }
 
