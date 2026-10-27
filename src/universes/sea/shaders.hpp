@@ -36,10 +36,12 @@ uniform vec4 uSunDisc;                 // angular radius, -, moon (0 / 1), how m
 uniform vec3 uSkyTop, uSkyLow, uHaze, uWater, uDeep, uFoam, uDusk, uStormSky, uStormSea, uCloud, uStormCloud;
 uniform vec3 uFlashDir;
 
-// the sandy bed: a beach under the well sloping down to the deep far out, low dunes over it
+// the sandy bed: a beach under the well sloping gently down far out, a lake's hollow just behind the well (the
+// lowest sand: the water gathers there first), low dunes over it
 float sandH(vec2 p) {
-    float base = -9.2 - 3.6 * smoothstep(3.0, 48.0, -p.y);
-    float k = 1.0 - 0.4 * smoothstep(10.0, 60.0, -p.y);
+    float lake = exp(-(p.x * p.x / 576.0 + (p.y + 15.0) * (p.y + 15.0) / 100.0));
+    float base = -9.2 - 1.8 * smoothstep(3.0, 48.0, -p.y) - 5.2 * lake;
+    float k = (1.0 - 0.4 * smoothstep(10.0, 60.0, -p.y)) * (1.0 - 0.8 * lake);
     float d = 0.55 * sin(p.x * 0.21 + 1.3 + p.y * 0.11) + 0.3 * sin(p.x * 0.53 + 0.4 - p.y * 0.27) +
               0.1 * sin(p.x * 1.37 + 2.0 + p.y * 0.61) + 0.35 * sin(p.x * 0.07 - p.y * 0.19 + 0.5);
     return base + d * k;
