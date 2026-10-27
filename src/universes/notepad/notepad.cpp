@@ -2,7 +2,7 @@
 //
 // The whole picture is one page of grid paper. The well is a box drawn on it, one cell per printed square, and
 // the pieces are drawn in the squares: an outline that wobbles and overshoots its corners, coloured in with
-// felt pens, coloured pencils, a four-colour ballpoint or chalk, never quite inside the lines.
+// felt pens, coloured pencils or chalk, never quite inside the lines.
 //
 // Nothing moves smoothly: the page is redrawn a few times a second, like hand-drawn stop motion. Each drawing
 // is a list of things (cells, outlines, doodles, words) compared with the previous one: what stayed is drawn
@@ -118,14 +118,6 @@ const Variant VARIANTS[] = {
      {45.f, 30.f, -45.f, 20.f, 0.f, 12.f, 90.f},
      {0.13f, 0.15f, 0.13f, 0.16f, 0.12f, 0.12f, 0.13f},
      0x45464c, T_PENCIL, 0xd63c30, T_CPENCIL, {0xd63c30, 0x2a82cc, 0xd99c18, 0x3f9944}, T_CPENCIL, 0x8f8f96, 0x3d63c9},
-    // A yellow pad with a double red margin and a four-colour ballpoint (blue, black, red, green): the pieces are
-    // told apart by ink and by the way they are hatched; the drop brings a pink highlighter.
-    {"BALLPOINT", true, 0xfaf0a6, 0x7fa6c4, 0.36f, 0, 1.f, 0xd8504c, 2, 0.8f, 0.05f, 0x1c3388, T_PEN, 0.05f, T_PEN, 1.5f,
-     {0x1c3388, 0x1a1a22, 0xc4252b, 0x1c7a44, 0xc4252b, 0x1c3388, 0x1a1a22},
-     {P_HATCH, P_CROSS, P_HATCH, P_SCRIBBLE, P_CROSS, P_SCRIBBLE, P_HATCH},
-     {45.f, 15.f, -45.f, 25.f, -20.f, -30.f, 0.f},
-     {0.11f, 0.15f, 0.11f, 0.15f, 0.15f, 0.12f, 0.1f},
-     0x55565e, T_PENCIL, 0xff5aa6, T_HIGHLIGHT, {0x1c3388, 0xc4252b, 0x1c7a44, 0x1a1a22}, T_PEN, 0xc0a890, 0x3d63c9},
     // A squared blackboard: slate green, faint painted squares, white and pastel chalks.
     {"CHALK", false, 0x25322c, 0xdce8e0, 0.075f, 0, 1.f, 0, 0, 0.f, 0.12f, 0xeeefe8, T_CHALK, 0.075f, T_CHALK, 1.1f,
      {0x96d1f2, 0xf6e27a, 0xd2a9f2, 0xa2e39a, 0xf79494, 0x8ca8f8, 0xf8b673},
@@ -444,10 +436,10 @@ int NotepadUniverse::pickVariant(const SongLook& t) const {
     if (!t.hasSong) return 0;
     const int r = (int)((t.seed >> 7) % 100);
     const bool night = t.minor && t.brightness < 0.45f;
-    if (night ? r < 55 : r < 12) return 3;                       // the blackboard: dark songs, now and then any
-    if (t.bpm >= 118.f && t.brightness >= 0.45f) return r % 3 == 0 ? 2 : 0; // bright and fast: felt pens
-    if (t.density < 0.45f || t.bpm < 100.f) return r % 4 == 0 ? 2 : 1;      // sparse or slow: pencils
-    return r % 3 == 0 ? 0 : 2;
+    if (night ? r < 55 : r < 12) return 2;                  // the blackboard: dark songs, now and then any
+    if (t.bpm >= 118.f && t.brightness >= 0.45f) return 0; // bright and fast: felt pens
+    if (t.density < 0.45f || t.bpm < 100.f) return 1;      // sparse or slow: pencils
+    return r % 2;
 }
 
 void NotepadUniverse::setSong(const SongLook& look, float seconds) {
