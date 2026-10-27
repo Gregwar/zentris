@@ -167,7 +167,7 @@ void main() {
             float sz = uPx * (0.9 + 0.8 * o.y);
             dsum += exp(-d * d / (sz * sz)) * (0.35 + 0.65 * tw) * step(0.35, o.x);
         }
-        col += dsum * uDust * min(lum, 2.5) * 2.2 * vec3(1.0, 0.98, 0.95);
+        col += dsum * uDust * min(lum, 1.5) * 1.1 * vec3(1.0, 0.98, 0.95);
     }
     // the well: three hairlines of glass edge, almost invisible, catching the light that crosses them
     float hx = min(abs(p.x - 5.08), abs(p.x + 5.08));
@@ -220,6 +220,9 @@ void main() {
     float kind = vA1.w;
     vec3 lit = vA2.rgb;
     float litL = dot(lit, vec3(0.3, 0.5, 0.2));
+    // a soft knee: a cube in a strong beam glows, it never burns to white
+    lit /= 1.0 + 0.6 * litL;
+    litL /= 1.0 + 0.6 * litL;
     vec2 ld = vA3.xy;            // the light's direction through the cube (zero: none)
     float seed = vA3.z;
     float amb = vA3.w * uAmbient;
@@ -243,9 +246,9 @@ void main() {
     float keyGlint = pow(max(dot(n2, uKey), 0.0), 2.0);
     float bevT = smoothstep(-bw, 0.0, d); // across the chamfer: 0 at the face, 1 at the silhouette
     vec3 col = tint * amb * (0.03 + 0.045 * smoothstep(0.45, -0.45, q.y)) * (1.0 - bev);
-    col += tint * amb * bev * (0.07 + 0.35 * keyGlint) * (0.6 + 0.4 * bevT);
+    col += tint * amb * bev * (0.1 + 0.4 * keyGlint) * (0.6 + 0.4 * bevT);
     float rim = exp(-d * d / (px * px * 1.0));
-    col += tint * amb * rim * 0.2;
+    col += tint * amb * rim * 0.32;
     float ridge = exp(-(d + bw) * (d + bw) / (px * px * 1.2));
     col += mix(tint, vec3(1.0), 0.5) * amb * ridge * 0.1 * (0.3 + keyGlint);
     // a broad, faint reflection across the face (the glass reads as glass)
@@ -300,8 +303,6 @@ void main() {
     const float K = 0.55;
     vec3 over = max(c - K, 0.0);
     c = min(c, vec3(K)) + (1.0 - K) * (1.0 - exp(-over / (1.0 - K)));
-    float l = max(c.r, max(c.g, c.b));
-    c += max(l - 0.85, 0.0) * 0.35; // the hottest cores bleach toward white
     c *= uMul;
     c = pow(max(c, 0.0), vec3(1.0 / 2.2));
     c += (hash12(gl_FragCoord.xy) - 0.5) / 255.0; // dither (the dark gradients would band)

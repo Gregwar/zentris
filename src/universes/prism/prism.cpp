@@ -22,9 +22,10 @@
 // beat, the beams never move fast, the stack and the HUD never move.
 //
 // A lock flashes a glint where the piece touched down (a hard drop a brighter one with a few sparks along the
-// contact); a cleared row's cubes vanish at once and shatter into spectral sparks flying out (at the real speed,
-// even in slow motion); a Tetris throws the light into a full spectrum for a few seconds; slow motion is
-// moonlight (cold beams, the haze and dust slowed); game over shatters the stack from the top down.
+// contact); a cleared row's cubes vanish at once and the row becomes a short burst of light traced through the
+// same glass (lighting the cubes around it, pooling on the floor, dispersed in a drop; at the real speed, even in
+// slow motion); a Tetris throws the light into a full spectrum for a few seconds; slow motion is
+// moonlight (cold beams, the haze and dust slowed); game over turns the stack to light, row by row from the top.
 //
 // Layout contract: a flat orthographic view at the reference camera's scale on the board plane (like FLUO).
 #include "universes/prism/prism.hpp"
@@ -116,9 +117,10 @@ constexpr int SPECTRUM = 6;       // rays a dispersed ray splits into
 constexpr int MAX_SEGS = 7000;
 constexpr float N_GLASS = 1.5f;
 // the light buffer's gains: a shaft in the haze is faint, inside the glass brighter, a pool on the floor brighter
-constexpr float AIR_GAIN = 0.09f, INSIDE_GAIN = 0.35f, POOL_GAIN = 0.45f;
-constexpr float SPECTRAL_GAIN = 2.3f; // a dispersed ray in the air (the colors are dimmer than the white they split)
-constexpr float FAN_K = 0.9f;         // how widely a spectrum fans out leaving the glass (radians per unit of index)
+constexpr float AIR_GAIN = 0.045f, INSIDE_GAIN = 0.22f, POOL_GAIN = 0.2f;
+constexpr float BURST_GAIN = 1.6f;    // a cleared row's rays in the air (brief)
+constexpr float SPECTRAL_GAIN = 1.9f; // a dispersed ray in the air (the colors are dimmer than the white they split)
+constexpr float FAN_K = 1.0f;         // how widely a spectrum fans out leaving the glass (radians per unit of index)
 constexpr float TILT = 0.09f;         // how far off square a face is cut (radians, peak to peak)
 // the spectrum, red (bent least) to violet; normalized at init so that the sum is white
 vec3 SPEC[SPECTRUM] = {{1.f, 0.06f, 0.03f}, {1.f, 0.42f, 0.f}, {0.85f, 0.95f, 0.f},
@@ -445,16 +447,16 @@ bool PrismUniverse::hitGlass(vec2 o, vec2 d, float tMax, float& tBest, int& best
 // The light
 // =====================================================================================================
 
-void PrismUniverse::emitShaft(vec2 a, vec2 b, float w0, float w1, vec3 c, float gain) {
+void PrismUniverse::emitShaft(vec2 a, vec2 b, float w0, float w1, vec3 c, float gain, float fade) {
     if (segs_ >= MAX_SEGS) return;
     segs_++;
-    const float i1 = std::pow(w0 / std::max(w1, 1e-3f), 0.6f);
+    const float i1 = std::pow(w0 / std::max(w1, 1e-3f), 0.6f) * fade;
     light_.push_back({{a.x, a.y, b.x, b.y}, {w0, w1, gain, gain * i1}, {c.x, c.y, c.z, 0.f}, {0.f, 0.f, 0.f, 0.f}});
 }
 
 void PrismUniverse::emitGlint(vec2 p, vec3 c, float size) {
     if (glow_.size() > 600 || size < 0.02f) return;
-    glow_.push_back({{p.x, p.y, 0.f, 0.f}, {size, 0.f, 1.f, 0.f}, {c.x, c.y, c.z, 2.f}, {0.f, 0.f, 0.f, 0.f}});
+    glow_.push_back({{p.x, p.y, 0.f, 0.f}, {size, 0.f, 0.5f, 0.f}, {c.x, c.y, c.z, 2.f}, {0.f, 0.f, 0.f, 0.f}});
 }
 
 // One ray through the room: straight in the air, refracted into a cube, piped by total internal reflection,
@@ -492,6 +494,11 @@ void PrismUniverse::trace(Ray first) {
                     const float tf = (FLOOR_Y - r.o.y) / r.d.y;
                     if (tf > 1e-4f && tf < tEnd) { tEnd = tf; floorHit = true; }
                 }
+                if (r.fall > 0.f) {
+                    // a burst's ray reaches only so far
+                    const float reach = 3.f / r.fall;
+                    if (reach < tEnd) { tEnd = reach; floorHit = false; }
+                }
                 float tg;
                 int b;
                 vec2 n;
@@ -499,13 +506,14 @@ void PrismUniverse::trace(Ray first) {
                 if (hit) { tEnd = tg; floorHit = false; }
                 const vec2 p = add(r.o, mul(r.d, tEnd));
                 const float w1 = r.w + r.dw * tEnd;
-                emitShaft(r.o, p, r.w, w1, r.c, r.split ? AIR_GAIN * SPECTRAL_GAIN : AIR_GAIN * airK_);
-                r.c = r.c * std::pow(r.w / std::max(w1, 1e-3f), 0.6f);
+                const float fade = r.fall > 0.f ? std::exp(-r.fall * tEnd) : 1.f;
+                emitShaft(r.o, p, r.w, w1, r.c, r.g * (r.split ? AIR_GAIN * SPECTRAL_GAIN : AIR_GAIN * airK_), fade);
+                r.c = r.c * (std::pow(r.w / std::max(w1, 1e-3f), 0.6f) * fade);
                 r.w = w1;
                 if (!hit) {
-                    if (!floorHit) break;
+                    if (!floorHit || lum(r.c) < 0.003f) break;
                     // a pool of light on the polished floor, and a dim reflection back up
-                    light_.push_back({{p.x, FLOOR_Y - 0.32f, 0.45f + r.w * 0.8f, 0.24f}, {0.f, 0.f, POOL_GAIN, 0.f},
+                    light_.push_back({{p.x, FLOOR_Y - 0.32f, 0.45f + r.w * 0.8f, 0.24f}, {0.f, 0.f, POOL_GAIN * std::min(r.g, 1.5f), 0.f},
                                       {r.c.x, r.c.y, r.c.z, 1.f}, {0.f, 0.f, 0.f, 0.f}});
                     if (r.depth >= 1) break;
                     r.d.y = -r.d.y;
@@ -584,7 +592,7 @@ void PrismUniverse::trace(Ray first) {
             const float t = std::max(0.f, std::min(tx, ty));
             const vec2 n = tx < ty ? v2(r.d.x > 0.f ? 1.f : -1.f, 0.f) : v2(0.f, r.d.y > 0.f ? 1.f : -1.f);
             const vec2 p = add(r.o, mul(r.d, t));
-            emitShaft(r.o, p, r.w, r.w, r.c, INSIDE_GAIN);
+            emitShaft(r.o, p, r.w, r.w, r.c, INSIDE_GAIN * std::min(r.g, 1.5f));
             if (B.slot >= 0 && B.slot < SLOTS) {
                 acc_[B.slot] += r.c * t;
                 accDir_[B.slot] = add(accDir_[B.slot], mul(r.d, I * t));
@@ -655,24 +663,35 @@ void PrismUniverse::trace(Ray first) {
 // Game events
 // =====================================================================================================
 
-// A cube shattering into light: a few spectral sparks thrown out from where it was, away from the well's middle.
-void PrismUniverse::shatter(vec2 c, int type, float delay, float power) {
-    const vec3 tint = tintOf(type);
-    const int n = rng_.irange(3, 5);
-    const float side = c.x >= 0.f ? 1.f : -1.f;
-    for (int i = 0; i < n; i++) {
-        Spark s;
-        const float a = rng_.chance(0.75f) ? (side > 0.f ? 0.f : PI) + rng_.range(-1.1f, 1.1f) : rng_.range(0.3f, PI - 0.3f);
-        const float sp = rng_.range(3.f, 8.f) * power;
-        s.p = v2(c.x + rng_.range(-0.35f, 0.35f), c.y + rng_.range(-0.35f, 0.35f));
-        s.v = v2(std::cos(a) * sp, std::sin(a) * sp + 1.5f);
-        const vec3 spec = SPEC[rng_.irange(0, SPECTRUM - 1)] * (float)SPECTRUM;
-        s.c = (rng_.chance(0.55f) ? spec * 0.5f : lerp(tint, vec3(1.f), 0.4f)) * 2.2f;
-        s.t = 0.f;
-        s.life = rng_.range(0.28f, 0.5f);
-        s.delay = delay;
-        s.w = rng_.range(0.035f, 0.06f);
-        sparks_.push_back(s);
+// A cleared row as a light source: each vanished cube sends a short burst of rays out from where it was, in every
+// direction, traced like the beams (refracted and piped through the neighbouring cubes, which light up from it,
+// pooling on the floor, dispersed into spectra in a drop). Nothing is drawn over the row itself: the light is only
+// seen where its rays cross the haze, the glass and the floor.
+void PrismUniverse::emitBurst(const Burst& b) {
+    const float u = b.t / b.life;
+    const float e = smoothstepf(0.f, 0.08f, u) * (1.f - u) * (1.f - u);
+    if (e < 0.01f) return;
+    const int DIRS = 8;
+    for (const vec3& cell : b.cells) {
+        const vec3 c = lerp(tintOf((int)cell.z), vec3(1.f), 0.5f) * (e * b.power * 0.7f);
+        const float j = hashf(cell.x * 7.3f + cell.y * 1.9f) * TAU / DIRS;
+        for (int k = 0; k < DIRS; k++) {
+            const float a = j + k * TAU / DIRS;
+            Ray r;
+            r.d = v2(std::cos(a), std::sin(a));
+            r.o = add(v2(cell.x, cell.y), mul(r.d, 0.2f));
+            r.c = c;
+            r.w = 0.2f;
+            r.dw = 0.03f;
+            r.depth = 1; // no Fresnel offshoots: a burst is brief and dense enough
+            r.box = boxAt(r.o);
+            r.bounces = 0;
+            r.n = N_GLASS;
+            r.split = false;
+            r.g = BURST_GAIN;
+            r.fall = 0.7f;
+            trace(r);
+        }
     }
 }
 
@@ -728,10 +747,16 @@ void PrismUniverse::onEvent(const GameEvent& ev, const Game&) {
         for (auto& c : ev.cells)
             if (c.y >= 0 && c.y < Game::H) cleared[c.y] = true;
         const bool tetris = ev.count >= 4;
-        // the cubes vanish at once (the board has dropped them) and shatter into spectral sparks
-        for (auto& c : ev.cells) {
-            const vec3 w = layout::cellPos((float)c.x, (float)c.y);
-            shatter(v2(w.x, w.y), c.type, 0.f, tetris ? 1.3f : 1.f);
+        // the cubes vanish at once (the board has dropped them) and the row becomes a burst of light
+        {
+            Burst b;
+            for (auto& c : ev.cells) {
+                const vec3 w = layout::cellPos((float)c.x, (float)c.y);
+                b.cells.push_back(vec3(w.x, w.y, (float)c.type));
+            }
+            b.power = tetris ? 1.5f : 1.f;
+            b.life = tetris ? 0.6f : 0.42f;
+            if (!b.cells.empty()) bursts_.push_back(b);
         }
         if (tetris) tetrisT_ = 0.f;
         // collapse the per-cell light like the board
@@ -759,12 +784,19 @@ void PrismUniverse::onEvent(const GameEvent& ev, const Game&) {
         break;
     }
     case GameEvent::TopOut: {
-        // game over: the whole stack shatters, from the top down
+        // game over: the stack goes up in light, row by row from the top down
         int top = Game::H;
         for (auto& c : ev.cells) top = std::min(top, c.y);
-        for (auto& c : ev.cells) {
-            const vec3 w = layout::cellPos((float)c.x, (float)c.y);
-            shatter(v2(w.x, w.y), c.type, (c.y - top) * 0.06f, 0.8f);
+        for (int y = top; y < Game::H; y++) {
+            Burst b;
+            for (auto& c : ev.cells)
+                if (c.y == y) {
+                    const vec3 w = layout::cellPos((float)c.x, (float)c.y);
+                    b.cells.push_back(vec3(w.x, w.y, (float)c.type));
+                }
+            b.power = 0.6f;
+            b.delay = (y - top) * 0.07f;
+            if (!b.cells.empty()) bursts_.push_back(b);
         }
         for (int i = 0; i < SLOTS; i++) lit_[i] = vec3(0.f);
         break;
@@ -1089,6 +1121,11 @@ void PrismUniverse::render(const Frame& f, GLuint fbo) {
             fl.t += dt;
         }
         flares_.erase(std::remove_if(flares_.begin(), flares_.end(), [](const Flare& x) { return x.t >= x.life; }), flares_.end());
+        for (Burst& b : bursts_) {
+            if (b.delay > 0.f) b.delay -= dt;
+            else b.t += dt;
+        }
+        bursts_.erase(std::remove_if(bursts_.begin(), bursts_.end(), [](const Burst& b) { return b.t >= b.life; }), bursts_.end());
         gaugeShown_ = approach(gaugeShown_, game.bonusGauge(), 2.5f, dt);
     }
     swell = dropT_ < 12.f ? smoothstepf(0.f, 0.35f, dropT_) * std::exp(-std::max(0.f, dropT_ - 0.35f) / 2.2f) * dropAmp_ * (inDrop_ ? 1.f : 0.f) : 0.f;
@@ -1097,13 +1134,12 @@ void PrismUniverse::render(const Frame& f, GLuint fbo) {
     const float lvm = smoothstepf(0.2f, 1.f, lv_), lvp = smoothstepf(1.1f, 2.f, lv_);
     const float tet = std::exp(-tetrisT_ / 1.6f) * (tetrisT_ < 8.f ? 1.f : 0.f);
     {
-        const float on[3] = {0.75f + 0.15f * lvm + 0.1f * lvp + 0.2f * rainbow_,
-                             0.75f * lvm + 0.1f * lvp + 0.25f * rainbow_,
-                             0.8f * lvp + 0.25f * rainbow_};
+        // a drop is told by color (the dispersion), not by more light
+        const float on[3] = {0.75f + 0.15f * lvm + 0.1f * lvp, 0.75f * lvm + 0.1f * lvp, 0.8f * lvp};
         for (int i = 0; i < 3; i++) beams_[i].on = approach(beams_[i].on, on[i], 1.2f, dt);
         const float dispT = 0.035f * chorus_ * lvp + 0.24f * rainbow_ + 0.2f * tet;
         disp_ = approach(disp_, dispT, rainbow_ > 0.5f ? 4.f : 2.f, dt);
-        airK_ = 1.f - 0.55f * rainbow_;
+        airK_ = 1.f - 0.75f * rainbow_;
     }
     buildGlass(game);
     if (game.hasPiece() && !game.over()) game.pieceCells(game.piece(), pieceCell_);
@@ -1115,7 +1151,7 @@ void PrismUniverse::render(const Frame& f, GLuint fbo) {
     const float worldOn = (1.f - smoothstepf(0.f, 0.7f, bridge)) * (1.f - 0.4f * dimT_);
     for (int bi = 0; bi < 3; bi++) {
         const BeamDef& B = BEAMS[bi];
-        const float on = beams_[bi].on * worldOn * (1.f + 0.7f * swell + 0.5f * tet);
+        const float on = beams_[bi].on * worldOn * (1.f + 0.25f * swell + 0.15f * tet);
         if (on < 0.01f) continue;
         const float w = TAU / B.period;
         const float th = B.theta0 + B.thetaAmp * std::sin(world_ * w * 0.73f + B.phase * 1.7f);
@@ -1143,6 +1179,9 @@ void PrismUniverse::render(const Frame& f, GLuint fbo) {
             trace(r);
         }
     }
+    // the cleared rows' bursts of light, through the same glass
+    for (const Burst& b : bursts_)
+        if (b.delay <= 0.f) emitBurst(b);
     // the light the cubes received, smoothed (a cube lights up and dims over a fraction of a second)
     {
         const float k = 1.f - std::exp(-dt * 10.f);
@@ -1207,7 +1246,7 @@ void PrismUniverse::render(const Frame& f, GLuint fbo) {
     set1f(progScene_, "uFloorY", FLOOR_Y);
     set1f(progScene_, "uDust", (0.6f + 0.4f * lvm) * (1.f - bridge));
     set1f(progScene_, "uHaze", 0.8f - 0.15f * rainbow_);
-    set1f(progScene_, "uSpill", 0.12f + 0.06f * rainbow_);
+    set1f(progScene_, "uSpill", 0.05f);
     set4f(progScene_, "uColL", layout::LEFT_COLUMN[0], layout::LEFT_COLUMN[1], layout::LEFT_COLUMN[2], layout::LEFT_COLUMN[3]);
     set4f(progScene_, "uColR", layout::RIGHT_COLUMN[0], layout::RIGHT_COLUMN[1], layout::RIGHT_COLUMN[2], layout::RIGHT_COLUMN[3]);
     set1f(progScene_, "uBridge", smoothstepf(0.f, 1.f, bridge));
