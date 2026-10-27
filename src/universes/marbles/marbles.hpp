@@ -36,14 +36,15 @@ public:
 
 private:
     // ---- Instances.
-    struct MarbleInst { float a0[4], a1[4], a2[4], a3[4]; };
+    struct MarbleInst { float a0[4], a1[4], a2[4], a3[4], a4[4]; };
     struct FxInst { float a0[4], a1[4], a2[4]; };
     struct Vert { float x, y, r, g, b, a; };
     std::vector<MarbleInst> inst_;
     std::vector<FxInst> fx_;
     // kind: 0 a marble in the landscape, 1 a tile and its marble, 2 the ghost's outline, 3 a tile alone, 4 a pane
     void put(float x, float y, float half, float radius, const vec3& col, float alpha, float rot, float glow, float seed,
-             int kind, float mx = 0.f, float my = 0.f, float flare = 0.f, float haze = 0.f);
+             int kind, float mx = 0.f, float my = 0.f, float flare = 0.f, float haze = 0.f, const vec3* lit = nullptr,
+             float lightAngle = -9.f);
     void putFx(float x, float y, float size, float rot, const vec3& col, float alpha, int kind);
     void flush();
     void flushFx();
@@ -82,6 +83,8 @@ private:
         float spin = 0.f;
         bool flying = true;    // thrown, has not touched anything yet
         float rollT = 0.f;     // time spent rolling since it landed
+        vec3 lit{0.f, 0.f, 0.f};   // the light it receives (traced, smoothed), linear rgb
+        vec2 litDir{0.f, -1.f};    // the way that light travels
     };
     std::vector<Marble> marbles_;
     void launch(vec2 from, int type, float seed, float rot, float delay, float vigor);
@@ -94,7 +97,7 @@ private:
     std::vector<int> gridHead_, gridNext_;
     int gridW_ = 1, gridH_ = 1;
     float gridX0_ = -24.f, gridY0_ = -14.f;
-    static constexpr float GRID = 0.6f;
+    static constexpr float GRID = 0.9f;
     std::vector<float> surf_;   // the top of the heaps per bin (for picking where a marble lands)
 
     // ---- The landscape: heights over x, from the song's seed.
@@ -129,6 +132,31 @@ private:
     double lastHalf_ = -1.0, lastBar_ = -1.0;
     int dropCount_ = 0, dropShape_ = 0, waveIndex_ = 0;
 
+    // ---- The traced light: slow beams from the moon or sun, rays traced in 2D through the marbles (glass balls:
+    // refraction in and out, a Fresnel reflection, absorption in their tint, a spectrum on the drop) down to the land.
+    struct LightInst { float a0[4], a1[4], a2[4]; };
+    struct Ray {
+        vec2 o, d;
+        vec3 c;
+        float w = 0.1f, n = 1.5f;
+        int depth = 0, hits = 0;
+        bool split = false;
+    };
+    std::vector<LightInst> light_;
+    std::vector<Ray> rays_;
+    std::vector<vec3> acc_;
+    std::vector<vec2> accDir_;
+    int segs_ = 0;
+    float beamOn_[2] = {0.f, 0.f};
+    float disp_ = 0.f, beamWorld_ = 0.f, heapTop_ = 0.f;
+    vec2 keyDir_{0.5f, -0.86f};
+    vec3 keyCol_{1.f, 1.f, 1.f};
+    float keyAmt_ = 0.f;
+    void traceLight(float dt, float world);
+    void traceRay(const Ray& first);
+    bool hitMarble(vec2 o, vec2 d, float t0, float tMax, float& tHit, int& idx) const;
+    void emitShaft(vec2 a, vec2 b, float w, const vec3& c, float gain);
+
     void simulate(const Game& game, const MusicState& music, float dt);
     void drawWorld(float world);
     void drawBoard(const Game& game, float world);
@@ -151,10 +179,11 @@ private:
     void drawText(const Font& f, const std::vector<float>& quads, const vec3& ink, float alpha, float bias);
 
     // ---- GL.
+    GLuint progLight_ = 0, progLightComp_ = 0, lightVao_ = 0, lightVbo_ = 0;
     GLuint progSky_ = 0, progMarble_ = 0, progFx_ = 0, progText_ = 0, progShape_ = 0, progPost_ = 0;
     GLuint quadVbo_ = 0, marbleVao_ = 0, marbleVbo_ = 0, fxVao_ = 0, fxVbo_ = 0, textVao_ = 0, textVbo_ = 0, shapeVao_ = 0,
            shapeVbo_ = 0;
-    ugl::Target sceneT_, bgT_;   // the frame; the sky and the land alone (seen through the marbles)
+    ugl::Target sceneT_, bgT_, lightT_;  // + the traced light (half resolution, mipmapped)   // the frame; the sky and the land alone (seen through the marbles)
     mat4 vp_;
     vec2 viewC_{0, 0.4f}, viewH_{22, 12.4f};
     float px_ = 0.05f;
