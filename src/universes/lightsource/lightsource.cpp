@@ -764,12 +764,16 @@ void LightsourceUniverse::buildBlocks(const Game& g, float ember) {
         Piece gp = p;
         gp.y = g.ghostY();
         if (gp.y > p.y) {
+            // the ghost: self-lit in the falling piece's hue (readable far from any light), on a dark rim (readable
+            // on a lit wall too)
+            vec3 ghostCol = lightOf(p.type, monoG_);
+            ghostCol = ghostCol * (0.32f / std::max(0.05f, lum(ghostCol)));
             int gc[4][2];
             g.pieceCells(gp, gc);
             for (int i = 0; i < 4; i++) {
                 if (gc[i][1] < Game::HIDDEN) continue;
                 const vec3 w = layout::cellPos((float)gc[i][0], (float)gc[i][1]);
-                block(v2(w.x, w.y), 1.f, vec3(0.f), 1.f, vec3(0.f), connOf(gc, i), 0.32f);
+                block(v2(w.x, w.y), 1.f, ghostCol, 1.f, vec3(0.f), connOf(gc, i), 1.f);
             }
         }
         const float dx = g.pieceVisualX() - p.x, dy = g.pieceVisualY() - p.y;
@@ -818,7 +822,7 @@ void LightsourceUniverse::buildBlocks(const Game& g, float ember) {
             block(pos, sc, pc * albK, 2.f, lightOf(type) * warm, conn, alpha);
         }
     };
-    preview(g.holdType(), v2(layout::HOLD_CENTER.x, layout::HOLD_CENTER.y), layout::previewScale(0), g.holdUsed() ? 0.4f : 1.f, 0.f);
+    preview(g.holdType(), v2(layout::HOLD_CENTER.x, layout::HOLD_CENTER.y), layout::previewScale(0), g.holdUsed() ? 0.65f : 1.f, 0.f);
     for (int i = 0; i < 3; i++) {
         const vec3 c = layout::nextCenter(i);
         preview(g.next(i), v2(c.x, c.y), layout::previewScale(i), 1.f, i == 0 ? 0.08f : 0.f);
@@ -1305,7 +1309,7 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
     const float ltx = 1.f / lightW_, lty = 1.f / lightH_;
     // (in a drop the room's fill takes the drop's color too)
     const vec3 ambC = lerp(ambient_ * (1.f / std::max(0.02f, lum(ambient_))), (dropHue_ * (1.f / std::max(0.05f, lum(dropHue_))) + dropHue2_ * (1.f / std::max(0.05f, lum(dropHue2_)))) * 0.5f, 0.55f * monoG_);
-    const vec3 amb = ambC * (0.035f * ambK);
+    const vec3 amb = ambC * (0.08f * ambK); // (the darkest places never crushed: holes and shadowed blocks read)
     sceneT_.bind();
     glUseProgram(progScene_);
     glActiveTexture(GL_TEXTURE0);
@@ -1342,7 +1346,7 @@ void LightsourceUniverse::render(const Frame& f, GLuint fbo) {
     setMat(progBlock_, "uVP", vp_);
     set1f(progBlock_, "uPx", px_);
     set3f(progBlock_, "uAmbient", amb);
-    set1f(progBlock_, "uAmbBlock", 3.f);
+    set1f(progBlock_, "uAmbBlock", 3.4f);
     set3f(progBlock_, "uGhost", ghost_);
     set1f(progBlock_, "uBridge", smoothstepf(0.f, 1.f, bridge));
     set3f(progBlock_, "uBridgeInk", bridge_.ink);
